@@ -101,6 +101,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.battery_level: int | None = None
         self.battery_low = False
         self.irrigation_manual_duration = DEFAULT_MANUAL_DURATION
+        self.remaining_seconds: int | None = None
+        self.active_station_num: int | None = None
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -182,9 +184,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._ready = True
         self.async_set_updated_data(await self.async_update_all_sensors())
 
-    async def _fetch_device_status(self) -> dict[str, Any]:
-        """Poll device and update controller/station states from BLE status."""
-        status = await self.api.get_status()
+    def _apply_status(self, status: dict[str, Any]) -> None:
+        """Update coordinator state from a BLE status dict."""
         self.controller.state = status.get("controller_state", "Unknown")
         self.battery_voltage = status.get("battery_voltage")
         self.battery_level = status.get("battery_level")
@@ -192,6 +193,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
         if status.get("is_watering") and status.get("station_num"):
             active_station_num = status["station_num"]
+            self.active_station_num = active_station_num
+            self.remaining_seconds = status.get("remaining_seconds")
             if 1 <= active_station_num <= self.num_stations:
                 for index, station in enumerate(self.stations):
                     station.state = (
@@ -207,6 +210,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                     self.num_stations,
                 )
         elif not status.get("is_watering"):
+            self.active_station_num = None
+            self.remaining_seconds = None
             for station in self.stations:
                 station.state = "Stopped"
         else:
@@ -221,11 +226,27 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             self.controller.state,
             status.get("is_watering"),
             status.get("station_num"),
-            status.get("remaining_seconds"),
+            self.remaining_seconds,
             self.battery_voltage,
             self.battery_level,
         )
+
+    async def _fetch_device_status(self) -> dict[str, Any]:
+        """Poll device and update controller/station states from BLE status."""
+        status = await self.api.get_status()
+        self._apply_status(status)
         return status
+
+    def _remaining_seconds_for_station(self, station_id: int) -> int | None:
+        """Return remaining sprinkle seconds for a station (0 when idle/inactive)."""
+        if (
+            self.active_station_num == station_id
+            and self.remaining_seconds is not None
+        ):
+            return self.remaining_seconds
+        if self.active_station_num == station_id and self.remaining_seconds is None:
+            return None
+        return 0
 
     async def async_update_all_sensors(self) -> list[dict[str, Any]]:
         """Build entity descriptor list from current coordinator state."""
@@ -249,6 +270,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         data: list[dict[str, Any]] = []
         counter = 1
         stations_counter = 801
+        remaining_counter = 601
         buttons_counter = 901
 
         data.append(
@@ -330,6 +352,23 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 }
             )
             stations_counter += 1
+
+        for station_id in range(1, self.num_stations + 1):
+            data.append(
+                {
+                    "device_id": f"{self.controller_mac_address}_remaining_sprinkle_station_{station_id}",
+                    "device_type": "REMAINING_SPRINKLE_SENSOR",
+                    "device_name": f"Station {station_id} remaining time",
+                    "device_uid": mac_to_uuid(
+                        self.controller_mac_address, remaining_counter
+                    ),
+                    "software_version": "1.0",
+                    "state": self._remaining_seconds_for_station(station_id),
+                    "icon": "mdi:timer-outline",
+                    "last_reboot": None,
+                }
+            )
+            remaining_counter += 1
 
         data.append(
             {
@@ -472,12 +511,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                     )
                     continue
 
-                self.controller.state = status.get(
-                    "controller_state", self.controller.state
-                )
-                if status.get("is_watering") and status.get("station_num") == station:
-                    self.stations[station - 1].state = "Sprinkling"
-                elif not status.get("is_watering"):
+                self._apply_status(status)
+                if not status.get("is_watering"):
                     _LOGGER.info(
                         "%s - Device reports watering finished.",
                         self.controller_mac_address,
@@ -493,6 +528,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 )
         finally:
             self._irrigation_active = False
+            self.active_station_num = None
+            self.remaining_seconds = None
             for station_obj in self.stations:
                 station_obj.state = "Stopped"
             _LOGGER.info(
@@ -513,6 +550,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             return
 
         self.irrigation_stop_event.set()
+        self.active_station_num = None
+        self.remaining_seconds = None
         for station in self.stations:
             station.state = "Stopped"
 
