@@ -7,7 +7,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfElectricPotential
+from homeassistant.const import PERCENTAGE, UnitOfDuration, UnitOfElectricPotential
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -37,6 +37,7 @@ async def async_setup_entry(
         SensorTypeClass("STATE_SENSOR", "state", StateSensor),
         SensorTypeClass("BATTERY_SENSOR", "state", BatterySensor),
         SensorTypeClass("BATTERY_VOLTAGE_SENSOR", "state", BatteryVoltageSensor),
+        SensorTypeClass("REMAINING_SPRINKLE_SENSOR", "state", RemainingSprinkleSensor),
     ]
 
     sensors = []
@@ -83,4 +84,14 @@ class BatteryVoltageSensor(SolemBaseEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+
+
+class RemainingSprinkleSensor(SolemBaseEntity, SensorEntity):
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDuration.SECONDS
+
+    @property
+    def native_value(self) -> int | None:
         return self.coordinator.get_device_parameter(self.device_id, self.parameter)

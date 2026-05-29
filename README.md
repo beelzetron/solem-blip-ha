@@ -11,6 +11,7 @@ This is a **separate project** focused on BLE status, battery monitoring, and ma
 ## Features
 
 - Controller and per-station status (Stopped / Sprinkling)
+- Per-station remaining sprinkle time (seconds from BLE while watering)
 - Battery percentage, voltage (diagnostic), and low-battery alert
 - Manual sprinkle per station, stop, controller on/off
 - Configurable manual duration (minutes)
@@ -48,12 +49,13 @@ Home Assistant installs `solem-blip-ble>=0.1.10` from PyPI automatically. Protoc
 | Battery voltage | Diagnostic (disabled by default) |
 | Battery low | Binary alert |
 | Station N status | Stopped / Sprinkling |
+| Station N remaining time | Seconds left while sprinkling (`0` when idle) |
 | Irrigation manual duration | Minutes for sprinkle buttons |
 | Sprinkle station N | Start manual watering |
 | Stop sprinkle | Stop active watering |
 | Turn on / off controller | Enable or disable controller |
 
-Roughly **19 entities** for a 6-station controller.
+Roughly **25 entities** for a 6-station controller.
 
 ## Scheduling with Home Assistant
 
