@@ -11,3 +11,7 @@ This project is a separate, minimal Home Assistant integration for the Solem BL-
 - **[pcman75/solem-blip-reverse-engineering](https://github.com/pcman75/solem-blip-reverse-engineering)** — BLE command protocol reference.
 
 - **[solem-blip-ble](https://pypi.org/project/solem-blip-ble/)** — shared Python BLE client ([source](https://github.com/beelzetron/solem-blip-ble)).
+
+## Brand icon
+
+The integration device icon is a generic irrigation glyph from [Material Design Icons](https://pictogrammers.com/library/mdi/icon/sprinkler/) (Apache 2.0), not an official SOLEM logo. See [`custom_components/solem_blip/brand/README.md`](custom_components/solem_blip/brand/README.md).
