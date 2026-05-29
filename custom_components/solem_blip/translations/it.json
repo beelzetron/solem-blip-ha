@@ -1,0 +1,55 @@
+{
+  "title": "Solem BL-IP",
+  "config": {
+    "title": "Configurazione Solem BL-IP",
+    "abort": {
+      "already_configured": "Dispositivo già configurato",
+      "reconfigure_successful": "Riconfigurazione completata",
+      "already_in_progress": "È già in corso una configurazione per questa integrazione"
+    },
+    "error": {
+      "cannot_connect": "Connessione fallita",
+      "cannot_connect_slots": "L'adattatore o proxy Bluetooth non ha slot liberi e il controller non risulta in discovery. Attendi e riprova, chiudi l'app observed BLE behavior o aggiungi un proxy più vicino.",
+      "invalid_auth": "Autenticazione non valida",
+      "unknown": "Errore imprevisto"
+    },
+    "step": {
+      "user": {
+        "title": "Configurazione controller",
+        "description": "Seleziona il controller Solem BL-IP e il numero di stazioni. Programmazione e salto pioggia vanno gestiti con automazioni Home Assistant.",
+        "data": {
+          "controller_mac_address": "Indirizzo MAC del controller",
+          "num_stations": "Numero di stazioni"
+        }
+      },
+      "reconfigure": {
+        "description": "Aggiorna il controller selezionato o il numero di stazioni.",
+        "data": {
+          "controller_mac_address": "Indirizzo MAC del controller",
+          "num_stations": "Numero di stazioni"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Intervallo di scansione (secondi)",
+          "bluetooth_timeout": "Timeout Bluetooth (secondi)",
+          "solem_api_mock": "Simula API Solem (debug)"
+        },
+        "description": "Modifica polling e opzioni BLE.",
+        "title": "Opzioni Solem BL-IP"
+      }
+    }
+  },
+  "selector": {
+    "true_false_selector": {
+      "options": {
+        "true": "Sì",
+        "false": "No"
+      }
+    }
+  }
+}
