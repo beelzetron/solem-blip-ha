@@ -110,6 +110,21 @@ condition:
 
 Or use a rain-rate sensor / binary rain sensor from your weather stack.
 
+## Brand icon
+
+Home Assistant **2026.3+** loads the integration icon from `custom_components/solem_blip/brand/icon.png` on your instance. It appears on the **Settings → Devices & Services** integration tile, the device page, and the config flow.
+
+After installing or updating via HACS:
+
+1. Confirm the file exists on your Home Assistant host:
+   ```bash
+   ls -la /config/custom_components/solem_blip/brand/icon.png
+   ```
+2. If missing, use HACS → **Solem BL-IP** → **Redownload**.
+3. **Restart Home Assistant** (not just reload the integration). HA scans the `brand/` folder only at startup.
+
+**HACS store listing:** The HACS dashboard may still show a blank icon for this integration. That is a [known HACS limitation](https://github.com/hacs/integration/issues/5171) with local-only brand assets; the icon should still work inside Home Assistant itself after restart.
+
 ## Options
 
 From the integration **Configure** menu:
