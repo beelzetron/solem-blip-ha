@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * *"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hassfest:
+    name: Validate with hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: Validate with HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  python-sanity:
+    name: Python and JSON sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile Python sources
+        run: python -m compileall -q custom_components
+
+      - name: Validate JSON files
+        run: |
+          python -m json.tool custom_components/solem_blip/manifest.json > /dev/null
+          python -m json.tool hacs.json > /dev/null
+          python -m json.tool custom_components/solem_blip/strings.json > /dev/null
+          python -m json.tool custom_components/solem_blip/translations/en.json > /dev/null
+          python -m json.tool custom_components/solem_blip/translations/it.json > /dev/null
