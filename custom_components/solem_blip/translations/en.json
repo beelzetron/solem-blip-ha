@@ -8,7 +8,7 @@
     },
     "error": {
       "cannot_connect": "Failed to connect",
-      "cannot_connect_slots": "Bluetooth adapter or proxy has no free connection slots and the controller is not visible in discovery. Wait and retry, close the observed BLE behavior phone app, check Settings → Bluetooth → Connection monitor, or add a Bluetooth proxy closer to the controller.",
+      "cannot_connect_slots": "Bluetooth adapter or proxy has no free connection slots and the controller is not visible in discovery. Wait and retry, close other mobile apps using the controller, check Settings → Bluetooth → Connection monitor, or add a Bluetooth proxy closer to the controller.",
       "invalid_auth": "Invalid authentication",
       "unknown": "Unexpected error"
     },

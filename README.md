@@ -45,7 +45,7 @@ Home Assistant installs `solem-blip-ble>=0.1.10` from PyPI automatically. Protoc
 | Entity | Purpose |
 |--------|---------|
 | Controller status | On / Off / Unknown |
-| Battery | 0–100% (from observed BLE behavior level 0–5) |
+| Battery | 0–100% (from 9V battery level 0–5) |
 | Battery voltage | Diagnostic (disabled by default) |
 | Battery low | Binary alert |
 | Station N status | Stopped / Sprinkling |
