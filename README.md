@@ -1,6 +1,7 @@
 # Solem BL-IP for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![CI](https://github.com/beelzetron/solem-blip-ha/actions/workflows/ci.yml/badge.svg)](https://github.com/beelzetron/solem-blip-ha/actions/workflows/ci.yml)
 [![GitHub release](https://img.shields.io/github/release/beelzetron/solem-blip-ha.svg)](https://github.com/beelzetron/solem-blip-ha/releases/)
 
 Minimal Home Assistant integration for the Solem **BL-IP** Bluetooth irrigation controller.
@@ -18,6 +19,12 @@ This is a **separate project** focused on BLE status, battery monitoring, and ma
 ## Installation
 
 ### HACS
+
+Use this link to open this repository in HACS on your Home Assistant instance:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=beelzetron&repository=solem-blip-ha&category=integration)
+
+_or_
 
 1. Install [HACS](https://hacs.xyz/) if needed
 2. HACS → **Integrations** → menu (⋮) → **Custom repositories**
