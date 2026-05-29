@@ -1,7 +1,6 @@
 {
   "title": "Solem BL-IP",
   "config": {
-    "title": "Configurazione Solem BL-IP",
     "abort": {
       "already_configured": "Dispositivo già configurato",
       "reconfigure_successful": "Riconfigurazione completata",
