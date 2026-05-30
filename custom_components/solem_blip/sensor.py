@@ -9,6 +9,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MyConfigEntry
@@ -61,6 +62,7 @@ class StateSensor(SolemBaseEntity, SensorEntity):
 
 class BatterySensor(SolemBaseEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
 
@@ -78,6 +80,7 @@ class BatterySensor(SolemBaseEntity, SensorEntity):
 
 class BatteryVoltageSensor(SolemBaseEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.VOLTAGE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_entity_registry_enabled_default = False

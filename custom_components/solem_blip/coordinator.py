@@ -89,6 +89,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             self.controller_mac_address,
             bluetooth_timeout=self.bluetooth_timeout,
             mock=self.solem_api_mock,
+            max_station_num=self.num_stations,
             ble_device_resolver=lambda: async_get_connectable_device(
                 hass, self.controller_mac_address
             ),
@@ -134,6 +135,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             self.controller_mac_address,
             bluetooth_timeout=self.bluetooth_timeout,
             mock=self.solem_api_mock,
+            max_station_num=self.num_stations,
             ble_device_resolver=lambda: async_get_connectable_device(
                 self.hass, self.controller_mac_address
             ),
@@ -157,6 +159,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             "%s - Updated coordinator with new config.",
             self.controller_mac_address,
         )
+
+    async def async_shutdown(self) -> None:
+        """Release BLE resources when the integration unloads."""
+        await self.api.disconnect()
 
     async def async_init(self) -> None:
         """Connect to the controller and build initial entity data."""
@@ -450,6 +456,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     async def start_irrigation(
         self, station: int, minutes: int | None = None
     ) -> None:
+        """Send a start command, then monitor watering in the background."""
+        if self._irrigation_active:
+            raise APIConnectionError("Irrigation is already in progress")
+
         duration = int(
             minutes if minutes is not None else self.irrigation_manual_duration
         )
@@ -469,12 +479,27 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 "%s - Failed to start irrigation due to connection error.",
                 self.controller_mac_address,
             )
-            return
+            raise
 
-        await self._monitor_irrigation_until_complete(station, duration)
+        self.hass.async_create_task(
+            self._run_irrigation_monitor(station, duration),
+            name=f"{DOMAIN} irrigation station {station}",
+        )
 
-        data = await self.async_update_all_sensors()
-        self.async_set_updated_data(data)
+    async def _run_irrigation_monitor(self, station: int, duration: int) -> None:
+        """Monitor active watering until completion, stop, or safety timeout."""
+        try:
+            await self._monitor_irrigation_until_complete(station, duration)
+            data = await self.async_update_all_sensors()
+            self.async_set_updated_data(data)
+        except Exception as err:
+            _LOGGER.error(
+                "%s - Irrigation monitor failed for station %s: %s",
+                self.controller_mac_address,
+                station,
+                err,
+                exc_info=True,
+            )
 
     async def _monitor_irrigation_until_complete(
         self, station: int, duration: int
@@ -547,7 +572,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 "%s - Failed to stop irrigation due to connection error.",
                 self.controller_mac_address,
             )
-            return
+            raise
 
         self.irrigation_stop_event.set()
         self.active_station_num = None
@@ -570,7 +595,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 "%s - Failed to turn controller on due to connection error.",
                 self.controller_mac_address,
             )
-            return
+            raise
 
         self.controller.state = "On"
         self.async_set_updated_data(await self.async_update_all_sensors())
@@ -591,7 +616,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 "%s - Failed to turn controller off due to connection error.",
                 self.controller_mac_address,
             )
-            return
+            raise
 
         self.controller.state = "Off"
         self.async_set_updated_data(await self.async_update_all_sensors())

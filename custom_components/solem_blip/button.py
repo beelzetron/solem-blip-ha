@@ -1,17 +1,21 @@
 """Button platform for the Solem BL-IP integration."""
 
 from dataclasses import dataclass
-import asyncio
+import logging
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MyConfigEntry
+from .api import APIConnectionError
 from .base import SolemBaseEntity
 from .coordinator import SolemCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -58,23 +62,36 @@ class SolemButtonEntity(SolemBaseEntity, ButtonEntity):
     def entity_category(self):
         return EntityCategory.CONFIG
 
+    async def _press(self, action: str, coro) -> None:
+        """Run a coordinator action and surface BLE failures to the UI."""
+        try:
+            await coro
+        except APIConnectionError as err:
+            _LOGGER.error("%s failed: %s", action, err)
+            raise HomeAssistantError(f"{action} failed: {err}") from err
+
 
 class IrrigationStartButton(SolemButtonEntity):
     async def async_press(self) -> None:
         station = int(self.device_id.rsplit("_", 1)[-1])
-        asyncio.create_task(self.coordinator.start_irrigation(station))
+        await self._press(
+            f"Start irrigation on station {station}",
+            self.coordinator.start_irrigation(station),
+        )
 
 
 class IrrigationStopButton(SolemButtonEntity):
     async def async_press(self) -> None:
-        asyncio.create_task(self.coordinator.stop_irrigation())
+        await self._press("Stop irrigation", self.coordinator.stop_irrigation())
 
 
 class ControllerOnButton(SolemButtonEntity):
     async def async_press(self) -> None:
-        asyncio.create_task(self.coordinator.turn_controller_on())
+        await self._press("Turn controller on", self.coordinator.turn_controller_on())
 
 
 class ControllerOffButton(SolemButtonEntity):
     async def async_press(self) -> None:
-        asyncio.create_task(self.coordinator.turn_controller_off())
+        await self._press(
+            "Turn controller off", self.coordinator.turn_controller_off()
+        )

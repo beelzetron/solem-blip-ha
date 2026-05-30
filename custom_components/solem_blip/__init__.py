@@ -90,4 +90,12 @@ async def async_reconfigure_entry(hass: HomeAssistant, config_entry: ConfigEntry
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+    coordinator = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+    if isinstance(coordinator, SolemCoordinator):
+        await coordinator.async_shutdown()
+
+    if not await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS):
+        return False
+
+    hass.data[DOMAIN].pop(config_entry.entry_id, None)
+    return True

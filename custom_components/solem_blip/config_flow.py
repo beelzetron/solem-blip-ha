@@ -28,6 +28,7 @@ from .bluetooth import (
 )
 from .const import (
     BLUETOOTH_DEFAULT_TIMEOUT,
+    BLUETOOTH_MAX_TIMEOUT,
     BLUETOOTH_MIN_TIMEOUT,
     BLUETOOTH_TIMEOUT,
     CONFIG_FLOW_BLUETOOTH_TIMEOUT,
@@ -36,6 +37,9 @@ from .const import (
     CONTROLLER_MAC_ADDRESS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_NUM_STATIONS,
+    MAX_SCAN_INTERVAL,
+    MIN_NUM_STATIONS,
     MIN_SCAN_INTERVAL,
     NUM_STATIONS,
     SOLEM_API_MOCK,
@@ -134,7 +138,8 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
                     }
                 ),
                 vol.Required(NUM_STATIONS, default=num_stations_default): vol.All(
-                    vol.Coerce(int), vol.Clamp(min=1)
+                    vol.Coerce(int),
+                    vol.Clamp(min=MIN_NUM_STATIONS, max=MAX_NUM_STATIONS),
                 ),
             }
         )
@@ -253,13 +258,19 @@ class SolemOptionsFlowHandler(OptionsFlow):
                 vol.Required(
                     CONF_SCAN_INTERVAL,
                     default=self.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                ): vol.All(vol.Coerce(int), vol.Clamp(min=MIN_SCAN_INTERVAL)),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Clamp(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                ),
                 vol.Required(
                     BLUETOOTH_TIMEOUT,
                     default=self.options.get(
                         BLUETOOTH_TIMEOUT, BLUETOOTH_DEFAULT_TIMEOUT
                     ),
-                ): vol.All(vol.Coerce(int), vol.Clamp(min=BLUETOOTH_MIN_TIMEOUT)),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Clamp(min=BLUETOOTH_MIN_TIMEOUT, max=BLUETOOTH_MAX_TIMEOUT),
+                ),
                 vol.Required(
                     SOLEM_API_MOCK,
                     default=self.options.get(SOLEM_API_MOCK, "false"),
