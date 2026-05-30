@@ -130,6 +130,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             config_entry.options.get(SOLEM_API_MOCK, "false") == "true"
         )
         self.update_interval = timedelta(seconds=self.poll_interval)
+        self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
 
         self.api = SolemClient(
             self.controller_mac_address,
@@ -141,7 +142,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             ),
         )
 
-        self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
         self.stations = [
             IrrigationStation(
                 device_id=f"{self.controller_mac_address}_irrigation_station_{station_id}_status",
