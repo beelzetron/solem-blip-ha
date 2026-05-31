@@ -106,8 +106,9 @@ class TestCoordinatorReconfiguration:
     """Test coordinator reconfiguration behavior (Task 3 regression)."""
 
     @pytest.fixture(autouse=True)
-    def expected_lingering_timers(self) -> None:
+    def expected_lingering_timers(self) -> bool:
         """Allow lingering debouncer timers for config update tests."""
+        return True
 
     async def test_update_config_rebuilds_solem_client_with_new_station_count(
         self,
@@ -204,8 +205,9 @@ class TestEntitySetup:
     """Test entity setup for configured number of stations."""
 
     @pytest.fixture(autouse=True)
-    def expected_lingering_timers(self) -> None:
+    def expected_lingering_timers(self) -> bool:
         """Allow lingering debouncer timers for entity setup tests."""
+        return True
 
     async def test_entity_descriptors_include_all_stations(
         self,
