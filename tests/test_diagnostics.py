@@ -1,0 +1,44 @@
+"""Diagnostics tests."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.solem_blip import RuntimeData
+from custom_components.solem_blip.const import CONTROLLER_MAC_ADDRESS
+from custom_components.solem_blip.diagnostics import async_get_config_entry_diagnostics
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_redact_mac_and_include_runtime_state(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Diagnostics redact the configured MAC and expose useful coordinator state."""
+    coordinator = MagicMock()
+    coordinator.last_update_success = True
+    coordinator.firmware_version = "5.1.7"
+    coordinator.num_stations = 6
+    coordinator.battery_level = 4
+    coordinator.battery_voltage = 87
+    coordinator.battery_low = False
+    coordinator._irrigation_active = True
+    coordinator.active_station_num = 2
+    coordinator.remaining_seconds = 90
+    coordinator._firmware_retry_after = 1.0
+    coordinator._station_names_retry_after = 2.0
+    coordinator.irrigation_programs = {0: {}}
+    coordinator._irrigation_config_retry_after = 3.0
+    coordinator._irrigation_config_refresh_after = 4.0
+    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert result["config_entry"][CONTROLLER_MAC_ADDRESS] == "**REDACTED**"
+    assert result["firmware_version"] == "5.1.7"
+    assert result["station_count"] == 6
+    assert result["irrigation"]["station"] == 2
+    assert result["schedule_read"]["program_count"] == 1

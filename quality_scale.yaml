@@ -1,0 +1,15 @@
+rules:
+  config_flow:
+    status: done
+  config_entry_unloading:
+    status: done
+  diagnostics:
+    status: done
+  discovery:
+    status: done
+  entity_unique_id:
+    status: done
+  has_entity_name:
+    status: done
+  test_before_setup:
+    status: done
