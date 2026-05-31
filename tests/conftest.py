@@ -1,12 +1,13 @@
 """Pytest configuration and fixtures for the Solem BL-IP integration."""
 
 import asyncio
-from collections.abc import AsyncGenerator, Generator
-from unittest.mock import AsyncMock, MagicMock, patch
+from collections.abc import Generator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.storage import Store
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.const import (
@@ -23,20 +24,13 @@ from custom_components.solem_blip.const import (
 @pytest.fixture
 def hass() -> Generator[HomeAssistant]:
     """Create a Home Assistant instance."""
-    with patch(
-        "homeassistant.helpers.restore_state.RestoreStateData.async_get_instance",
-        return_value=AsyncMock(),
-    ):
-        from homeassistant.core import HomeAssistant
-        from homeassistant.helpers.storage import Store
+    hass = HomeAssistant("/tmp/test_homeassistant")
 
-        hass = HomeAssistant("/tmp/test_homeassistant")
+    mock_store = MagicMock(spec=Store)
+    mock_store._async_poll_lock = asyncio.Lock()
+    hass.helpers.storage.Store = MagicMock(return_value=mock_store)
 
-        mock_store = MagicMock(spec=Store)
-        mock_store._async_poll_lock = asyncio.Lock()
-        hass.helpers.storage.Store = MagicMock(return_value=mock_store)
-
-        yield hass
+    yield hass
 
 
 @pytest.fixture
