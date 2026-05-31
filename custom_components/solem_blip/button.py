@@ -17,8 +17,10 @@ from .coordinator import SolemCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 1
 
-@dataclass
+
+@dataclass(frozen=True)
 class ButtonTypeClass:
     """Map coordinator device types to button classes."""
 
@@ -34,15 +36,8 @@ async def async_setup_entry(
     """Set up Solem BL-IP buttons."""
     coordinator: SolemCoordinator = config_entry.runtime_data.coordinator
 
-    button_types = [
-        ButtonTypeClass("SPRINKLE_BUTTON", IrrigationStartButton),
-        ButtonTypeClass("STOP_BUTTON", IrrigationStopButton),
-        ButtonTypeClass("ON_BUTTON", ControllerOnButton),
-        ButtonTypeClass("OFF_BUTTON", ControllerOffButton),
-    ]
-
     buttons = []
-    for button_type in button_types:
+    for button_type in BUTTON_TYPES:
         buttons.extend(
             [
                 button_type.button_class(coordinator, device)
@@ -95,3 +90,11 @@ class ControllerOffButton(SolemButtonEntity):
         await self._press(
             "Turn controller off", self.coordinator.turn_controller_off()
         )
+
+
+BUTTON_TYPES = (
+    ButtonTypeClass("SPRINKLE_BUTTON", IrrigationStartButton),
+    ButtonTypeClass("STOP_BUTTON", IrrigationStopButton),
+    ButtonTypeClass("ON_BUTTON", ControllerOnButton),
+    ButtonTypeClass("OFF_BUTTON", ControllerOffButton),
+)

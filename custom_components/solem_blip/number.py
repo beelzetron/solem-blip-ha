@@ -12,8 +12,10 @@ from . import MyConfigEntry
 from .base import SolemBaseEntity
 from .coordinator import SolemCoordinator
 
+PARALLEL_UPDATES = 1
 
-@dataclass
+
+@dataclass(frozen=True)
 class NumberTypeClass:
     """Map coordinator device types to number classes."""
 
@@ -30,12 +32,8 @@ async def async_setup_entry(
     """Set up Solem BL-IP numbers."""
     coordinator: SolemCoordinator = config_entry.runtime_data.coordinator
 
-    number_types = [
-        NumberTypeClass("IRRIGATION_DURATION_NUMBER", "value", IrrigationManualDuration),
-    ]
-
     numbers = []
-    for number_type in number_types:
+    for number_type in NUMBER_TYPES:
         numbers.extend(
             [
                 number_type.number_class(coordinator, device, number_type.state_field)
@@ -69,3 +67,8 @@ class IrrigationManualDuration(SolemNumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         self.coordinator.irrigation_manual_duration = int(value)
         self.async_write_ha_state()
+
+
+NUMBER_TYPES = (
+    NumberTypeClass("IRRIGATION_DURATION_NUMBER", "value", IrrigationManualDuration),
+)
