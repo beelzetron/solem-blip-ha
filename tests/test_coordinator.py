@@ -11,6 +11,7 @@ from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.components.button import SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.setup import async_setup_component
@@ -60,6 +61,15 @@ def create_mock_solem_client(station_num: int = 2) -> MagicMock:
         "battery_low": False,
         "station_num": None,
         "remaining_seconds": None,
+    })
+    client.get_firmware_version = AsyncMock(return_value={
+        "major": 5,
+        "minor": 1,
+        "patch": 5,
+        "raw_hex": "5.1.5",
+    })
+    client.get_station_names = AsyncMock(return_value={
+        station: f"Zone {station}" for station in range(1, station_num + 1)
     })
     client.sprinkle_station_x_for_y_minutes = AsyncMock()
     client.stop_manual_sprinkle = AsyncMock()
@@ -336,7 +346,6 @@ class TestEntitySetup:
         ):
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
-
             data = await coordinator.async_update_all_sensors()
 
             battery = [d for d in data if d["device_type"] == "BATTERY_SENSOR"]
@@ -374,6 +383,38 @@ class TestEntitySetup:
             assert len(stop) == 1
             assert len(on) == 1
             assert len(off) == 1
+
+    async def test_device_metadata_is_surfaced(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        mock_solem_client: MagicMock,
+    ) -> None:
+        """Firmware and controller-provided station names are surfaced."""
+        with patch(
+            "custom_components.solem_blip.coordinator.SolemClient",
+            return_value=mock_solem_client,
+        ), patch(
+            "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+        ):
+            coordinator = SolemCoordinator(hass, mock_config_entry)
+            await coordinator.async_init()
+            mock_config_entry.add_to_hass(hass)
+            device_registry = dr.async_get(hass)
+            device = device_registry.async_get_or_create(
+                config_entry_id=mock_config_entry.entry_id,
+                identifiers={(DOMAIN, coordinator.controller_mac_address)},
+            )
+
+            data = await coordinator.async_update_all_sensors()
+
+            assert coordinator.firmware_version == "5.1.5"
+            assert coordinator.controller.software_version == "5.1.5"
+            assert coordinator.station_names == {1: "Zone 1", 2: "Zone 2"}
+            assert any(d["device_name"] == "Zone 1 Status" for d in data)
+            assert any(d["device_name"] == "Zone 1 remaining time" for d in data)
+            assert any(d["device_name"] == "Sprinkle Zone 1" for d in data)
+            assert device_registry.async_get(device.id).sw_version == "5.1.5"
 
 
 @pytest.mark.asyncio

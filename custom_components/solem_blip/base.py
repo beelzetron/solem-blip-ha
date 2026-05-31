@@ -83,7 +83,7 @@ class SolemBaseEntity(CoordinatorEntity):
             name=self.coordinator.controller_mac_address,
             manufacturer="Solem",
             model="BL-IP",
-            sw_version="1.0",
+            sw_version=self.coordinator.firmware_version,
             identifiers={
                 (
                     DOMAIN,
