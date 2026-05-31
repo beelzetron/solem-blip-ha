@@ -8,6 +8,8 @@ Minimal Home Assistant integration for the Solem **BL-IP** Bluetooth irrigation 
 
 This is a **separate project** focused on BLE status, battery monitoring, and manual control. Scheduling, rain math, and the Solem Schedule Card are **not** included. If you want the full scheduler integration, use [Henrique Craveiro's original project](https://github.com/hcraveiro/Home-Assistant-Solem-Bluetooth-Watering-Controller).
 
+Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release running on Python 3.14.
+
 ## Features
 
 - Controller and per-station status (Stopped / Sprinkling)
