@@ -1,6 +1,7 @@
 """Constants for the Solem BL-IP integration."""
 
 DOMAIN = "solem_blip"
+V5_SERVICE_UUID = "108b0001-eab5-bc09-d0ea-0b8f467ce8ee"
 
 DEFAULT_SCAN_INTERVAL = 60
 MIN_SCAN_INTERVAL = 10
