@@ -33,7 +33,7 @@ def mock_config_entry() -> MockConfigEntry:
     return MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONTROLLER_MAC_ADDRESS: "Solem BL-IP (AA:BB:CC:DD:EE:FF)",
+            CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
             NUM_STATIONS: 2,
         },
         options={
@@ -123,7 +123,7 @@ class TestCoordinatorReconfiguration:
             new_config = MockConfigEntry(
                 domain=DOMAIN,
                 data={
-                    CONTROLLER_MAC_ADDRESS: "Solem BL-IP (AA:BB:CC:DD:EE:FF)",
+                    CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
                     NUM_STATIONS: 4,
                 },
                 options={
@@ -163,7 +163,7 @@ class TestCoordinatorReconfiguration:
             new_config = MockConfigEntry(
                 domain=DOMAIN,
                 data={
-                    CONTROLLER_MAC_ADDRESS: "Solem BL-IP (AA:BB:CC:DD:EE:FF)",
+                    CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
                     NUM_STATIONS: 6,
                 },
                 options={
@@ -218,7 +218,7 @@ class TestEntitySetup:
             new_config = MockConfigEntry(
                 domain=DOMAIN,
                 data={
-                    CONTROLLER_MAC_ADDRESS: "Solem BL-IP (AA:BB:CC:DD:EE:FF)",
+                    CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
                     NUM_STATIONS: 4,
                 },
                 options={
