@@ -110,6 +110,7 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Solem BL-IP."""
 
     VERSION = 1
+    _discovered_controller: str | None = None
 
     @staticmethod
     @callback
@@ -144,6 +145,61 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
             }
         )
 
+    async def async_step_bluetooth(self, discovery_info: Any) -> ConfigFlowResult:
+        """Handle a controller discovered by Home Assistant Bluetooth."""
+        address = discovery_info.address.upper()
+        await self.async_set_unique_id(address)
+        self._abort_if_unique_id_configured()
+        self._discovered_controller = (
+            f"{discovery_info.name or 'Solem BL-IP'} - {address}"
+        )
+        self.context["title_placeholders"] = {"name": self._discovered_controller}
+        return await self.async_step_bluetooth_confirm()
+
+    async def async_step_bluetooth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm setup for a Bluetooth-discovered controller."""
+        assert self._discovered_controller is not None
+        errors: dict[str, str] = {}
+        data = {
+            CONTROLLER_MAC_ADDRESS: self._discovered_controller,
+            NUM_STATIONS: 2,
+        }
+        if user_input is not None:
+            data[NUM_STATIONS] = user_input[NUM_STATIONS]
+            try:
+                await validate_input(self.hass, data)
+            except CannotConnectSlots:
+                errors["base"] = "cannot_connect_slots"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+            else:
+                return self.async_create_entry(
+                    title=self._discovered_controller,
+                    data=data,
+                )
+
+        return self.async_show_form(
+            step_id="bluetooth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        NUM_STATIONS,
+                        default=data[NUM_STATIONS],
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Clamp(min=MIN_NUM_STATIONS, max=MAX_NUM_STATIONS),
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={"name": self._discovered_controller},
+        )
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -164,7 +220,7 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
             else:
                 await self.async_set_unique_id(
-                    user_input[CONTROLLER_MAC_ADDRESS].rsplit(" - ", 1)[1]
+                    user_input[CONTROLLER_MAC_ADDRESS].rsplit(" - ", 1)[1].upper()
                 )
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
@@ -195,49 +251,35 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Reconfigure an existing entry."""
-        errors: dict[str, str] = {}
+        """Reconfigure the station count for an existing entry."""
         config_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
 
         if user_input is not None:
-            try:
-                await validate_input(self.hass, user_input)
-            except CannotConnectSlots:
-                errors["base"] = "cannot_connect_slots"
-                _LOGGER.exception("Bluetooth connection slots unavailable")
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-                _LOGGER.exception("Cannot connect")
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
-                return self.async_update_reload_and_abort(
-                    config_entry,
-                    unique_id=config_entry.unique_id,
-                    data=user_input,
-                    reason="reconfigure_successful",
-                )
-
-        bt_devices = await async_scan_devices(self.hass)
-        options = [
-            {
-                "value": f"{device.name or 'Unknown'} - {device.address}",
-                "label": f"{device.name or 'Unknown'} - {device.address}",
-            }
-            for device in bt_devices
-        ]
+            return self.async_update_reload_and_abort(
+                config_entry,
+                unique_id=config_entry.unique_id,
+                data={
+                    **config_entry.data,
+                    NUM_STATIONS: user_input[NUM_STATIONS],
+                },
+                reason="reconfigure_successful",
+            )
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=self._build_schema(
-                controller_default=config_entry.data[CONTROLLER_MAC_ADDRESS],
-                num_stations_default=config_entry.data[NUM_STATIONS],
-                bt_options=options,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        NUM_STATIONS,
+                        default=config_entry.data[NUM_STATIONS],
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Clamp(min=MIN_NUM_STATIONS, max=MAX_NUM_STATIONS),
+                    ),
+                }
             ),
-            errors=errors,
         )
 
 
