@@ -66,7 +66,10 @@ def next_start_datetime(
     cycle = program["cycle"]
     period_length = program["period_length"]
     week_days = program["week_days"]
-    local_now = now.astimezone() if now.tzinfo else now
+    if now.tzinfo is None:
+        local_now = now.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    else:
+        local_now = now
     day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     for offset in range(_MAX_LOOKAHEAD_DAYS):
