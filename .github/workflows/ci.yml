@@ -49,4 +49,22 @@ jobs:
           python -m json.tool hacs.json > /dev/null
           python -m json.tool custom_components/solem_blip/strings.json > /dev/null
           python -m json.tool custom_components/solem_blip/translations/en.json > /dev/null
-          python -m json.tool custom_components/solem_blip/translations/it.json > /dev/null
+
+  pytest:
+    name: Run pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest
+        run: pytest -v

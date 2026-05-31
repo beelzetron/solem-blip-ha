@@ -24,8 +24,11 @@ Recommended improvements to align with Home Assistant best practices. Status rev
 **Implemented:**
 - Buttons await coordinator commands and raise `HomeAssistantError` on `APIConnectionError`
 - Coordinator command methods re-raise after logging (stop, turn on/off)
-- `start_irrigation()` sends the BLE command synchronously (raises on failure), then monitors via `hass.async_create_task()`
+- `start_irrigation()` sets `_irrigation_active` and optimistic station state before the BLE command; resets idle state on failure
+- `start_irrigation()` stores the monitor task on the coordinator; done callback clears the reference with identity check
 - Guard against overlapping irrigation starts (`_irrigation_active`)
+- `stop_irrigation()` cooperatively stops via event and awaits the monitor task
+- `async_shutdown()` cancels and awaits the monitor task before BLE disconnect
 
 **Remaining:**
 - [ ] Test disconnect / timeout scenarios on hardware or with mock API
@@ -62,6 +65,7 @@ Recommended improvements to align with Home Assistant best practices. Status rev
 **Files:** `__init__.py`, `coordinator.py`
 
 - [x] `SolemCoordinator.async_shutdown()` calls `api.disconnect()`
+- [x] `async_shutdown()` cancels and awaits the irrigation monitor task before disconnect
 - [x] `async_unload_entry()` shuts down coordinator and removes `hass.data` entry
 
 ---
@@ -123,11 +127,36 @@ Recommended improvements to align with Home Assistant best practices. Status rev
 
 ### 9. Add Unit Tests
 
-**Status:** Not started  
-**Tasks:**
-- [ ] Add pytest + HA test harness
-- [ ] Coordinator `_apply_status()`, config flow validation, entity `unique_id` tests
-- [ ] Add CI job that runs pytest
+**Status:** Done  
+**Files:** `tests/conftest.py`, `tests/test_coordinator.py`
+
+**Implemented:**
+- pytest + HA test harness with `pytest-homeassistant-custom-component`
+- Coordinator reconfiguration tests (`TestCoordinatorReconfiguration`)
+  - `test_update_config_rebuilds_solem_client_with_new_station_count`
+  - `test_update_config_regenerates_station_descriptors`
+- Entity setup tests (`TestEntitySetup`)
+  - `test_entity_descriptors_include_all_stations`
+  - `test_battery_entities_are_present`
+  - `test_control_buttons_are_present`
+- Start/stop button behavior tests (`TestStartStopButtonBehavior`)
+  - `test_start_irrigation_calls_solem_client`
+  - `test_stop_irrigation_calls_solem_client`
+  - `test_api_connection_error_is_surfaces_as_home_assistant_error`
+- Irrigation monitor lifecycle tests (`TestIrrigationMonitorLifecycle`)
+  - `test_starting_stores_monitor_task_and_marks_active`
+  - `test_stop_cancels_monitor_task`
+  - `test_failed_start_resets_active_state`
+  - `test_async_shutdown_cancels_monitor_task`
+  - `test_station_state_optimistically_set_before_command`
+- CI job added to `.github/workflows/ci.yml`
+
+**Test execution:**
+```bash
+cd solem-blip-ha
+pip install -e ".[dev]"
+pytest -v
+```
 
 ---
 
@@ -173,7 +202,7 @@ Home Assistant buttons only support `identify`, `restart`, and `update`. Use `tr
 ### Phase 3 — Ecosystem
 - [ ] Task 7: Device firmware info (when protocol supports it)
 - [ ] Task 8: Issue templates and CONTRIBUTING
-- [ ] Task 9: Unit tests + CI
+- [x] Task 9: Unit tests + CI
 - [ ] Task 10: Supplementary docs
 
 ---
@@ -196,7 +225,7 @@ Still open in library:
 ## Notes
 
 - Test on actual hardware after releases (especially button error paths and 7–8 station configs).
-- Irrigation monitor runs in a background task; only the initial BLE command failure surfaces via `HomeAssistantError` on the button press.
+- Irrigation monitor runs in a stored background task. `_irrigation_active` is set before the BLE start command so coordinator polling does not race. User stop cooperates via event; unload cancels and awaits the task. Only the initial BLE command failure surfaces via `HomeAssistantError` on the button press.
 - Requires `solem-blip-ble>=0.1.12` for aligned station limits.
 
 ---

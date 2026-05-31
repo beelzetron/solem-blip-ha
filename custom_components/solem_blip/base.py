@@ -128,7 +128,7 @@ class SolemBaseEntity(CoordinatorEntity):
         #
         # This is even more important if your integration supports multiple instances.
         # ----------------------------------------------------------------------------
-        return f"{DOMAIN}-{self.coordinator.controller_mac_address}-{self.coordinator.get_device_parameter(self.device_id, "device_uid")}-{self.parameter}"
+        return f"{DOMAIN}-{self.coordinator.controller_mac_address}-{self.coordinator.get_device_parameter(self.device_id, 'device_uid')}-{self.parameter}"
 
     @property
     def extra_state_attributes(self):
