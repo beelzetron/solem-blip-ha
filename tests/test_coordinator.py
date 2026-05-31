@@ -203,6 +203,10 @@ class TestCoordinatorReconfiguration:
 class TestEntitySetup:
     """Test entity setup for configured number of stations."""
 
+    @pytest.fixture(autouse=True)
+    def expected_lingering_timers(self) -> None:
+        """Allow lingering debouncer timers for entity setup tests."""
+
     async def test_entity_descriptors_include_all_stations(
         self,
         hass: HomeAssistant,
