@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from solem_blip_ble import SolemClient
@@ -72,20 +73,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             device_id=f"{self.controller_mac_address}_irrigation_controller_status",
             device_name="Controller Status",
             device_uid="",
-            software_version="1.0",
+            software_version=None,
             icon="mdi:state-machine",
         )
-        self.stations = [
-            IrrigationStation(
-                device_id=f"{self.controller_mac_address}_irrigation_station_{station_id}_status",
-                device_name=f"Station {station_id} Status",
-                device_uid="",
-                station_number=station_id,
-                software_version="1.0",
-                icon="mdi:state-machine",
-            )
-            for station_id in range(1, self.num_stations + 1)
-        ]
+        self.station_names: dict[int, str] = {}
+        self.firmware_version: str | None = None
+        self.stations = self._build_stations()
 
         self.api = SolemClient(
             self.controller_mac_address,
@@ -135,6 +128,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         self.update_interval = timedelta(seconds=self.poll_interval)
         self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
+        self.station_names = {}
+        self.firmware_version = None
+        self.controller.software_version = None
 
         self.api = SolemClient(
             self.controller_mac_address,
@@ -146,23 +142,31 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             ),
         )
 
-        self.stations = [
-            IrrigationStation(
-                device_id=f"{self.controller_mac_address}_irrigation_station_{station_id}_status",
-                device_name=f"Station {station_id} Status",
-                device_uid="",
-                station_number=station_id,
-                software_version="1.0",
-                icon="mdi:state-machine",
-            )
-            for station_id in range(1, self.num_stations + 1)
-        ]
+        self.stations = self._build_stations()
 
         await self.async_request_refresh()
         _LOGGER.info(
             "%s - Updated coordinator with new config.",
             self.controller_mac_address,
         )
+
+    def _station_name(self, station_id: int) -> str:
+        """Return the controller-provided station name or a stable fallback."""
+        return self.station_names.get(station_id) or f"Station {station_id}"
+
+    def _build_stations(self) -> list[IrrigationStation]:
+        """Build station models for the configured station count."""
+        return [
+            IrrigationStation(
+                device_id=f"{self.controller_mac_address}_irrigation_station_{station_id}_status",
+                device_name=f"{self._station_name(station_id)} Status",
+                device_uid="",
+                station_number=station_id,
+                software_version=self.firmware_version,
+                icon="mdi:state-machine",
+            )
+            for station_id in range(1, self.num_stations + 1)
+        ]
 
     async def async_shutdown(self) -> None:
         """Release BLE resources when the integration unloads."""
@@ -232,7 +236,53 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Poll device and update controller/station states from BLE status."""
         status = await self.api.get_status()
         self._apply_status(status)
+        await self._fetch_device_metadata()
         return status
+
+    async def _fetch_device_metadata(self) -> None:
+        """Read firmware and station names without failing status polling."""
+        if self.firmware_version is None:
+            try:
+                firmware = await self.api.get_firmware_version()
+            except Exception as err:
+                _LOGGER.warning(
+                    "%s - Failed to read firmware version: %s",
+                    self.controller_mac_address,
+                    err,
+                )
+            else:
+                self.firmware_version = firmware["raw_hex"]
+                self.controller.software_version = self.firmware_version
+                for station in self.stations:
+                    station.software_version = self.firmware_version
+                device_registry = dr.async_get(self.hass)
+                device = device_registry.async_get_device(
+                    identifiers={(DOMAIN, self.controller_mac_address)}
+                )
+                if device is not None:
+                    device_registry.async_update_device(
+                        device.id, sw_version=self.firmware_version
+                    )
+
+        if len(self.station_names) < self.num_stations:
+            try:
+                station_names = await self.api.get_station_names()
+            except Exception as err:
+                _LOGGER.warning(
+                    "%s - Failed to read station names: %s",
+                    self.controller_mac_address,
+                    err,
+                )
+            else:
+                self.station_names = {
+                    station_id: name.strip() or f"Station {station_id}"
+                    for station_id, name in station_names.items()
+                    if 1 <= station_id <= self.num_stations
+                }
+                for station in self.stations:
+                    station.device_name = (
+                        f"{self._station_name(station.station_number)} Status"
+                    )
 
     def _clear_irrigation_idle_state(self) -> None:
         """Reset coordinator state after irrigation stops or fails to start."""
@@ -366,7 +416,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 {
                     "device_id": f"{self.controller_mac_address}_remaining_sprinkle_station_{station_id}",
                     "device_type": "REMAINING_SPRINKLE_SENSOR",
-                    "device_name": f"Station {station_id} remaining time",
+                    "device_name": f"{self._station_name(station_id)} remaining time",
                     "device_uid": mac_to_uuid(
                         self.controller_mac_address, remaining_counter
                     ),
@@ -397,7 +447,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 {
                     "device_id": f"{self.controller_mac_address}_irrigation_manual_start_station_{station_id}",
                     "device_type": "SPRINKLE_BUTTON",
-                    "device_name": f"Sprinkle station {station_id}",
+                    "device_name": f"Sprinkle {self._station_name(station_id)}",
                     "device_uid": mac_to_uuid(
                         self.controller_mac_address, buttons_counter
                     ),

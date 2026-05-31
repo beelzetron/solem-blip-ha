@@ -40,18 +40,19 @@ Setup asks only for the **Bluetooth controller** and **number of stations**.
 
 ### BLE dependency
 
-Home Assistant installs `solem-blip-ble>=0.1.13` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
+Home Assistant installs `solem-blip-ble>=0.1.14` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
 
 ## Entities (example: 6 stations)
 
 | Entity | Purpose |
 |--------|---------|
 | Controller status | On / Off / Unknown |
+| Device firmware | Shown in the Home Assistant device information |
 | Battery | 0–100% (from 9V battery level 0–5) |
 | Battery voltage | Diagnostic (disabled by default) |
 | Battery low | Binary alert |
-| Station N status | Stopped / Sprinkling |
-| Station N remaining time | Seconds left while sprinkling (`0` when idle) |
+| Station status | Stopped / Sprinkling, using the controller-provided station name |
+| Station remaining time | Seconds left while sprinkling (`0` when idle) |
 | Irrigation manual duration | Minutes for sprinkle buttons |
 | Sprinkle station N | Start manual watering |
 | Stop sprinkle | Stop active watering |
