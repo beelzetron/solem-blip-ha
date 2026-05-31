@@ -46,11 +46,10 @@ def mock_config_entry() -> MockConfigEntry:
     )
 
 
-@pytest.fixture
-def mock_solem_client() -> MagicMock:
-    """Create a mock SolemClient."""
+def create_mock_solem_client(station_num: int = 2) -> MagicMock:
+    """Create a mock SolemClient with configurable station count."""
     client = MagicMock()
-    client.max_station_num = 2
+    client.max_station_num = station_num
     client.mock = True
     client.get_status = AsyncMock(return_value={
         "controller_state": "On",
@@ -68,6 +67,12 @@ def mock_solem_client() -> MagicMock:
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
     return client
+
+
+@pytest.fixture
+def mock_solem_client() -> MagicMock:
+    """Create a mock SolemClient."""
+    return create_mock_solem_client(2)
 
 
 @pytest.fixture
@@ -92,7 +97,7 @@ async def coordinator(
         return_value=Mock(address="AA:BB:CC:DD:EE:FF", name="Solem BL-IP"),
     ):
         coordinator = SolemCoordinator(hass, mock_config_entry)
-        coordinator._ready = True
+        await coordinator.async_init()
         return coordinator
 
 
@@ -100,16 +105,28 @@ async def coordinator(
 class TestCoordinatorReconfiguration:
     """Test coordinator reconfiguration behavior (Task 3 regression)."""
 
+    @pytest.fixture(autouse=True)
+    def expected_lingering_timers(self) -> None:
+        """Allow lingering debouncer timers for config update tests."""
+
     async def test_update_config_rebuilds_solem_client_with_new_station_count(
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
-        mock_solem_client: MagicMock,
     ) -> None:
         """Changing NUM_STATIONS rebuilds SolemClient with new max_station_num."""
+        mock_client_1 = create_mock_solem_client(2)
+        mock_client_2 = create_mock_solem_client(4)
+
+        call_count = [0]
+
+        def create_client(*args, **kwargs):
+            call_count[0] += 1
+            return mock_client_1 if call_count[0] == 1 else mock_client_2
+
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",
-            return_value=mock_solem_client,
+            side_effect=create_client,
         ), patch(
             "custom_components.solem_blip.bluetooth.async_get_connectable_device",
         ):
@@ -383,21 +400,23 @@ class TestIrrigationMonitorLifecycle:
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
-        mock_solem_client: MagicMock,
     ) -> None:
         """Starting irrigation stores a monitor task and marks active before command completes."""
+        mock_client = create_mock_solem_client(2)
+
+        async def slow_sprinkle(*args, **kwargs):
+            await asyncio.sleep(0.1)
+
+        mock_client.sprinkle_station_x_for_y_minutes = AsyncMock(side_effect=slow_sprinkle)
+
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",
-            return_value=mock_solem_client,
+            return_value=mock_client,
         ), patch(
             "custom_components.solem_blip.bluetooth.async_get_connectable_device",
         ):
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
-
-            mock_solem_client.sprinkle_station_x_for_y_minutes = AsyncMock(
-                side_effect=asyncio.sleep(0.1)
-            )
 
             task = asyncio.create_task(coordinator.start_irrigation(1, 1))
             await asyncio.sleep(0.05)
@@ -411,40 +430,52 @@ class TestIrrigationMonitorLifecycle:
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
-        mock_solem_client: MagicMock,
     ) -> None:
         """Stop irrigation cancels the stored task."""
+        mock_client = create_mock_solem_client(2)
+
+        monitor_started = asyncio.Event()
+
+        async def quick_sprinkle(*args, **kwargs):
+            pass
+
+        async def slow_monitor(station, duration):
+            monitor_started.set()
+            await asyncio.sleep(10)
+
+        mock_client.sprinkle_station_x_for_y_minutes = AsyncMock(side_effect=quick_sprinkle)
+        mock_client.get_status = AsyncMock(return_value={
+            "controller_state": "On",
+            "is_watering": True,
+            "battery_voltage": 90,
+            "battery_level": 5,
+            "battery_low": False,
+            "station_num": 1,
+            "remaining_seconds": 60,
+        })
+
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",
-            return_value=mock_solem_client,
+            return_value=mock_client,
         ), patch(
             "custom_components.solem_blip.bluetooth.async_get_connectable_device",
         ):
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
 
-            monitor_task_started = asyncio.Event()
-
-            original_monitor = coordinator._run_irrigation_monitor
-
-            async def slow_monitor(station, duration):
-                monitor_task_started.set()
-                await asyncio.sleep(10)
-
             coordinator._run_irrigation_monitor = slow_monitor
 
             start_task = asyncio.create_task(coordinator.start_irrigation(1, 1))
-            await monitor_task_started.wait()
+            await asyncio.sleep(0.01)
 
             assert coordinator._irrigation_monitor_task is not None
             assert not coordinator._irrigation_monitor_task.done()
 
             stop_task = asyncio.create_task(coordinator.stop_irrigation())
-            await asyncio.sleep(0.1)
-
-            assert coordinator._irrigation_monitor_task is None
             await stop_task
             await start_task
+
+            assert coordinator._irrigation_monitor_task is None
 
     async def test_failed_start_resets_active_state(
         self,
@@ -452,6 +483,8 @@ class TestIrrigationMonitorLifecycle:
         mock_config_entry: MockConfigEntry,
     ) -> None:
         """Failed start resets _irrigation_active state."""
+        from homeassistant.exceptions import HomeAssistantError
+
         mock_client = MagicMock()
         mock_client.sprinkle_station_x_for_y_minutes = AsyncMock(
             side_effect=APIConnectionError("Failed to start")
@@ -468,7 +501,7 @@ class TestIrrigationMonitorLifecycle:
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
 
-            with pytest.raises(APIConnectionError):
+            with pytest.raises(HomeAssistantError, match="Failed to start"):
                 await coordinator.start_irrigation(1, 1)
 
             assert coordinator._irrigation_active is False
@@ -477,12 +510,18 @@ class TestIrrigationMonitorLifecycle:
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
-        mock_solem_client: MagicMock,
     ) -> None:
         """async_shutdown cancels and awaits monitor task."""
+        mock_client = create_mock_solem_client(2)
+
+        async def slow_sprinkle(*args, **kwargs):
+            await asyncio.sleep(10)
+
+        mock_client.sprinkle_station_x_for_y_minutes = AsyncMock(side_effect=slow_sprinkle)
+
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",
-            return_value=mock_solem_client,
+            return_value=mock_client,
         ), patch(
             "custom_components.solem_blip.bluetooth.async_get_connectable_device",
         ):
@@ -513,12 +552,18 @@ class TestIrrigationMonitorLifecycle:
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
-        mock_solem_client: MagicMock,
     ) -> None:
         """Station state is set to Sprinkling before the BLE command completes."""
+        mock_client = create_mock_solem_client(2)
+
+        async def slow_sprinkle(*args, **kwargs):
+            await asyncio.sleep(1)
+
+        mock_client.sprinkle_station_x_for_y_minutes = AsyncMock(side_effect=slow_sprinkle)
+
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",
-            return_value=mock_solem_client,
+            return_value=mock_client,
         ), patch(
             "custom_components.solem_blip.bluetooth.async_get_connectable_device",
         ):
