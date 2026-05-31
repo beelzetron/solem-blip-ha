@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -12,7 +12,7 @@ from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from solem_blip_ble import SolemClient
+from solem_blip_ble import IrrigationProgram, SolemClient
 
 from .bluetooth import async_get_connectable_device
 from .const import (
@@ -114,6 +114,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.irrigation_manual_duration = DEFAULT_MANUAL_DURATION
         self.remaining_seconds: int | None = None
         self.active_station_num: int | None = None
+        self.irrigation_programs: dict[int, IrrigationProgram] = {}
+        self._irrigation_config_retry_after = 0.0
+        self._irrigation_config_refresh_after = 0.0
+        self._last_set_time_at = 0.0
+        self._last_set_time_sync: datetime | None = None
+        self._set_time_pending = True
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -146,6 +152,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._firmware_retry_after = 0.0
         self._station_names_retry_after = 0.0
         self.controller.software_version = None
+        self.irrigation_programs = {}
+        self._irrigation_config_retry_after = 0.0
+        self._irrigation_config_refresh_after = 0.0
+        self._last_set_time_at = 0.0
+        self._last_set_time_sync = None
+        self._set_time_pending = True
 
         self.api = SolemClient(
             self.controller_mac_address,

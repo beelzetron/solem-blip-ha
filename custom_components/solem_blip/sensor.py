@@ -1,6 +1,7 @@
 """Sensor platform for the Solem BL-IP integration."""
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -39,6 +40,10 @@ async def async_setup_entry(
         SensorTypeClass("BATTERY_SENSOR", "state", BatterySensor),
         SensorTypeClass("BATTERY_VOLTAGE_SENSOR", "state", BatteryVoltageSensor),
         SensorTypeClass("REMAINING_SPRINKLE_SENSOR", "state", RemainingSprinkleSensor),
+        SensorTypeClass("LAST_TIME_SYNC_SENSOR", "state", LastTimeSyncSensor),
+        SensorTypeClass("PROGRAM_NAME_SENSOR", "state", ProgramNameSensor),
+        SensorTypeClass("PROGRAM_NEXT_START_SENSOR", "state", ProgramNextStartSensor),
+        SensorTypeClass("PROGRAM_SCHEDULE_SENSOR", "state", ProgramScheduleSensor),
     ]
 
     sensors = []
@@ -98,3 +103,46 @@ class RemainingSprinkleSensor(SolemBaseEntity, SensorEntity):
     @property
     def native_value(self) -> int | None:
         return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+
+
+class LastTimeSyncSensor(SolemBaseEntity, SensorEntity):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    @property
+    def native_value(self) -> datetime | None:
+        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+
+
+class ProgramNameSensor(SolemBaseEntity, SensorEntity):
+    @property
+    def native_value(self) -> str | None:
+        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+
+
+class ProgramNextStartSensor(SolemBaseEntity, SensorEntity):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    @property
+    def native_value(self) -> datetime | None:
+        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int | None]:
+        device = self.coordinator.get_device(self.device_id) or {}
+        attributes = device.get("attributes") or {}
+        return {
+            "minutes_since_midnight": attributes.get("minutes_since_midnight"),
+        }
+
+
+class ProgramScheduleSensor(SolemBaseEntity, SensorEntity):
+    @property
+    def native_value(self) -> int | None:
+        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        device = self.coordinator.get_device(self.device_id) or {}
+        return dict(device.get("attributes") or {})

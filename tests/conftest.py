@@ -20,6 +20,40 @@ from custom_components.solem_blip.const import (
 from custom_components.solem_blip.coordinator import SolemCoordinator
 
 
+MOCK_IRRIGATION_PROGRAMS = {
+    0: {
+        "name": "Programma A",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x7F,
+        "period_length": 2,
+        "start_times": [1060, None, None, None, None, None, None, None],
+        "station_durations": [1200, 0, 0, 0, 1800, 0],
+    },
+    1: {
+        "name": "Programma B",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x7F,
+        "period_length": 2,
+        "start_times": [None] * 8,
+        "station_durations": [0, 0],
+    },
+    2: {
+        "name": "Programma C",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x11,
+        "period_length": 3,
+        "start_times": [270, None, None, None, None, None, None, None],
+        "station_durations": [0, 1500, 1500, 0],
+    },
+}
+
+
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
     """Create a mock config entry."""
@@ -61,6 +95,8 @@ def create_mock_solem_client(station_num: int = 2) -> MagicMock:
     client.get_station_names = AsyncMock(return_value={
         station: f"Zone {station}" for station in range(1, station_num + 1)
     })
+    client.get_irrigation_config = AsyncMock(return_value=MOCK_IRRIGATION_PROGRAMS)
+    client.set_time = AsyncMock()
     client.sprinkle_station_x_for_y_minutes = AsyncMock()
     client.stop_manual_sprinkle = AsyncMock()
     client.turn_on = AsyncMock()

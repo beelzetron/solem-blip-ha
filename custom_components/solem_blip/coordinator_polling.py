@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
 
-from .const import DOMAIN, METADATA_READ_TIMEOUT, METADATA_RETRY_INTERVAL
+from .const import (
+    DOMAIN,
+    IRRIGATION_CONFIG_READ_TIMEOUT,
+    IRRIGATION_CONFIG_REFRESH_INTERVAL,
+    IRRIGATION_CONFIG_RETRY_INTERVAL,
+    METADATA_READ_TIMEOUT,
+    METADATA_RETRY_INTERVAL,
+    SET_TIME_MIN_INTERVAL,
+)
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
@@ -66,7 +75,39 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
 
 
 async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
-    """Push HA local time to the device (stub for schedule accuracy work)."""
+    """Push HA local time to the device when throttling allows."""
+    if coordinator.solem_api_mock or coordinator.api.mock:
+        return
+    if coordinator._irrigation_active:
+        return
+
+    now = asyncio.get_running_loop().time()
+    if (
+        not coordinator._set_time_pending
+        and coordinator._last_set_time_at
+        and now - coordinator._last_set_time_at < SET_TIME_MIN_INTERVAL
+    ):
+        return
+
+    moment = datetime.now().astimezone()
+    try:
+        await coordinator.api.set_time(moment)
+    except Exception as err:
+        _LOGGER.warning(
+            "%s - Failed to sync device time: %s",
+            coordinator.controller_mac_address,
+            err or type(err).__name__,
+        )
+        return
+
+    coordinator._set_time_pending = False
+    coordinator._last_set_time_at = now
+    coordinator._last_set_time_sync = moment
+    _LOGGER.debug(
+        "%s - Device time synced to %s",
+        coordinator.controller_mac_address,
+        moment.isoformat(),
+    )
 
 
 async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
@@ -129,14 +170,49 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
 
 
 async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
-    """Read on-device irrigation programs (stub for schedule sensor work)."""
+    """Read on-device irrigation programs without failing status polling."""
+    if coordinator._irrigation_active:
+        return
+
+    now = asyncio.get_running_loop().time()
+    has_programs = bool(coordinator.irrigation_programs)
+    if has_programs and now < coordinator._irrigation_config_refresh_after:
+        return
+    if not has_programs and now < coordinator._irrigation_config_retry_after:
+        return
+
+    try:
+        programs = await asyncio.wait_for(
+            coordinator.api.get_irrigation_config(),
+            timeout=IRRIGATION_CONFIG_READ_TIMEOUT,
+        )
+    except Exception as err:
+        coordinator._irrigation_config_retry_after = (
+            now + IRRIGATION_CONFIG_RETRY_INTERVAL
+        )
+        _LOGGER.warning(
+            "%s - Failed to read irrigation config: %s",
+            coordinator.controller_mac_address,
+            err or type(err).__name__,
+        )
+        return
+
+    coordinator.irrigation_programs = {
+        index: programs[index] for index in (0, 1, 2) if index in programs
+    }
+    coordinator._irrigation_config_refresh_after = (
+        now + IRRIGATION_CONFIG_REFRESH_INTERVAL
+    )
+    coordinator._irrigation_config_retry_after = 0.0
 
 
 async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     """Poll device and update controller/station states from BLE status."""
+    await maybe_set_device_time(coordinator)
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
     await fetch_device_metadata(coordinator)
+    await fetch_irrigation_config(coordinator)
     return status
 
 

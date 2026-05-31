@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from .const import PROGRAM_LABELS
 from .coordinator_polling import remaining_seconds_for_station
+from .schedule import (
+    build_schedule_attributes,
+    enabled_start_count,
+    next_start_datetime,
+)
 from .util import mac_to_uuid
 
 if TYPE_CHECKING:
@@ -80,6 +87,19 @@ def build_controller_and_battery_descriptors(
             "software_version": "1.0",
             "state": coordinator.battery_low,
             "icon": "mdi:battery-alert",
+            "last_reboot": None,
+        }
+    )
+    counter += 1
+    data.append(
+        {
+            "device_id": f"{coordinator.controller_mac_address}_last_time_sync",
+            "device_type": "LAST_TIME_SYNC_SENSOR",
+            "device_name": "Last time sync",
+            "device_uid": mac_to_uuid(coordinator.controller_mac_address, counter),
+            "software_version": "1.0",
+            "state": coordinator._last_set_time_sync,
+            "icon": "mdi:clock-check-outline",
             "last_reboot": None,
         }
     )
@@ -217,11 +237,82 @@ def build_control_descriptors(
     return data
 
 
+def build_program_descriptors(
+    coordinator: SolemCoordinator,
+    *,
+    program_counter: int = 1001,
+) -> list[dict[str, Any]]:
+    """Build read-only program schedule entity descriptors."""
+    data: list[dict[str, Any]] = []
+    now = datetime.now().astimezone()
+
+    for program_index, label in enumerate(PROGRAM_LABELS):
+        program = coordinator.irrigation_programs.get(program_index)
+        label_lower = label.lower()
+        mac = coordinator.controller_mac_address
+
+        data.append(
+            {
+                "device_id": f"{mac}_program_{label_lower}_name",
+                "device_type": "PROGRAM_NAME_SENSOR",
+                "device_name": f"Program {label} name",
+                "device_uid": mac_to_uuid(mac, program_counter),
+                "software_version": "1.0",
+                "state": program["name"] if program else None,
+                "icon": "mdi:calendar-text",
+                "last_reboot": None,
+            }
+        )
+        program_counter += 1
+
+        next_start = next_start_datetime(program, now) if program else None
+        next_minutes = None
+        if next_start is not None:
+            next_minutes = next_start.hour * 60 + next_start.minute
+
+        data.append(
+            {
+                "device_id": f"{mac}_program_{label_lower}_next_start",
+                "device_type": "PROGRAM_NEXT_START_SENSOR",
+                "device_name": f"Program {label} next start",
+                "device_uid": mac_to_uuid(mac, program_counter),
+                "software_version": "1.0",
+                "state": next_start,
+                "attributes": {"minutes_since_midnight": next_minutes},
+                "icon": "mdi:calendar-clock",
+                "last_reboot": None,
+            }
+        )
+        program_counter += 1
+
+        data.append(
+            {
+                "device_id": f"{mac}_program_{label_lower}_schedule",
+                "device_type": "PROGRAM_SCHEDULE_SENSOR",
+                "device_name": f"Program {label} schedule",
+                "device_uid": mac_to_uuid(mac, program_counter),
+                "software_version": "1.0",
+                "state": enabled_start_count(program["start_times"]) if program else None,
+                "attributes": (
+                    build_schedule_attributes(program, coordinator.station_names)
+                    if program
+                    else {}
+                ),
+                "icon": "mdi:calendar-month",
+                "last_reboot": None,
+            }
+        )
+        program_counter += 1
+
+    return data
+
+
 def build_all_descriptors(coordinator: SolemCoordinator) -> list[dict[str, Any]]:
     """Compose the full entity descriptor list from coordinator state."""
     data, counter = build_controller_and_battery_descriptors(coordinator)
     data.extend(build_station_descriptors(coordinator))
     data.extend(build_remaining_time_descriptors(coordinator))
     data.extend(build_control_descriptors(coordinator, counter=counter))
+    data.extend(build_program_descriptors(coordinator))
     _LOGGER.debug("%s - Updated sensors.", coordinator.controller_mac_address)
     return data
