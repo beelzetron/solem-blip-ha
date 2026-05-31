@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from asyncio import sleep
 from datetime import timedelta
@@ -97,6 +98,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
         self.irrigation_stop_event = asyncio.Event()
         self._irrigation_active = False
+        self._irrigation_monitor_task: asyncio.Task[None] | None = None
         self._ready = False
         self.battery_voltage: int | None = None
         self.battery_level: int | None = None
@@ -162,6 +164,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     async def async_shutdown(self) -> None:
         """Release BLE resources when the integration unloads."""
+        self.irrigation_stop_event.set()
+        task = self._irrigation_monitor_task
+        if task is not None and not task.done():
+            task.cancel()
+        await self._await_irrigation_monitor_task()
+        self._clear_irrigation_idle_state()
         await self.api.disconnect()
 
     async def async_init(self) -> None:
@@ -242,6 +250,27 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         status = await self.api.get_status()
         self._apply_status(status)
         return status
+
+    def _clear_irrigation_idle_state(self) -> None:
+        """Reset coordinator state after irrigation stops or fails to start."""
+        self._irrigation_active = False
+        self.active_station_num = None
+        self.remaining_seconds = None
+        for station in self.stations:
+            station.state = "Stopped"
+
+    def _clear_monitor_task_ref(self, task: asyncio.Task[None]) -> None:
+        """Clear stored monitor task when it completes."""
+        if self._irrigation_monitor_task is task:
+            self._irrigation_monitor_task = None
+
+    async def _await_irrigation_monitor_task(self) -> None:
+        """Wait for the background irrigation monitor to finish."""
+        task = self._irrigation_monitor_task
+        if task is None:
+            return
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     def _remaining_seconds_for_station(self, station_id: int) -> int | None:
         """Return remaining sprinkle seconds for a station (0 when idle/inactive)."""
@@ -471,6 +500,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
 
         self.irrigation_stop_event.clear()
+        self._irrigation_active = True
+        self.stations[station - 1].state = "Sprinkling"
+        self.async_set_updated_data(await self.async_update_all_sensors())
 
         try:
             await self.api.sprinkle_station_x_for_y_minutes(station, duration)
@@ -478,13 +510,25 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             _LOGGER.error(
                 "%s - Failed to start irrigation due to connection error.",
                 self.controller_mac_address,
+                exc_info=True,
             )
+            self._clear_irrigation_idle_state()
+            raise
+        except Exception as ex:
+            _LOGGER.error(
+                "%s - Failed to start irrigation due to error: %s",
+                self.controller_mac_address,
+                ex,
+                exc_info=True,
+            )
+            self._clear_irrigation_idle_state()
             raise
 
-        self.hass.async_create_task(
+        self._irrigation_monitor_task = self.hass.async_create_task(
             self._run_irrigation_monitor(station, duration),
             name=f"{DOMAIN} irrigation station {station}",
         )
+        self._irrigation_monitor_task.add_done_callback(self._clear_monitor_task_ref)
 
     async def _run_irrigation_monitor(self, station: int, duration: int) -> None:
         """Monitor active watering until completion, stop, or safety timeout."""
@@ -492,6 +536,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             await self._monitor_irrigation_until_complete(station, duration)
             data = await self.async_update_all_sensors()
             self.async_set_updated_data(data)
+        except asyncio.CancelledError:
+            self._clear_irrigation_idle_state()
+            raise
         except Exception as err:
             _LOGGER.error(
                 "%s - Irrigation monitor failed for station %s: %s",
@@ -509,12 +556,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         max_seconds = duration * 60 + 30
         elapsed = 0.0
 
-        self._irrigation_active = True
-        self.stations[station - 1].state = "Sprinkling"
-
         try:
-            self.async_set_updated_data(await self.async_update_all_sensors())
-
             while elapsed < max_seconds:
                 if self.irrigation_stop_event.is_set():
                     _LOGGER.info(
@@ -552,11 +594,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                     max_seconds,
                 )
         finally:
-            self._irrigation_active = False
-            self.active_station_num = None
-            self.remaining_seconds = None
-            for station_obj in self.stations:
-                station_obj.state = "Stopped"
+            self._clear_irrigation_idle_state()
             _LOGGER.info(
                 "%s - Finished watering on station %s.",
                 self.controller_mac_address,
@@ -575,10 +613,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             raise
 
         self.irrigation_stop_event.set()
-        self.active_station_num = None
-        self.remaining_seconds = None
-        for station in self.stations:
-            station.state = "Stopped"
+        await self._await_irrigation_monitor_task()
+        self._clear_irrigation_idle_state()
 
         _LOGGER.info("%s - Stopped watering.", self.controller_mac_address)
         self.async_set_updated_data(await self.async_update_all_sensors())
