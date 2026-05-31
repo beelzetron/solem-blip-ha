@@ -12,6 +12,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from solem_blip_ble import SolemClient
@@ -506,14 +507,14 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
         try:
             await self.api.sprinkle_station_x_for_y_minutes(station, duration)
-        except APIConnectionError:
+        except APIConnectionError as ex:
             _LOGGER.error(
                 "%s - Failed to start irrigation due to connection error.",
                 self.controller_mac_address,
                 exc_info=True,
             )
             self._clear_irrigation_idle_state()
-            raise
+            raise HomeAssistantError(str(ex)) from ex
         except Exception as ex:
             _LOGGER.error(
                 "%s - Failed to start irrigation due to error: %s",
@@ -605,12 +606,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         _LOGGER.info("%s - Stopping watering...", self.controller_mac_address)
         try:
             await self.api.stop_manual_sprinkle()
-        except APIConnectionError:
+        except APIConnectionError as ex:
             _LOGGER.error(
                 "%s - Failed to stop irrigation due to connection error.",
                 self.controller_mac_address,
             )
-            raise
+            raise HomeAssistantError(str(ex)) from ex
 
         self.irrigation_stop_event.set()
         await self._await_irrigation_monitor_task()
@@ -626,12 +627,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         try:
             await self.api.turn_on()
-        except APIConnectionError:
+        except APIConnectionError as ex:
             _LOGGER.error(
                 "%s - Failed to turn controller on due to connection error.",
                 self.controller_mac_address,
             )
-            raise
+            raise HomeAssistantError(str(ex)) from ex
 
         self.controller.state = "On"
         self.async_set_updated_data(await self.async_update_all_sensors())
@@ -647,12 +648,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         try:
             await self.api.turn_off_permanent()
-        except APIConnectionError:
+        except APIConnectionError as ex:
             _LOGGER.error(
                 "%s - Failed to turn controller off due to connection error.",
                 self.controller_mac_address,
             )
-            raise
+            raise HomeAssistantError(str(ex)) from ex
 
         self.controller.state = "Off"
         self.async_set_updated_data(await self.async_update_all_sensors())
