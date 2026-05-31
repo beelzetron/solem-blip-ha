@@ -101,5 +101,5 @@ def test_build_schedule_attributes_maps_station_names():
     )
     assert attrs["start_time_1"] == "04:30"
     assert attrs["next_start_approximate"] is True
-    assert attrs["Back_duration_minutes"] == 1500
-    assert attrs["Side_duration_minutes"] == 1500
+    assert attrs["Back_duration_seconds"] == 1500
+    assert attrs["Side_duration_seconds"] == 1500

@@ -104,5 +104,5 @@ def build_schedule_attributes(
         if duration <= 0:
             continue
         name = station_names.get(station_id) or f"Station {station_id}"
-        attrs[f"{name}_duration_minutes"] = duration
+        attrs[f"{name}_duration_seconds"] = duration
     return attrs

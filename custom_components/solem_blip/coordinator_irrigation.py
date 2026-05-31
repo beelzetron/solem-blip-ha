@@ -161,6 +161,10 @@ async def start_irrigation(
             coordinator.controller_mac_address,
             exc_info=True,
         )
+        task = coordinator._irrigation_monitor_task
+        if task is not None and not task.done():
+            task.cancel()
+        await await_irrigation_monitor_task(coordinator)
         clear_irrigation_idle_state(coordinator)
         raise HomeAssistantError(str(ex)) from ex
     except Exception as ex:
@@ -170,6 +174,10 @@ async def start_irrigation(
             ex,
             exc_info=True,
         )
+        task = coordinator._irrigation_monitor_task
+        if task is not None and not task.done():
+            task.cancel()
+        await await_irrigation_monitor_task(coordinator)
         clear_irrigation_idle_state(coordinator)
         raise
 
