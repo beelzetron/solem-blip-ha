@@ -1,13 +1,8 @@
 """Pytest configuration and fixtures for the Solem BL-IP integration."""
 
-import asyncio
-from collections.abc import Generator
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.storage import Store
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.const import (
@@ -19,18 +14,6 @@ from custom_components.solem_blip.const import (
     NUM_STATIONS,
     SOLEM_API_MOCK,
 )
-
-
-@pytest.fixture
-def hass() -> Generator[HomeAssistant]:
-    """Create a Home Assistant instance."""
-    hass = HomeAssistant("/tmp/test_homeassistant")
-
-    mock_store = MagicMock(spec=Store)
-    mock_store._async_poll_lock = asyncio.Lock()
-    hass.helpers.storage.Store = MagicMock(return_value=mock_store)
-
-    yield hass
 
 
 @pytest.fixture
@@ -57,7 +40,7 @@ def mock_solem_client() -> MagicMock:
     client = MagicMock()
     client.max_station_num = 2
     client.mock = True
-    client.get_status = AsyncMock(return_value={
+    client.get_status = MagicMock(return_value={
         "controller_state": "On",
         "is_watering": False,
         "battery_voltage": 90,
@@ -66,10 +49,10 @@ def mock_solem_client() -> MagicMock:
         "station_num": None,
         "remaining_seconds": None,
     })
-    client.sprinkle_station_x_for_y_minutes = AsyncMock()
-    client.stop_manual_sprinkle = AsyncMock()
-    client.turn_on = AsyncMock()
-    client.turn_off_permanent = AsyncMock()
-    client.connect = AsyncMock()
-    client.disconnect = AsyncMock()
+    client.sprinkle_station_x_for_y_minutes = MagicMock()
+    client.stop_manual_sprinkle = MagicMock()
+    client.turn_on = MagicMock()
+    client.turn_off_permanent = MagicMock()
+    client.connect = MagicMock()
+    client.disconnect = MagicMock()
     return client
