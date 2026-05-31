@@ -9,7 +9,6 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.device_registry import DeviceEntry
 
 from .const import DOMAIN
@@ -40,18 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
     coordinator = SolemCoordinator(hass, config_entry)
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = coordinator
 
-    try:
-        await coordinator.async_init()
-    except Exception as err:
-        _LOGGER.error(
-            "Failed to initialize Solem BL-IP for %s: %s",
-            coordinator.controller_mac_address,
-            err,
-            exc_info=True,
-        )
-        raise ConfigEntryNotReady from err
-
-    await coordinator.async_config_entry_first_refresh()
+    await coordinator.async_init()
 
     if not coordinator.data:
         _LOGGER.warning(
@@ -66,6 +54,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
     config_entry.runtime_data = RuntimeData(coordinator, cancel_update_listener)
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    config_entry.async_create_background_task(
+        hass,
+        coordinator.async_refresh(),
+        f"{DOMAIN} initial BLE status refresh",
+    )
     return True
 
 

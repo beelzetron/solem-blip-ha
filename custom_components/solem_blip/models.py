@@ -6,7 +6,7 @@ class IrrigationDevice:
         self.device_name = device_name
         self.device_uid = device_uid
         self.software_version = software_version
-        self.state = "Unknown"
+        self.state = None
         self.icon = icon
         self.last_reboot = None
 
@@ -20,7 +20,6 @@ class IrrigationController(IrrigationDevice):
     
     def __init__(self, device_id, device_name, device_uid, software_version, icon):
         super().__init__(device_id, device_name, device_uid, software_version, icon)
-        self.state = "On"  # Assume-se que o controlador está ligado por padrão
 
 
 class IrrigationStation(IrrigationDevice):
@@ -29,4 +28,3 @@ class IrrigationStation(IrrigationDevice):
     def __init__(self, device_id, device_name, device_uid, station_number, software_version, icon):
         super().__init__(device_id, device_name, device_uid, software_version, icon)
         self.station_number = station_number
-        self.state = "Stopped"  # Assume-se que as estações começam desligadas

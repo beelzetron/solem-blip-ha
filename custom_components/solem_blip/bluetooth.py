@@ -2,16 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-
-_LOGGER = logging.getLogger(__name__)
-
-BLUETOOTH_STARTUP_WAIT_TIMEOUT = 120
-BLUETOOTH_STARTUP_WAIT_INTERVAL = 10
 
 
 async def async_scan_devices(hass: HomeAssistant, connectable: bool = True) -> list[Any]:
@@ -47,39 +40,3 @@ def async_is_device_discovered(hass: HomeAssistant, address: str) -> bool:
         info.address.lower() == normalized
         for info in async_discovered_service_info(hass, connectable=True)
     )
-
-
-async def async_wait_for_connectable_device(
-    hass: HomeAssistant,
-    address: str,
-    *,
-    timeout: float = BLUETOOTH_STARTUP_WAIT_TIMEOUT,
-    interval: float = BLUETOOTH_STARTUP_WAIT_INTERVAL,
-) -> bool:
-    """Wait until HA Bluetooth can route a connectable session to the device."""
-    if async_get_connectable_device(hass, address) is not None:
-        _LOGGER.info("%s is available for BLE connection", address)
-        return True
-
-    _LOGGER.info(
-        "Waiting up to %ss for %s to become connectable in Home Assistant Bluetooth",
-        int(timeout),
-        address,
-    )
-    loops = max(1, int(timeout / interval))
-    for attempt in range(loops):
-        await asyncio.sleep(interval)
-        if async_get_connectable_device(hass, address) is not None:
-            _LOGGER.info(
-                "%s is available for BLE connection after %ss",
-                address,
-                int((attempt + 1) * interval),
-            )
-            return True
-
-    _LOGGER.warning(
-        "%s is advertised but not connectable via Home Assistant Bluetooth after %ss",
-        address,
-        int(timeout),
-    )
-    return False

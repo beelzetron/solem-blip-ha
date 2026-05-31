@@ -13,12 +13,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from solem_blip_ble import SolemClient
 
 from .api import APIConnectionError
-from .bluetooth import async_get_connectable_device, async_wait_for_connectable_device
+from .bluetooth import async_get_connectable_device
 from .const import (
     BLUETOOTH_DEFAULT_TIMEOUT,
     BLUETOOTH_TIMEOUT,
@@ -103,7 +103,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._ready = False
         self.battery_voltage: int | None = None
         self.battery_level: int | None = None
-        self.battery_low = False
+        self.battery_low: bool | None = None
+        self._has_status = False
         self.irrigation_manual_duration = DEFAULT_MANUAL_DURATION
         self.remaining_seconds: int | None = None
         self.active_station_num: int | None = None
@@ -174,30 +175,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         await self.api.disconnect()
 
     async def async_init(self) -> None:
-        """Connect to the controller and build initial entity data."""
-        if not self.solem_api_mock:
-            await async_wait_for_connectable_device(
-                self.hass, self.controller_mac_address
-            )
-            _LOGGER.info(
-                "%s - Attempting initial BLE connection...",
-                self.controller_mac_address,
-            )
-            try:
-                await self.api.connect()
-                _LOGGER.info(
-                    "%s - Connected to Solem BLE device",
-                    self.controller_mac_address,
-                )
-            except Exception as ex:
-                _LOGGER.warning(
-                    "%s - Initial BLE connect failed; will retry on poll: %s",
-                    self.controller_mac_address,
-                    ex,
-                )
-
+        """Build initial entity data without blocking setup on BLE availability."""
         self._ready = True
-        self.async_set_updated_data(await self.async_update_all_sensors())
+        self.data = await self.async_update_all_sensors(fetch_status=False)
+        self.last_update_success = False
 
     def _apply_status(self, status: dict[str, Any]) -> None:
         """Update coordinator state from a BLE status dict."""
@@ -205,6 +186,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.battery_voltage = status.get("battery_voltage")
         self.battery_level = status.get("battery_level")
         self.battery_low = bool(status.get("battery_low", False))
+        self._has_status = True
 
         if status.get("is_watering") and status.get("station_num"):
             active_station_num = status["station_num"]
@@ -275,6 +257,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     def _remaining_seconds_for_station(self, station_id: int) -> int | None:
         """Return remaining sprinkle seconds for a station (0 when idle/inactive)."""
+        if not self._has_status:
+            return None
         if (
             self.active_station_num == station_id
             and self.remaining_seconds is not None
@@ -284,24 +268,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             return None
         return 0
 
-    async def async_update_all_sensors(self) -> list[dict[str, Any]]:
+    async def async_update_all_sensors(
+        self, *, fetch_status: bool = True
+    ) -> list[dict[str, Any]]:
         """Build entity descriptor list from current coordinator state."""
-        if not self._irrigation_active:
-            try:
-                await self._fetch_device_status()
-            except APIConnectionError as ex:
-                _LOGGER.warning(
-                    "%s - Failed to get device status, keeping last known states: %s",
-                    self.controller_mac_address,
-                    ex,
-                )
-            except Exception as ex:
-                _LOGGER.error(
-                    "%s - Unexpected error getting status, keeping last known states: %s",
-                    self.controller_mac_address,
-                    ex,
-                    exc_info=True,
-                )
+        if fetch_status and not self._irrigation_active:
+            await self._fetch_device_status()
 
         data: list[dict[str, Any]] = []
         counter = 1
@@ -475,13 +447,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         try:
             return await self.async_update_all_sensors()
         except Exception as err:
-            _LOGGER.error(
-                "%s - Coordinator update failed: %s",
-                self.controller_mac_address,
-                err,
-                exc_info=True,
-            )
-            return self.data or []
+            raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
     async def start_irrigation(
         self, station: int, minutes: int | None = None

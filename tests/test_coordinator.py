@@ -12,6 +12,7 @@ from homeassistant.components.button import SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -99,6 +100,60 @@ async def coordinator(
         coordinator = SolemCoordinator(hass, mock_config_entry)
         await coordinator.async_init()
         return coordinator
+
+
+@pytest.mark.asyncio
+async def test_async_init_does_not_block_on_ble_io(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Entity descriptors are built before the first BLE poll."""
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=mock_config_entry.data,
+        options={
+            **mock_config_entry.options,
+            SOLEM_API_MOCK: "false",
+        },
+        unique_id=mock_config_entry.unique_id,
+    )
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+
+    mock_solem_client.connect.assert_not_awaited()
+    mock_solem_client.get_status.assert_not_awaited()
+    assert coordinator.data
+    assert coordinator.last_update_success is False
+    assert coordinator.controller.state is None
+    assert all(station.state is None for station in coordinator.stations)
+    assert coordinator.battery_low is None
+    assert coordinator._remaining_seconds_for_station(1) is None
+
+
+@pytest.mark.asyncio
+async def test_async_update_data_raises_update_failed_on_ble_error(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """BLE poll errors mark coordinator updates as failed."""
+    mock_solem_client.get_status.side_effect = APIConnectionError("Offline")
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+
+        with pytest.raises(UpdateFailed, match="Offline"):
+            await coordinator.async_update_data()
 
 
 @pytest.mark.asyncio
