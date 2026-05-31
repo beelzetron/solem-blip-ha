@@ -27,6 +27,8 @@ from .const import (
     DEFAULT_MANUAL_DURATION,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    METADATA_READ_TIMEOUT,
+    METADATA_RETRY_INTERVAL,
     NUM_STATIONS,
     SOLEM_API_MOCK,
 )
@@ -78,6 +80,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         self.station_names: dict[int, str] = {}
         self.firmware_version: str | None = None
+        self._firmware_retry_after = 0.0
+        self._station_names_retry_after = 0.0
         self.stations = self._build_stations()
 
         self.api = SolemClient(
@@ -130,6 +134,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
         self.station_names = {}
         self.firmware_version = None
+        self._firmware_retry_after = 0.0
+        self._station_names_retry_after = 0.0
         self.controller.software_version = None
 
         self.api = SolemClient(
@@ -241,14 +247,19 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     async def _fetch_device_metadata(self) -> None:
         """Read firmware and station names without failing status polling."""
-        if self.firmware_version is None:
+        now = asyncio.get_running_loop().time()
+        if self.firmware_version is None and now >= self._firmware_retry_after:
             try:
-                firmware = await self.api.get_firmware_version()
+                firmware = await asyncio.wait_for(
+                    self.api.get_firmware_version(),
+                    timeout=METADATA_READ_TIMEOUT,
+                )
             except Exception as err:
+                self._firmware_retry_after = now + METADATA_RETRY_INTERVAL
                 _LOGGER.warning(
                     "%s - Failed to read firmware version: %s",
                     self.controller_mac_address,
-                    err,
+                    err or type(err).__name__,
                 )
             else:
                 self.firmware_version = firmware["raw_hex"]
@@ -264,14 +275,22 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                         device.id, sw_version=self.firmware_version
                     )
 
-        if len(self.station_names) < self.num_stations:
+        now = asyncio.get_running_loop().time()
+        if (
+            len(self.station_names) < self.num_stations
+            and now >= self._station_names_retry_after
+        ):
             try:
-                station_names = await self.api.get_station_names()
+                station_names = await asyncio.wait_for(
+                    self.api.get_station_names(),
+                    timeout=METADATA_READ_TIMEOUT,
+                )
             except Exception as err:
+                self._station_names_retry_after = now + METADATA_RETRY_INTERVAL
                 _LOGGER.warning(
                     "%s - Failed to read station names: %s",
                     self.controller_mac_address,
-                    err,
+                    err or type(err).__name__,
                 )
             else:
                 self.station_names = {

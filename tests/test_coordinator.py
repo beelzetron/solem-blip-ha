@@ -416,6 +416,31 @@ class TestEntitySetup:
             assert any(d["device_name"] == "Sprinkle Zone 1" for d in data)
             assert device_registry.async_get(device.id).sw_version == "5.1.5"
 
+    async def test_device_metadata_failures_are_cooled_down(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        mock_solem_client: MagicMock,
+    ) -> None:
+        """Optional metadata failures do not stall every status refresh."""
+        mock_solem_client.get_firmware_version.side_effect = asyncio.TimeoutError
+        mock_solem_client.get_station_names.side_effect = asyncio.TimeoutError
+
+        with patch(
+            "custom_components.solem_blip.coordinator.SolemClient",
+            return_value=mock_solem_client,
+        ), patch(
+            "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+        ):
+            coordinator = SolemCoordinator(hass, mock_config_entry)
+            await coordinator.async_init()
+
+            await coordinator._fetch_device_metadata()
+            await coordinator._fetch_device_metadata()
+
+            mock_solem_client.get_firmware_version.assert_awaited_once()
+            mock_solem_client.get_station_names.assert_awaited_once()
+
 
 @pytest.mark.asyncio
 class TestStartStopButtonBehavior:
