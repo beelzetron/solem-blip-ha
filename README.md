@@ -73,12 +73,12 @@ trigger:
     at: "06:00:00"
 condition:
   - condition: state
-    entity_id: sensor.solem_blip_c8b961d44dc8_station_1_status
+    entity_id: sensor.solem_blip_aabbccddeeff_station_1_status
     state: "Stopped"
 action:
   - action: button.press
     target:
-      entity_id: button.solem_blip_c8b961d44dc8_sprinkle_station_1
+      entity_id: button.solem_blip_aabbccddeeff_sprinkle_station_1
 ```
 
 Set **Irrigation manual duration** (`number.*_irrigation_manual_duration`) to control how long each sprinkle runs.
@@ -96,7 +96,7 @@ condition:
 action:
   - action: button.press
     target:
-      entity_id: button.solem_blip_c8b961d44dc8_sprinkle_station_1
+      entity_id: button.solem_blip_aabbccddeeff_sprinkle_station_1
 ```
 
 Adjust entity IDs and thresholds for your weather integration and layout.
