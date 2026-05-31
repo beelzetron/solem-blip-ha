@@ -17,8 +17,10 @@ from . import MyConfigEntry
 from .base import SolemBaseEntity
 from .coordinator import SolemCoordinator
 
+PARALLEL_UPDATES = 1
 
-@dataclass
+
+@dataclass(frozen=True)
 class SensorTypeClass:
     """Map coordinator device types to sensor classes."""
 
@@ -35,19 +37,8 @@ async def async_setup_entry(
     """Set up Solem BL-IP sensors."""
     coordinator: SolemCoordinator = config_entry.runtime_data.coordinator
 
-    sensor_types = [
-        SensorTypeClass("STATE_SENSOR", "state", StateSensor),
-        SensorTypeClass("BATTERY_SENSOR", "state", BatterySensor),
-        SensorTypeClass("BATTERY_VOLTAGE_SENSOR", "state", BatteryVoltageSensor),
-        SensorTypeClass("REMAINING_SPRINKLE_SENSOR", "state", RemainingSprinkleSensor),
-        SensorTypeClass("LAST_TIME_SYNC_SENSOR", "state", LastTimeSyncSensor),
-        SensorTypeClass("PROGRAM_NAME_SENSOR", "state", ProgramNameSensor),
-        SensorTypeClass("PROGRAM_NEXT_START_SENSOR", "state", ProgramNextStartSensor),
-        SensorTypeClass("PROGRAM_SCHEDULE_SENSOR", "state", ProgramScheduleSensor),
-    ]
-
     sensors = []
-    for sensor_type in sensor_types:
+    for sensor_type in SENSOR_TYPES:
         sensors.extend(
             [
                 sensor_type.sensor_class(coordinator, device, sensor_type.state_field)
@@ -146,3 +137,15 @@ class ProgramScheduleSensor(SolemBaseEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, object]:
         device = self.coordinator.get_device(self.device_id) or {}
         return dict(device.get("attributes") or {})
+
+
+SENSOR_TYPES = (
+    SensorTypeClass("STATE_SENSOR", "state", StateSensor),
+    SensorTypeClass("BATTERY_SENSOR", "state", BatterySensor),
+    SensorTypeClass("BATTERY_VOLTAGE_SENSOR", "state", BatteryVoltageSensor),
+    SensorTypeClass("REMAINING_SPRINKLE_SENSOR", "state", RemainingSprinkleSensor),
+    SensorTypeClass("LAST_TIME_SYNC_SENSOR", "state", LastTimeSyncSensor),
+    SensorTypeClass("PROGRAM_NAME_SENSOR", "state", ProgramNameSensor),
+    SensorTypeClass("PROGRAM_NEXT_START_SENSOR", "state", ProgramNextStartSensor),
+    SensorTypeClass("PROGRAM_SCHEDULE_SENSOR", "state", ProgramScheduleSensor),
+)

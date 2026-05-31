@@ -14,8 +14,10 @@ from . import MyConfigEntry
 from .base import SolemBaseEntity
 from .coordinator import SolemCoordinator
 
+PARALLEL_UPDATES = 1
 
-@dataclass
+
+@dataclass(frozen=True)
 class BinaryTypeClass:
     """Map coordinator device types to binary sensor classes."""
 
@@ -32,12 +34,8 @@ async def async_setup_entry(
     """Set up Solem BL-IP binary sensors."""
     coordinator: SolemCoordinator = config_entry.runtime_data.coordinator
 
-    binary_sensor_types = [
-        BinaryTypeClass("BATTERY_LOW_SENSOR", "state", BatteryLow),
-    ]
-
     binary_sensors = []
-    for sensor_type in binary_sensor_types:
+    for sensor_type in BINARY_SENSOR_TYPES:
         binary_sensors.extend(
             [
                 sensor_type.binary_class(coordinator, device, sensor_type.state_field)
@@ -56,3 +54,8 @@ class BatteryLow(SolemBaseEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         return self.coordinator.battery_low
+
+
+BINARY_SENSOR_TYPES = (
+    BinaryTypeClass("BATTERY_LOW_SENSOR", "state", BatteryLow),
+)

@@ -22,9 +22,14 @@
         }
       },
       "reconfigure": {
-        "description": "Aggiorna il controller selezionato o il numero di stazioni.",
+        "description": "Aggiorna il numero di stazioni. Per sostituire il controller fisico, rimuovi e aggiungi nuovamente l'integrazione.",
         "data": {
-          "controller_mac_address": "Indirizzo MAC del controller",
+          "num_stations": "Numero di stazioni"
+        }
+      },
+      "bluetooth_confirm": {
+        "description": "Configura {name} e scegli il numero di stazioni.",
+        "data": {
           "num_stations": "Numero di stazioni"
         }
       }
@@ -41,6 +46,31 @@
         "description": "Modifica polling e opzioni BLE.",
         "title": "Opzioni Solem BL-IP"
       }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "battery_low": { "name": "Batteria scarica" }
+    },
+    "button": {
+      "controller_off": { "name": "Spegni controller" },
+      "controller_on": { "name": "Accendi controller" },
+      "sprinkle_station": { "name": "Irriga {station_name}" },
+      "stop_sprinkle": { "name": "Interrompi irrigazione" }
+    },
+    "number": {
+      "irrigation_manual_duration": { "name": "Durata irrigazione manuale" }
+    },
+    "sensor": {
+      "battery": { "name": "Batteria" },
+      "battery_voltage": { "name": "Tensione batteria" },
+      "controller_status": { "name": "Stato controller" },
+      "last_time_sync": { "name": "Ultima sincronizzazione oraria" },
+      "program_name": { "name": "Nome programma {program}" },
+      "program_next_start": { "name": "Prossimo avvio programma {program}" },
+      "program_schedule": { "name": "Programmazione programma {program}" },
+      "station_remaining_time": { "name": "Tempo residuo {station_name}" },
+      "station_status": { "name": "Stato {station_name}" }
     }
   },
   "selector": {
