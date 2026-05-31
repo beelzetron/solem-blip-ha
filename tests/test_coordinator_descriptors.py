@@ -138,3 +138,55 @@ class TestEntitySetup:
             assert len(stop) == 1
             assert len(on) == 1
             assert len(off) == 1
+
+    async def test_irrigation_programs_are_surfaced(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        mock_solem_client: MagicMock,
+    ) -> None:
+        """Program schedule sensors are present after config read."""
+        with patch(
+            "custom_components.solem_blip.coordinator.SolemClient",
+            return_value=mock_solem_client,
+        ), patch(
+            "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+        ):
+            coordinator = SolemCoordinator(hass, mock_config_entry)
+            await coordinator.async_init()
+            data = await coordinator.async_update_all_sensors()
+
+            names = [d for d in data if d["device_type"] == "PROGRAM_NAME_SENSOR"]
+            next_starts = [
+                d for d in data if d["device_type"] == "PROGRAM_NEXT_START_SENSOR"
+            ]
+            schedules = [
+                d for d in data if d["device_type"] == "PROGRAM_SCHEDULE_SENSOR"
+            ]
+
+            assert len(names) == 3
+            assert len(next_starts) == 3
+            assert len(schedules) == 3
+            assert any(d["state"] == "Programma A" for d in names)
+            assert coordinator.irrigation_programs[0]["name"] == "Programma A"
+
+    async def test_last_time_sync_sensor_is_present(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        mock_solem_client: MagicMock,
+    ) -> None:
+        """Last time sync diagnostic is present and unknown until sync."""
+        with patch(
+            "custom_components.solem_blip.coordinator.SolemClient",
+            return_value=mock_solem_client,
+        ), patch(
+            "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+        ):
+            coordinator = SolemCoordinator(hass, mock_config_entry)
+            await coordinator.async_init()
+            data = await coordinator.async_update_all_sensors(fetch_status=False)
+
+            sync = [d for d in data if d["device_type"] == "LAST_TIME_SYNC_SENSOR"]
+            assert len(sync) == 1
+            assert sync[0]["state"] is None

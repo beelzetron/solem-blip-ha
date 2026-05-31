@@ -30,6 +30,7 @@ async def test_async_init_does_not_block_on_ble_io(
         },
         unique_id=mock_config_entry.unique_id,
     )
+    mock_solem_client.mock = False
 
     with patch(
         "custom_components.solem_blip.coordinator.SolemClient",
@@ -134,3 +135,94 @@ class TestEntitySetupMetadata:
 
             mock_solem_client.get_firmware_version.assert_awaited_once()
             mock_solem_client.get_station_names.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_set_time_runs_on_first_poll(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Device time sync runs on the first real BLE poll when not mocked."""
+    config_entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        data=mock_config_entry.data,
+        options={
+            **mock_config_entry.options,
+            SOLEM_API_MOCK: "false",
+        },
+        unique_id=mock_config_entry.unique_id,
+    )
+    mock_solem_client.mock = False
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+
+    mock_solem_client.set_time.assert_awaited_once()
+    assert coordinator._last_set_time_sync is not None
+    assert coordinator._set_time_pending is False
+
+
+@pytest.mark.asyncio
+async def test_set_time_throttled(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Device time sync is throttled after the first successful sync."""
+    config_entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        data=mock_config_entry.data,
+        options={
+            **mock_config_entry.options,
+            SOLEM_API_MOCK: "false",
+        },
+        unique_id=mock_config_entry.unique_id,
+    )
+    mock_solem_client.mock = False
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+        await coordinator._fetch_device_status()
+
+    mock_solem_client.set_time.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_irrigation_config_failures_are_cooled_down(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Irrigation config read failures apply a retry cooldown."""
+    import asyncio
+
+    mock_solem_client.get_irrigation_config.side_effect = asyncio.TimeoutError
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+        await coordinator._fetch_device_status()
+
+    mock_solem_client.get_irrigation_config.assert_awaited_once()
+    assert coordinator.irrigation_programs == {}
