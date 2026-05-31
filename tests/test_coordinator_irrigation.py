@@ -199,6 +199,20 @@ class TestIrrigationMonitorLifecycle:
                 await coordinator.start_irrigation(1, 1)
 
             assert coordinator._irrigation_active is False
+            assert coordinator._irrigation_monitor_task is None
+
+            mock_client.sprinkle_station_x_for_y_minutes = AsyncMock()
+
+            async def slow_monitor(station, duration):
+                await asyncio.sleep(10)
+
+            coordinator._run_irrigation_monitor = slow_monitor
+            await coordinator.start_irrigation(1, 1)
+
+            assert coordinator._irrigation_active is True
+            assert coordinator._irrigation_monitor_task is not None
+
+            await coordinator.async_shutdown()
 
     async def test_async_shutdown_cancels_monitor_task(
         self,
