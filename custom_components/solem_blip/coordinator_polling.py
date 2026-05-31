@@ -1,0 +1,159 @@
+"""BLE polling helpers for SolemCoordinator."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import TYPE_CHECKING, Any
+
+from homeassistant.helpers import device_registry as dr
+
+from .const import DOMAIN, METADATA_READ_TIMEOUT, METADATA_RETRY_INTERVAL
+
+if TYPE_CHECKING:
+    from .coordinator import SolemCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
+    """Update coordinator state from a BLE status dict."""
+    coordinator.controller.state = status.get("controller_state", "Unknown")
+    coordinator.battery_voltage = status.get("battery_voltage")
+    coordinator.battery_level = status.get("battery_level")
+    coordinator.battery_low = bool(status.get("battery_low", False))
+    coordinator._has_status = True
+
+    if status.get("is_watering") and status.get("station_num"):
+        active_station_num = status["station_num"]
+        coordinator.active_station_num = active_station_num
+        coordinator.remaining_seconds = status.get("remaining_seconds")
+        if 1 <= active_station_num <= coordinator.num_stations:
+            for index, station in enumerate(coordinator.stations):
+                station.state = (
+                    "Sprinkling"
+                    if index + 1 == active_station_num
+                    else "Stopped"
+                )
+        else:
+            _LOGGER.warning(
+                "%s - Watering on station %s outside configured range 1-%s",
+                coordinator.controller_mac_address,
+                active_station_num,
+                coordinator.num_stations,
+            )
+    elif not status.get("is_watering"):
+        coordinator.active_station_num = None
+        coordinator.remaining_seconds = None
+        for station in coordinator.stations:
+            station.state = "Stopped"
+    else:
+        _LOGGER.warning(
+            "%s - Watering active but no station in status; keeping existing states",
+            coordinator.controller_mac_address,
+        )
+
+    _LOGGER.debug(
+        "%s - Status: controller=%s watering=%s station=%s remaining=%ss battery=%s (%s/5)",
+        coordinator.controller_mac_address,
+        coordinator.controller.state,
+        status.get("is_watering"),
+        status.get("station_num"),
+        coordinator.remaining_seconds,
+        coordinator.battery_voltage,
+        coordinator.battery_level,
+    )
+
+
+async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
+    """Push HA local time to the device (stub for schedule accuracy work)."""
+
+
+async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
+    """Read firmware and station names without failing status polling."""
+    now = asyncio.get_running_loop().time()
+    if coordinator.firmware_version is None and now >= coordinator._firmware_retry_after:
+        try:
+            firmware = await asyncio.wait_for(
+                coordinator.api.get_firmware_version(),
+                timeout=METADATA_READ_TIMEOUT,
+            )
+        except Exception as err:
+            coordinator._firmware_retry_after = now + METADATA_RETRY_INTERVAL
+            _LOGGER.warning(
+                "%s - Failed to read firmware version: %s",
+                coordinator.controller_mac_address,
+                err or type(err).__name__,
+            )
+        else:
+            coordinator.firmware_version = firmware["raw_hex"]
+            coordinator.controller.software_version = coordinator.firmware_version
+            for station in coordinator.stations:
+                station.software_version = coordinator.firmware_version
+            device_registry = dr.async_get(coordinator.hass)
+            device = device_registry.async_get_device(
+                identifiers={(DOMAIN, coordinator.controller_mac_address)}
+            )
+            if device is not None:
+                device_registry.async_update_device(
+                    device.id, sw_version=coordinator.firmware_version
+                )
+
+    now = asyncio.get_running_loop().time()
+    if (
+        len(coordinator.station_names) < coordinator.num_stations
+        and now >= coordinator._station_names_retry_after
+    ):
+        try:
+            station_names = await asyncio.wait_for(
+                coordinator.api.get_station_names(),
+                timeout=METADATA_READ_TIMEOUT,
+            )
+        except Exception as err:
+            coordinator._station_names_retry_after = now + METADATA_RETRY_INTERVAL
+            _LOGGER.warning(
+                "%s - Failed to read station names: %s",
+                coordinator.controller_mac_address,
+                err or type(err).__name__,
+            )
+        else:
+            coordinator.station_names = {
+                station_id: name.strip() or f"Station {station_id}"
+                for station_id, name in station_names.items()
+                if 1 <= station_id <= coordinator.num_stations
+            }
+            for station in coordinator.stations:
+                station.device_name = (
+                    f"{coordinator._station_name(station.station_number)} Status"
+                )
+
+
+async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
+    """Read on-device irrigation programs (stub for schedule sensor work)."""
+
+
+async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
+    """Poll device and update controller/station states from BLE status."""
+    status = await coordinator.api.get_status()
+    apply_status(coordinator, status)
+    await fetch_device_metadata(coordinator)
+    return status
+
+
+def remaining_seconds_for_station(
+    coordinator: SolemCoordinator, station_id: int
+) -> int | None:
+    """Return remaining sprinkle seconds for a station (0 when idle/inactive)."""
+    if not coordinator._has_status:
+        return None
+    if (
+        coordinator.active_station_num == station_id
+        and coordinator.remaining_seconds is not None
+    ):
+        return coordinator.remaining_seconds
+    if (
+        coordinator.active_station_num == station_id
+        and coordinator.remaining_seconds is None
+    ):
+        return None
+    return 0
