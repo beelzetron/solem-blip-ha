@@ -1,8 +1,11 @@
 """Pytest configuration and fixtures for the Solem BL-IP integration."""
 
-from unittest.mock import MagicMock
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.const import (
@@ -14,6 +17,7 @@ from custom_components.solem_blip.const import (
     NUM_STATIONS,
     SOLEM_API_MOCK,
 )
+from custom_components.solem_blip.coordinator import SolemCoordinator
 
 
 @pytest.fixture
@@ -34,13 +38,12 @@ def mock_config_entry() -> MockConfigEntry:
     )
 
 
-@pytest.fixture
-def mock_solem_client() -> MagicMock:
-    """Create a mock SolemClient."""
+def create_mock_solem_client(station_num: int = 2) -> MagicMock:
+    """Create a mock SolemClient with configurable station count."""
     client = MagicMock()
-    client.max_station_num = 2
+    client.max_station_num = station_num
     client.mock = True
-    client.get_status = MagicMock(return_value={
+    client.get_status = AsyncMock(return_value={
         "controller_state": "On",
         "is_watering": False,
         "battery_voltage": 90,
@@ -49,10 +52,51 @@ def mock_solem_client() -> MagicMock:
         "station_num": None,
         "remaining_seconds": None,
     })
-    client.sprinkle_station_x_for_y_minutes = MagicMock()
-    client.stop_manual_sprinkle = MagicMock()
-    client.turn_on = MagicMock()
-    client.turn_off_permanent = MagicMock()
-    client.connect = MagicMock()
-    client.disconnect = MagicMock()
+    client.get_firmware_version = AsyncMock(return_value={
+        "major": 5,
+        "minor": 1,
+        "patch": 5,
+        "raw_hex": "5.1.5",
+    })
+    client.get_station_names = AsyncMock(return_value={
+        station: f"Zone {station}" for station in range(1, station_num + 1)
+    })
+    client.sprinkle_station_x_for_y_minutes = AsyncMock()
+    client.stop_manual_sprinkle = AsyncMock()
+    client.turn_on = AsyncMock()
+    client.turn_off_permanent = AsyncMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
     return client
+
+
+@pytest.fixture
+def mock_solem_client() -> MagicMock:
+    """Create a mock SolemClient."""
+    return create_mock_solem_client(2)
+
+
+@pytest.fixture
+def mock_ble_device_resolver() -> Mock:
+    """Create a mock BLE device resolver."""
+    mock_device = MagicMock()
+    mock_device.address = "AA:BB:CC:DD:EE:FF"
+    mock_device.name = "Solem BL-IP"
+    return Mock(return_value=mock_device)
+
+
+@pytest.fixture
+async def coordinator(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, mock_solem_client
+) -> SolemCoordinator:
+    """Create a coordinator with mocked dependencies."""
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+        return_value=Mock(address="AA:BB:CC:DD:EE:FF", name="Solem BL-IP"),
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        return coordinator
