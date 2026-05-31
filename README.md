@@ -17,7 +17,12 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Battery percentage, voltage (diagnostic), and low-battery alert
 - Manual sprinkle per station, stop, controller on/off
 - Configurable manual duration (minutes)
+- Read-only on-device program schedule sensors
+- Daily controller RTC synchronization after a successful BLE poll
 - Uses the [`solem-blip-ble`](https://pypi.org/project/solem-blip-ble/) library via Home Assistant Bluetooth
+
+This integration supports the original Solem BL-IP controller running firmware 5.x.
+BL-IP V2 controllers running firmware 6.x are not supported.
 
 ## Installation
 
@@ -40,7 +45,7 @@ Setup asks only for the **Bluetooth controller** and **number of stations**.
 
 ### BLE dependency
 
-Home Assistant installs `solem-blip-ble>=0.1.14` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
+Home Assistant installs `solem-blip-ble>=0.1.20` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
 
 ## Entities (example: 6 stations)
 
@@ -57,6 +62,7 @@ Home Assistant installs `solem-blip-ble>=0.1.14` from PyPI automatically. Protoc
 | Sprinkle station N | Start manual watering |
 | Stop sprinkle | Stop active watering |
 | Turn on / off controller | Enable or disable controller |
+| Program schedule | Read-only summary of the schedule stored on the controller |
 
 Roughly **25 entities** for a 6-station controller.
 
@@ -135,6 +141,23 @@ From the integration **Configure** menu:
 - **Scan interval** — BLE poll interval (seconds)
 - **Bluetooth timeout** — connection timeout (seconds)
 - **Mock Solem API** — debug without hardware
+
+The integration polls BLE status every 60 seconds by default and exposes the
+schedule stored on the controller as read-only sensors. Schedule changes remain
+the responsibility of the Solem app or Home Assistant automations.
+
+## Removal
+
+Remove the integration from Settings → Devices & Services → Solem BL-IP. The
+controller device is tied to its config entry and cannot be removed independently.
+
+## Troubleshooting
+
+- Keep mobile apps disconnected while Home Assistant is connecting to the controller.
+- Add a Bluetooth proxy closer to the controller if discovery is intermittent.
+- Use the integration diagnostics download to inspect availability, battery state,
+  metadata retry timing, and schedule-read state. The controller MAC address is redacted.
+- BL-IP V2 firmware 6.x is intentionally unsupported.
 
 ## Credits
 

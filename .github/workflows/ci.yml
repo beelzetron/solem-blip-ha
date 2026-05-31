@@ -67,4 +67,4 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run pytest
-        run: pytest -v
+        run: pytest --cov=custom_components.solem_blip --cov-report=term-missing -v
