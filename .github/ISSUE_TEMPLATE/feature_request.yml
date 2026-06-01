@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an improvement for the Solem BL-IP integration
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests for BL-IP firmware 5.x are in scope. BL-IP V2 / firmware 6.x support is out of scope unless explicitly requested.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to accomplish in Home Assistant?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like the integration to behave?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Automations, helpers, or other integrations you tried.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues before opening this request
+          required: true
