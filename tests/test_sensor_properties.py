@@ -8,7 +8,6 @@ from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
 from custom_components.solem_blip.sensor import (
     BatteryVoltageSensor,
     LastTimeSyncSensor,
-    ProgramNameSensor,
     ProgramNextStartSensor,
     ProgramScheduleSensor,
     RemainingSprinkleSensor,
@@ -38,7 +37,7 @@ async def test_sensor_native_values_after_refresh(coordinator) -> None:
         "BATTERY_VOLTAGE_SENSOR": BatteryVoltageSensor,
         "REMAINING_SPRINKLE_SENSOR": RemainingSprinkleSensor,
         "LAST_TIME_SYNC_SENSOR": LastTimeSyncSensor,
-        "PROGRAM_NAME_SENSOR": ProgramNameSensor,
+        "PROGRAM_NEXT_START_SENSOR": ProgramNextStartSensor,
         "PROGRAM_SCHEDULE_SENSOR": ProgramScheduleSensor,
     }
 
@@ -49,6 +48,7 @@ async def test_sensor_native_values_after_refresh(coordinator) -> None:
         )
         assert entity.native_value is not None or device_type in {
             "LAST_TIME_SYNC_SENSOR",
+            "PROGRAM_NEXT_START_SENSOR",
         }
 
 
@@ -103,7 +103,7 @@ async def test_program_next_start_sensor_exposes_schedule_context(coordinator) -
         item
         for item in coordinator.data
         if item["device_type"] == "PROGRAM_NEXT_START_SENSOR"
-        and item.get("translation_placeholders", {}).get("program") == "C"
+        and item.get("translation_placeholders", {}).get("program_name") == "Programma C"
     )
     entity = ProgramNextStartSensor(
         coordinator, device, "state", SENSOR_DESCRIPTIONS["PROGRAM_NEXT_START_SENSOR"]

@@ -109,7 +109,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Solem BL-IP."""
 
-    VERSION = 1
+    VERSION = 2
     _discovered_controller: str | None = None
 
     @staticmethod

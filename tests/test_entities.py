@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
 from custom_components.solem_blip.sensor import BatterySensor, StateSensor
+from custom_components.solem_blip.util import format_entity_unique_id
 
 
 @pytest.mark.asyncio
@@ -26,10 +27,11 @@ async def test_station_entity_keeps_unique_id_and_uses_translation_placeholder(
         coordinator, device, "state", SENSOR_DESCRIPTIONS["STATE_SENSOR"]
     )
 
-    assert entity.unique_id == (
-        "solem_blip-AA:BB:CC:DD:EE:FF-"
-        f"{device['device_uid']}-state"
+    assert entity.unique_id == format_entity_unique_id(
+        coordinator.controller_mac_address,
+        device["device_id"],
     )
+    assert entity.unique_id.endswith("-irrigation_station_1_status")
     assert entity._attr_translation_key == "station_status"
     assert entity._attr_translation_placeholders == {"station_name": "Station 1"}
 

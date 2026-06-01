@@ -95,12 +95,6 @@ SENSOR_DESCRIPTIONS: dict[str, SolemSensorEntityDescription] = {
         entity_registry_enabled_default=False,
         has_entity_name=True,
     ),
-    "PROGRAM_NAME_SENSOR": SolemSensorEntityDescription(
-        key="program_name",
-        device_type="PROGRAM_NAME_SENSOR",
-        translation_key="program_name",
-        has_entity_name=True,
-    ),
     "PROGRAM_NEXT_START_SENSOR": SolemSensorEntityDescription(
         key="program_next_start",
         device_type="PROGRAM_NEXT_START_SENSOR",

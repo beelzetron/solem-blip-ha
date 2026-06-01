@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import SolemCoordinator
+from .util import format_entity_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,11 +96,10 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
 
     @property
     def unique_id(self) -> str:
-        """Return unique id."""
-        return (
-            f"{DOMAIN}-{self.coordinator.controller_mac_address}-"
-            f"{self.coordinator.get_device_parameter(self.device_id, 'device_uid')}-"
-            f"{self.parameter or self.entity_description.key or 'entity'}"
+        """Return stable unique id derived from MAC and device_id."""
+        return format_entity_unique_id(
+            self.coordinator.controller_mac_address,
+            self.device_id,
         )
 
     @property

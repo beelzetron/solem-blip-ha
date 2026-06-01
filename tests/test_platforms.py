@@ -32,7 +32,6 @@ from custom_components.solem_blip.sensor import (
     BatterySensor,
     BatteryVoltageSensor,
     LastTimeSyncSensor,
-    ProgramNameSensor,
     ProgramNextStartSensor,
     ProgramScheduleSensor,
     RemainingSprinkleSensor,
@@ -76,10 +75,25 @@ async def test_sensor_platform_creates_entities(
     assert any(isinstance(entity, BatteryVoltageSensor) for entity in entities)
     assert any(isinstance(entity, RemainingSprinkleSensor) for entity in entities)
     assert any(isinstance(entity, LastTimeSyncSensor) for entity in entities)
-    assert any(isinstance(entity, ProgramNameSensor) for entity in entities)
     assert any(isinstance(entity, ProgramNextStartSensor) for entity in entities)
     assert any(isinstance(entity, ProgramScheduleSensor) for entity in entities)
 
+
+@pytest.mark.asyncio
+async def test_platform_entities_have_unique_ids_per_platform(
+    hass: HomeAssistant, coordinator: SolemCoordinator, mock_config_entry: MockConfigEntry
+) -> None:
+    """Each platform entity must expose a distinct stable unique_id."""
+    sensors = await _setup_platform(hass, coordinator, mock_config_entry, setup_sensor)
+    binaries = await _setup_platform(
+        hass, coordinator, mock_config_entry, setup_binary
+    )
+    buttons = await _setup_platform(hass, coordinator, mock_config_entry, setup_button)
+    numbers = await _setup_platform(hass, coordinator, mock_config_entry, setup_number)
+
+    for entities in (sensors, binaries, buttons, numbers):
+        unique_ids = [entity.unique_id for entity in entities]
+        assert len(unique_ids) == len(set(unique_ids))
 
 
 @pytest.mark.asyncio
@@ -131,13 +145,13 @@ async def test_program_sensor_subscribes_to_schedule_coordinator(
 ) -> None:
     """Program sensors trigger the first background schedule refresh."""
     device = next(
-        item for item in coordinator.data if item["device_type"] == "PROGRAM_NAME_SENSOR"
+        item for item in coordinator.data if item["device_type"] == "PROGRAM_NEXT_START_SENSOR"
     )
-    sensor = ProgramNameSensor(
+    sensor = ProgramNextStartSensor(
         coordinator,
         device,
         "state",
-        SENSOR_DESCRIPTIONS["PROGRAM_NAME_SENSOR"],
+        SENSOR_DESCRIPTIONS["PROGRAM_NEXT_START_SENSOR"],
     )
     sensor.hass = hass
     remove_listener = MagicMock()

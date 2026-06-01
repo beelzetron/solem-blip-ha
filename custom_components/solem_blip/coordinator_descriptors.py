@@ -248,20 +248,7 @@ def build_program_descriptors(
         program = coordinator.irrigation_programs.get(program_index)
         label_lower = label.lower()
         mac = coordinator.controller_mac_address
-
-        data.append(
-            {
-                "device_id": f"{mac}_program_{label_lower}_name",
-                "device_type": "PROGRAM_NAME_SENSOR",
-                "device_name": f"Program {label} name",
-                "device_uid": mac_to_uuid(mac, program_counter),
-                "software_version": "1.0",
-                "state": program["name"] if program else None,
-                "last_reboot": None,
-                "translation_placeholders": {"program": label},
-            }
-        )
-        program_counter += 1
+        display_name = coordinator._program_display_name(program_index)
 
         next_start = next_start_datetime(program, now) if program else None
         next_minutes = None
@@ -272,17 +259,19 @@ def build_program_descriptors(
         if program:
             next_attrs.update(schedule_context_attributes(program))
 
+        program_counter += 1  # reserved slot for removed program name sensor
+
         data.append(
             {
                 "device_id": f"{mac}_program_{label_lower}_next_start",
                 "device_type": "PROGRAM_NEXT_START_SENSOR",
-                "device_name": f"Program {label} next start",
+                "device_name": f"{display_name} next start",
                 "device_uid": mac_to_uuid(mac, program_counter),
                 "software_version": "1.0",
                 "state": next_start,
                 "attributes": next_attrs,
                 "last_reboot": None,
-                "translation_placeholders": {"program": label},
+                "translation_placeholders": {"program_name": display_name},
             }
         )
         program_counter += 1
@@ -291,7 +280,7 @@ def build_program_descriptors(
             {
                 "device_id": f"{mac}_program_{label_lower}_running",
                 "device_type": "PROGRAM_RUNNING_SENSOR",
-                "device_name": f"Program {label} running",
+                "device_name": f"{display_name} running",
                 "device_uid": mac_to_uuid(mac, program_counter),
                 "software_version": "1.0",
                 "state": (
@@ -301,7 +290,7 @@ def build_program_descriptors(
                 ),
                 "program_num": program_index + 1,
                 "last_reboot": None,
-                "translation_placeholders": {"program": label},
+                "translation_placeholders": {"program_name": display_name},
             }
         )
         program_counter += 1
@@ -310,7 +299,7 @@ def build_program_descriptors(
             {
                 "device_id": f"{mac}_program_{label_lower}_schedule",
                 "device_type": "PROGRAM_SCHEDULE_SENSOR",
-                "device_name": f"Program {label} schedule",
+                "device_name": f"{display_name} schedule",
                 "device_uid": mac_to_uuid(mac, program_counter),
                 "software_version": "1.0",
                 "state": enabled_start_count(program["start_times"]) if program else None,
@@ -320,7 +309,7 @@ def build_program_descriptors(
                     else {}
                 ),
                 "last_reboot": None,
-                "translation_placeholders": {"program": label},
+                "translation_placeholders": {"program_name": display_name},
             }
         )
         program_counter += 1

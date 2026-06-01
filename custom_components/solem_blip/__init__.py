@@ -10,9 +10,12 @@ from homeassistant.helpers import device_registry as dr
 from .config_entry import MyConfigEntry, RuntimeData
 from .const import CONTROLLER_MAC_ADDRESS, DOMAIN
 from .coordinator import SolemCoordinator
+from .migrate import async_migrate_unique_ids, async_remove_program_name_entities
 from .repairs import CONSECUTIVE_FAILURES_THRESHOLD
 
-__all__ = ["DOMAIN", "MyConfigEntry", "RuntimeData", "PLATFORMS"]
+CONFIG_VERSION = 2
+
+__all__ = ["DOMAIN", "MyConfigEntry", "RuntimeData", "PLATFORMS", "CONFIG_VERSION"]
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -22,8 +25,22 @@ PLATFORMS: list[Platform] = [
 ]
 
 
+async def async_migrate_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -> bool:
+    """Migrate config entries to the latest version."""
+    if config_entry.version >= CONFIG_VERSION:
+        return True
+
+    if config_entry.version == 1:
+        await async_migrate_unique_ids(hass, config_entry)
+
+    hass.config_entries.async_update_entry(config_entry, version=CONFIG_VERSION)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -> bool:
     """Set up Solem BL-IP from a config entry."""
+    await async_remove_program_name_entities(hass, config_entry)
+
     coordinator = SolemCoordinator(hass, config_entry)
 
     await coordinator.async_init()

@@ -130,14 +130,6 @@ class ProgramSensor(SolemSensorEntity):
         schedule_coordinator.async_start_first_refresh()
 
 
-class ProgramNameSensor(ProgramSensor):
-    """On-device program name sensor."""
-
-    @property
-    def native_value(self) -> str | None:
-        return cast(str | None, self._descriptor_field())
-
-
 class ProgramNextStartSensor(ProgramSensor):
     """On-device program next start sensor."""
 
@@ -170,7 +162,6 @@ SENSOR_ENTITY_CLASSES: dict[str, type[SolemSensorEntity]] = {
     "BATTERY_VOLTAGE_SENSOR": BatteryVoltageSensor,
     "REMAINING_SPRINKLE_SENSOR": RemainingSprinkleSensor,
     "LAST_TIME_SYNC_SENSOR": LastTimeSyncSensor,
-    "PROGRAM_NAME_SENSOR": ProgramNameSensor,
     "PROGRAM_NEXT_START_SENSOR": ProgramNextStartSensor,
     "PROGRAM_SCHEDULE_SENSOR": ProgramScheduleSensor,
 }

@@ -33,6 +33,7 @@ async def test_diagnostics_redact_mac_and_include_runtime_state(
     coordinator._firmware_retry_after = 1.0
     coordinator._station_names_retry_after = 2.0
     coordinator.irrigation_programs = {2: {"name": "Programma C"}}
+    coordinator._program_display_name.return_value = "Programma C"
     coordinator._irrigation_config_retry_after = 3.0
     coordinator._irrigation_config_refresh_after = 4.0
     mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())

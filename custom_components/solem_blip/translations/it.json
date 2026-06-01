@@ -50,7 +50,7 @@
   "entity": {
     "binary_sensor": {
       "battery_low": { "name": "Batteria scarica" },
-      "program_running": { "name": "Programma {program} in esecuzione" }
+      "program_running": { "name": "{program_name} in esecuzione" }
     },
     "button": {
       "controller_off": { "name": "Spegni controller" },
@@ -73,9 +73,8 @@
         }
       },
       "last_time_sync": { "name": "Ultima sincronizzazione dell'ora" },
-      "program_name": { "name": "Nome del programma {program}" },
-      "program_next_start": { "name": "Prossimo avvio del programma {program}" },
-      "program_schedule": { "name": "Programmazione del programma {program}" },
+      "program_next_start": { "name": "Prossimo avvio di {program_name}" },
+      "program_schedule": { "name": "Programmazione di {program_name}" },
       "station_remaining_time": { "name": "Tempo residuo di {station_name}" },
       "station_status": {
         "name": "Stato {station_name}",
