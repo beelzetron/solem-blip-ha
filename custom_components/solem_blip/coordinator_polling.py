@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.helpers import device_registry as dr
 
@@ -18,6 +18,7 @@ from .const import (
     METADATA_RETRY_INTERVAL,
     SET_TIME_MIN_INTERVAL,
 )
+from .util import normalize_entity_state
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
@@ -27,7 +28,9 @@ _LOGGER = logging.getLogger(__name__)
 
 def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     """Update coordinator state from a BLE status dict."""
-    coordinator.controller.state = status.get("controller_state", "Unknown")
+    coordinator.controller.state = normalize_entity_state(
+        status.get("controller_state")
+    )
     coordinator.battery_voltage = status.get("battery_voltage")
     coordinator.battery_level = status.get("battery_level")
     coordinator.battery_low = bool(status.get("battery_low", False))
@@ -40,9 +43,9 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
         if 1 <= active_station_num <= coordinator.num_stations:
             for index, station in enumerate(coordinator.stations):
                 station.state = (
-                    "Sprinkling"
+                    "sprinkling"
                     if index + 1 == active_station_num
-                    else "Stopped"
+                    else "stopped"
                 )
         else:
             _LOGGER.warning(
@@ -55,7 +58,7 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
         coordinator.active_station_num = None
         coordinator.remaining_seconds = None
         for station in coordinator.stations:
-            station.state = "Stopped"
+            station.state = "stopped"
     else:
         _LOGGER.warning(
             "%s - Watering active but no station in status; keeping existing states",
@@ -213,7 +216,7 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     apply_status(coordinator, status)
     await fetch_device_metadata(coordinator)
     await fetch_irrigation_config(coordinator)
-    return status
+    return cast(dict[str, Any], status)
 
 
 def remaining_seconds_for_station(

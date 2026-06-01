@@ -53,7 +53,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     address = data[CONTROLLER_MAC_ADDRESS].rsplit(" - ", 1)[1]
     _LOGGER.debug("Validating BLE connection to %s", address)
 
-    def _resolve_ble_device():
+    def _resolve_ble_device() -> Any | None:
         return async_get_connectable_device(hass, address)
 
     if _resolve_ble_device() is None:
@@ -114,9 +114,9 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry):
+    def async_get_options_flow(config_entry: ConfigEntry) -> SolemOptionsFlowHandler:
         """Return the options flow handler."""
-        return SolemOptionsFlowHandler(config_entry)
+        return SolemOptionsFlowHandler()
 
     def _build_schema(
         self,
@@ -255,6 +255,7 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
         config_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
+        assert config_entry is not None
 
         if user_input is not None:
             return self.async_update_reload_and_abort(
@@ -286,27 +287,26 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
 class SolemOptionsFlowHandler(OptionsFlow):
     """Handle integration options."""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
-        self.options = dict(config_entry.options)
-
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         if user_input is not None:
             options = self.config_entry.options | user_input
             return self.async_create_entry(title="", data=options)
 
+        options = dict(self.config_entry.options)
         data_schema = vol.Schema(
             {
                 vol.Required(
                     CONF_SCAN_INTERVAL,
-                    default=self.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                    default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                 ): vol.All(
                     vol.Coerce(int),
                     vol.Clamp(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                 ),
                 vol.Required(
                     BLUETOOTH_TIMEOUT,
-                    default=self.options.get(
+                    default=options.get(
                         BLUETOOTH_TIMEOUT, BLUETOOTH_DEFAULT_TIMEOUT
                     ),
                 ): vol.All(
@@ -315,7 +315,7 @@ class SolemOptionsFlowHandler(OptionsFlow):
                 ),
                 vol.Required(
                     SOLEM_API_MOCK,
-                    default=self.options.get(SOLEM_API_MOCK, "false"),
+                    default=options.get(SOLEM_API_MOCK, "false"),
                 ): selector(
                     {
                         "select": {
@@ -337,7 +337,3 @@ class CannotConnect(HomeAssistantError):
 
 class CannotConnectSlots(CannotConnect):
     """Error to indicate Bluetooth adapters/proxies are out of connection slots."""
-
-
-class InvalidAuth(HomeAssistantError):
-    """Error to indicate there is invalid auth."""

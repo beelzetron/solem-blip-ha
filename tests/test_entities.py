@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from custom_components.solem_blip.sensor import StateSensor
+from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
+from custom_components.solem_blip.sensor import BatterySensor, StateSensor
 
 
 @pytest.mark.asyncio
@@ -21,7 +22,9 @@ async def test_station_entity_keeps_unique_id_and_uses_translation_placeholder(
         if item["device_id"].endswith("_irrigation_station_1_status")
     )
 
-    entity = StateSensor(coordinator, device, "state")
+    entity = StateSensor(
+        coordinator, device, "state", SENSOR_DESCRIPTIONS["STATE_SENSOR"]
+    )
 
     assert entity.unique_id == (
         "solem_blip-AA:BB:CC:DD:EE:FF-"
@@ -29,6 +32,23 @@ async def test_station_entity_keeps_unique_id_and_uses_translation_placeholder(
     )
     assert entity._attr_translation_key == "station_status"
     assert entity._attr_translation_placeholders == {"station_name": "Station 1"}
+
+
+@pytest.mark.asyncio
+async def test_battery_entity_has_no_translation_placeholders_attribute(
+    coordinator,
+) -> None:
+    """Entities without placeholders must not set _attr_translation_placeholders."""
+    device = next(
+        item for item in coordinator.data if item["device_type"] == "BATTERY_SENSOR"
+    )
+
+    entity = BatterySensor(
+        coordinator, device, "state", SENSOR_DESCRIPTIONS["BATTERY_SENSOR"]
+    )
+
+    assert entity.translation_key == "battery"
+    assert not hasattr(entity, "_attr_translation_placeholders")
 
 
 def test_english_and_italian_entity_translations_are_present() -> None:

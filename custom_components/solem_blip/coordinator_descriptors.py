@@ -38,7 +38,6 @@ def build_controller_and_battery_descriptors(
             "device_uid": mac_to_uuid(coordinator.controller_mac_address, counter),
             "software_version": coordinator.controller.software_version,
             "state": coordinator.controller.state,
-            "icon": coordinator.controller.icon,
             "last_reboot": coordinator.controller.last_reboot,
         }
     )
@@ -56,7 +55,6 @@ def build_controller_and_battery_descriptors(
             "device_uid": mac_to_uuid(coordinator.controller_mac_address, counter),
             "software_version": "1.0",
             "state": battery_percent,
-            "icon": "mdi:battery",
             "last_reboot": None,
         }
     )
@@ -73,7 +71,6 @@ def build_controller_and_battery_descriptors(
                 if coordinator.battery_voltage is not None
                 else None
             ),
-            "icon": "mdi:battery-outline",
             "last_reboot": None,
         }
     )
@@ -86,7 +83,6 @@ def build_controller_and_battery_descriptors(
             "device_uid": mac_to_uuid(coordinator.controller_mac_address, counter),
             "software_version": "1.0",
             "state": coordinator.battery_low,
-            "icon": "mdi:battery-alert",
             "last_reboot": None,
         }
     )
@@ -99,7 +95,6 @@ def build_controller_and_battery_descriptors(
             "device_uid": mac_to_uuid(coordinator.controller_mac_address, counter),
             "software_version": "1.0",
             "state": coordinator._last_set_time_sync,
-            "icon": "mdi:clock-check-outline",
             "last_reboot": None,
         }
     )
@@ -126,8 +121,10 @@ def build_station_descriptors(
                 ),
                 "software_version": station.software_version,
                 "state": station.state,
-                "icon": station.icon,
                 "last_reboot": station.last_reboot,
+                "translation_placeholders": {
+                    "station_name": coordinator._station_name(station_id)
+                },
             }
         )
         stations_counter += 1
@@ -152,8 +149,10 @@ def build_remaining_time_descriptors(
                 ),
                 "software_version": "1.0",
                 "state": remaining_seconds_for_station(coordinator, station_id),
-                "icon": "mdi:timer-outline",
                 "last_reboot": None,
+                "translation_placeholders": {
+                    "station_name": coordinator._station_name(station_id)
+                },
             }
         )
         remaining_counter += 1
@@ -177,7 +176,6 @@ def build_control_descriptors(
             "device_uid": mac_to_uuid(coordinator.controller_mac_address, counter),
             "software_version": "1.0",
             "value": coordinator.irrigation_manual_duration,
-            "icon": "mdi:clock-time-five-outline",
             "last_reboot": None,
         }
     )
@@ -193,8 +191,10 @@ def build_control_descriptors(
                     coordinator.controller_mac_address, buttons_counter
                 ),
                 "software_version": "1.0",
-                "icon": "mdi:sprinkler",
                 "last_reboot": None,
+                "translation_placeholders": {
+                    "station_name": coordinator._station_name(station_id)
+                },
             }
         )
         buttons_counter += 1
@@ -207,7 +207,6 @@ def build_control_descriptors(
                 "device_name": "Stop sprinkle",
                 "device_uid": mac_to_uuid(coordinator.controller_mac_address, counter),
                 "software_version": "1.0",
-                "icon": "mdi:water-off",
                 "last_reboot": None,
             },
             {
@@ -218,7 +217,6 @@ def build_control_descriptors(
                     coordinator.controller_mac_address, counter + 1
                 ),
                 "software_version": "1.0",
-                "icon": "mdi:power-on",
                 "last_reboot": None,
             },
             {
@@ -229,7 +227,6 @@ def build_control_descriptors(
                     coordinator.controller_mac_address, counter + 2
                 ),
                 "software_version": "1.0",
-                "icon": "mdi:power-off",
                 "last_reboot": None,
             },
         ]
@@ -259,8 +256,8 @@ def build_program_descriptors(
                 "device_uid": mac_to_uuid(mac, program_counter),
                 "software_version": "1.0",
                 "state": program["name"] if program else None,
-                "icon": "mdi:calendar-text",
                 "last_reboot": None,
+                "translation_placeholders": {"program": label},
             }
         )
         program_counter += 1
@@ -279,8 +276,8 @@ def build_program_descriptors(
                 "software_version": "1.0",
                 "state": next_start,
                 "attributes": {"minutes_since_midnight": next_minutes},
-                "icon": "mdi:calendar-clock",
                 "last_reboot": None,
+                "translation_placeholders": {"program": label},
             }
         )
         program_counter += 1
@@ -298,8 +295,8 @@ def build_program_descriptors(
                     if program
                     else {}
                 ),
-                "icon": "mdi:calendar-month",
                 "last_reboot": None,
+                "translation_placeholders": {"program": label},
             }
         )
         program_counter += 1

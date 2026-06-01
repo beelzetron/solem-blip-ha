@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
-
-from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
+from homeassistant.config_entries import ConfigEntryNotReady
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
+from .config_entry import MyConfigEntry, RuntimeData
 from .const import CONTROLLER_MAC_ADDRESS, DOMAIN
 from .coordinator import SolemCoordinator
+
+__all__ = ["DOMAIN", "MyConfigEntry", "RuntimeData", "PLATFORMS"]
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -19,16 +20,6 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
 ]
 
-type MyConfigEntry = ConfigEntry[RuntimeData]
-
-
-@dataclass
-class RuntimeData:
-    """Runtime data attached to a config entry."""
-
-    coordinator: SolemCoordinator
-    cancel_update_listener: Callable
-
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -> bool:
     """Set up Solem BL-IP from a config entry."""
@@ -36,22 +27,23 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
 
     await coordinator.async_init()
 
-    cancel_update_listener = config_entry.async_on_unload(
-        config_entry.add_update_listener(_async_update_listener)
-    )
-    config_entry.runtime_data = RuntimeData(coordinator, cancel_update_listener)
+    listener = config_entry.add_update_listener(_async_update_listener)
+    config_entry.async_on_unload(listener)
+    config_entry.runtime_data = RuntimeData(coordinator, listener)
     try:
         await coordinator.async_config_entry_first_refresh()
     except ConfigEntryNotReady:
         await coordinator.async_shutdown()
-        config_entry.runtime_data = None
+        config_entry.runtime_data = None  # type: ignore[assignment]
         raise
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     return True
 
 
-async def _async_update_listener(hass: HomeAssistant, config_entry: ConfigEntry):
+async def _async_update_listener(
+    hass: HomeAssistant, config_entry: MyConfigEntry
+) -> None:
     """Reload the integration when options change."""
     await hass.config_entries.async_reload(config_entry.entry_id)
 
@@ -62,7 +54,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -
         return False
 
     await config_entry.runtime_data.coordinator.async_shutdown()
-    config_entry.runtime_data = None
+    config_entry.runtime_data = None  # type: ignore[assignment]
     return True
 
 
@@ -74,3 +66,10 @@ async def async_remove_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -
     if rediscover is not None:
         address = config_entry.data[CONTROLLER_MAC_ADDRESS].rsplit(" - ", 1)[1]
         rediscover(hass, address)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: MyConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removing the controller device for this config entry."""
+    return True

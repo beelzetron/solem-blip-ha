@@ -1,100 +1,126 @@
 """Button platform for the Solem BL-IP integration."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
 import logging
+from collections.abc import Coroutine
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import MyConfigEntry
+from .config_entry import MyConfigEntry
 from .api import APIConnectionError
 from .base import SolemBaseEntity
+from .const import DOMAIN
 from .coordinator import SolemCoordinator
+from .entity_descriptions import BUTTON_DESCRIPTIONS, SolemButtonEntityDescription
 
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
 
-@dataclass(frozen=True)
-class ButtonTypeClass:
-    """Map coordinator device types to button classes."""
-
-    device_type: str
-    button_class: object
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MyConfigEntry,
     async_add_entities: AddEntitiesCallback,
-):
+) -> None:
     """Set up Solem BL-IP buttons."""
-    coordinator: SolemCoordinator = config_entry.runtime_data.coordinator
+    coordinator = config_entry.runtime_data.coordinator
+    buttons: list[SolemButtonEntity] = []
 
-    buttons = []
-    for button_type in BUTTON_TYPES:
-        buttons.extend(
-            [
-                button_type.button_class(coordinator, device)
-                for device in coordinator.data
-                if device.get("device_type") == button_type.device_type
-            ]
-        )
+    for device in coordinator.data:
+        device_type = device.get("device_type")
+        if not device_type or device_type not in BUTTON_DESCRIPTIONS:
+            continue
+        description = BUTTON_DESCRIPTIONS[device_type]
+        entity_class = BUTTON_ENTITY_CLASSES[device_type]
+        buttons.append(entity_class(coordinator, device, description))
 
     async_add_entities(buttons)
 
 
 class SolemButtonEntity(SolemBaseEntity, ButtonEntity):
-    def __init__(self, coordinator: SolemCoordinator, device: dict[str, Any]) -> None:
-        super().__init__(coordinator, device, None)
+    """Base button entity for Solem BL-IP."""
 
-    @property
-    def entity_category(self):
-        return EntityCategory.CONFIG
+    entity_description: SolemButtonEntityDescription
 
-    async def _press(self, action: str, coro) -> None:
+    def __init__(
+        self,
+        coordinator: SolemCoordinator,
+        device: dict[str, Any],
+        description: SolemButtonEntityDescription,
+    ) -> None:
+        """Initialise button."""
+        super().__init__(coordinator, device, None, description)
+
+    async def _press(
+        self,
+        translation_key: str,
+        coro: Coroutine[Any, Any, None],
+        *,
+        translation_placeholders: dict[str, str] | None = None,
+    ) -> None:
         """Run a coordinator action and surface BLE failures to the UI."""
         try:
             await coro
         except APIConnectionError as err:
-            _LOGGER.error("%s failed: %s", action, err)
-            raise HomeAssistantError(f"{action} failed: {err}") from err
+            _LOGGER.error("Button action failed: %s", err)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key=translation_key,
+                translation_placeholders=translation_placeholders,
+            ) from err
 
 
 class IrrigationStartButton(SolemButtonEntity):
+    """Start manual irrigation on one station."""
+
     async def async_press(self) -> None:
         station = int(self.device_id.rsplit("_", 1)[-1])
         await self._press(
-            f"Start irrigation on station {station}",
+            "start_irrigation_failed",
             self.coordinator.start_irrigation(station),
+            translation_placeholders={"station": str(station)},
         )
 
 
 class IrrigationStopButton(SolemButtonEntity):
-    async def async_press(self) -> None:
-        await self._press("Stop irrigation", self.coordinator.stop_irrigation())
+    """Stop active manual irrigation."""
 
-
-class ControllerOnButton(SolemButtonEntity):
-    async def async_press(self) -> None:
-        await self._press("Turn controller on", self.coordinator.turn_controller_on())
-
-
-class ControllerOffButton(SolemButtonEntity):
     async def async_press(self) -> None:
         await self._press(
-            "Turn controller off", self.coordinator.turn_controller_off()
+            "stop_irrigation_failed",
+            self.coordinator.stop_irrigation(),
         )
 
 
-BUTTON_TYPES = (
-    ButtonTypeClass("SPRINKLE_BUTTON", IrrigationStartButton),
-    ButtonTypeClass("STOP_BUTTON", IrrigationStopButton),
-    ButtonTypeClass("ON_BUTTON", ControllerOnButton),
-    ButtonTypeClass("OFF_BUTTON", ControllerOffButton),
-)
+class ControllerOnButton(SolemButtonEntity):
+    """Turn the irrigation controller on."""
+
+    async def async_press(self) -> None:
+        await self._press(
+            "controller_on_failed",
+            self.coordinator.turn_controller_on(),
+        )
+
+
+class ControllerOffButton(SolemButtonEntity):
+    """Turn the irrigation controller off."""
+
+    async def async_press(self) -> None:
+        await self._press(
+            "controller_off_failed",
+            self.coordinator.turn_controller_off(),
+        )
+
+
+BUTTON_ENTITY_CLASSES: dict[str, type[SolemButtonEntity]] = {
+    "SPRINKLE_BUTTON": IrrigationStartButton,
+    "STOP_BUTTON": IrrigationStopButton,
+    "ON_BUTTON": ControllerOnButton,
+    "OFF_BUTTON": ControllerOffButton,
+}

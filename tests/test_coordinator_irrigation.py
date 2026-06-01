@@ -87,8 +87,9 @@ class TestStartStopButtonBehavior:
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
 
-            with pytest.raises(HomeAssistantError, match="Connection failed"):
+            with pytest.raises(HomeAssistantError) as exc_info:
                 await coordinator.start_irrigation(station=1, minutes=5)
+            assert exc_info.value.translation_key == "start_irrigation_failed"
 
 
 @pytest.mark.asyncio
@@ -195,8 +196,9 @@ class TestIrrigationMonitorLifecycle:
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
 
-            with pytest.raises(HomeAssistantError, match="Failed to start"):
+            with pytest.raises(HomeAssistantError) as exc_info:
                 await coordinator.start_irrigation(1, 1)
+            assert exc_info.value.translation_key == "start_irrigation_failed"
 
             assert coordinator._irrigation_active is False
             assert coordinator._irrigation_monitor_task is None
@@ -279,11 +281,11 @@ class TestIrrigationMonitorLifecycle:
             await coordinator.async_init()
 
             for station in coordinator.stations:
-                station.state = "Stopped"
+                station.state = "stopped"
 
             start_task = asyncio.create_task(coordinator.start_irrigation(1, 1))
             await asyncio.sleep(0.01)
 
-            assert coordinator.stations[0].state == "Sprinkling"
+            assert coordinator.stations[0].state == "sprinkling"
 
             await start_task

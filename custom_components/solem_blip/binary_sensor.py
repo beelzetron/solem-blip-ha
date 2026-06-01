@@ -1,61 +1,60 @@
 """Binary sensor platform for the Solem BL-IP integration."""
 
-from dataclasses import dataclass
+from __future__ import annotations
 
-from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
-    BinarySensorEntity,
-)
+from typing import Any
+
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import MyConfigEntry
+from .config_entry import MyConfigEntry
 from .base import SolemBaseEntity
 from .coordinator import SolemCoordinator
+from .entity_descriptions import (
+    BINARY_SENSOR_DESCRIPTIONS,
+    SolemBinarySensorEntityDescription,
+)
 
 PARALLEL_UPDATES = 1
-
-
-@dataclass(frozen=True)
-class BinaryTypeClass:
-    """Map coordinator device types to binary sensor classes."""
-
-    device_type: str
-    state_field: str
-    binary_class: object
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MyConfigEntry,
     async_add_entities: AddEntitiesCallback,
-):
+) -> None:
     """Set up Solem BL-IP binary sensors."""
-    coordinator: SolemCoordinator = config_entry.runtime_data.coordinator
+    coordinator = config_entry.runtime_data.coordinator
+    binary_sensors: list[BatteryLow] = []
 
-    binary_sensors = []
-    for sensor_type in BINARY_SENSOR_TYPES:
-        binary_sensors.extend(
-            [
-                sensor_type.binary_class(coordinator, device, sensor_type.state_field)
-                for device in coordinator.data
-                if device.get("device_type") == sensor_type.device_type
-            ]
+    for device in coordinator.data:
+        device_type = device.get("device_type")
+        if not device_type or device_type not in BINARY_SENSOR_DESCRIPTIONS:
+            continue
+        description = BINARY_SENSOR_DESCRIPTIONS[device_type]
+        binary_sensors.append(
+            BatteryLow(coordinator, device, description.state_field, description)
         )
 
     async_add_entities(binary_sensors)
 
 
 class BatteryLow(SolemBaseEntity, BinarySensorEntity):
-    _attr_device_class = BinarySensorDeviceClass.BATTERY
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    """Battery low alert binary sensor."""
+
+    entity_description: SolemBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: SolemCoordinator,
+        device: dict[str, Any],
+        parameter: str,
+        description: SolemBinarySensorEntityDescription,
+    ) -> None:
+        """Initialise binary sensor."""
+        super().__init__(coordinator, device, parameter, description)
 
     @property
     def is_on(self) -> bool | None:
         return self.coordinator.battery_low
-
-
-BINARY_SENSOR_TYPES = (
-    BinaryTypeClass("BATTERY_LOW_SENSOR", "state", BatteryLow),
-)

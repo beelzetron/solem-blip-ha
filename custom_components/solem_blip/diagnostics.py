@@ -7,7 +7,7 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from . import MyConfigEntry
+from .config_entry import MyConfigEntry
 from .const import CONTROLLER_MAC_ADDRESS
 
 _TO_REDACT = {CONTROLLER_MAC_ADDRESS}

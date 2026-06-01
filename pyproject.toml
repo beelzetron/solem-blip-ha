@@ -17,6 +17,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=7.0",
     "pytest-homeassistant-custom-component==0.13.333",
+    "mypy>=1.13",
 ]
 
 [tool.setuptools.packages.find]
@@ -27,3 +28,20 @@ namespaces = false
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "--cov=custom_components.solem_blip --cov-fail-under=95 --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.14"
+check_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+files = ["custom_components/solem_blip"]
+
+[[tool.mypy.overrides]]
+module = "solem_blip_ble.*"
+ignore_missing_imports = true
