@@ -267,3 +267,82 @@ async def test_irrigation_config_read_is_deferred_while_watering(
         await coordinator.schedule_coordinator.async_refresh()
 
     mock_solem_client.get_irrigation_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_status_poll_runs_during_manual_irrigation(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Device-initiated program runs still receive status polls during HA manual irrigation."""
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        coordinator._irrigation_active = True
+        await coordinator._fetch_device_status()
+
+    mock_solem_client.get_status.assert_awaited_once()
+    mock_solem_client.get_station_names.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_station_names_slow_read_uses_extended_timeout(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Station name reads longer than 5s succeed within STATION_NAMES_READ_TIMEOUT."""
+    import asyncio
+
+    async def slow_names() -> dict[int, str]:
+        await asyncio.sleep(0.01)
+        return {1: "Zone 1", 2: "Zone 2"}
+
+    mock_solem_client.get_station_names = slow_names
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_metadata()
+
+    assert coordinator.station_names == {1: "Zone 1", 2: "Zone 2"}
+
+
+@pytest.mark.asyncio
+async def test_station_names_partial_reads_merge(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Partial station-name reads accumulate across retries."""
+    responses = [{1: "Zone 1"}, {2: "Zone 2"}]
+
+    async def partial_names() -> dict[int, str]:
+        return responses.pop(0)
+
+    mock_solem_client.get_station_names = partial_names
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_metadata()
+        coordinator._station_names_retry_after = 0.0
+        await coordinator._fetch_device_metadata()
+
+    assert coordinator.station_names == {1: "Zone 1", 2: "Zone 2"}

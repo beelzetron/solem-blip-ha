@@ -124,6 +124,7 @@ async def run_irrigation_monitor(
             err,
             exc_info=True,
         )
+        clear_irrigation_idle_state(coordinator)
 
 
 async def start_irrigation(
@@ -146,7 +147,9 @@ async def start_irrigation(
     coordinator.irrigation_stop_event.clear()
     coordinator._irrigation_active = True
     coordinator.stations[station - 1].state = "sprinkling"
-    coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
+    coordinator.async_set_updated_data(
+        await coordinator.async_update_all_sensors(fetch_status=False)
+    )
 
     coordinator._irrigation_monitor_task = coordinator.hass.async_create_task(
         coordinator._run_irrigation_monitor(station, duration),
