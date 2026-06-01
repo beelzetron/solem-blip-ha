@@ -95,6 +95,7 @@ async def monitor_irrigation_until_complete(
             )
     finally:
         clear_irrigation_idle_state(coordinator)
+        coordinator.request_schedule_refresh()
         _LOGGER.info(
             "%s - Finished watering on station %s.",
             coordinator.controller_mac_address,
@@ -202,6 +203,7 @@ async def stop_irrigation(coordinator: SolemCoordinator) -> None:
         ) from ex
     await await_irrigation_monitor_task(coordinator)
     clear_irrigation_idle_state(coordinator)
+    coordinator.request_schedule_refresh()
 
     _LOGGER.info("%s - Stopped watering.", coordinator.controller_mac_address)
     coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())

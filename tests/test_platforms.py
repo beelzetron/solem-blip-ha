@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -122,6 +122,38 @@ async def test_sensor_values_and_attributes(
     )
     assert schedule.native_value is not None
     assert schedule.extra_state_attributes
+
+
+@pytest.mark.asyncio
+async def test_program_sensor_subscribes_to_schedule_coordinator(
+    hass: HomeAssistant,
+    coordinator: SolemCoordinator,
+) -> None:
+    """Program sensors trigger the first background schedule refresh."""
+    device = next(
+        item for item in coordinator.data if item["device_type"] == "PROGRAM_NAME_SENSOR"
+    )
+    sensor = ProgramNameSensor(
+        coordinator,
+        device,
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_NAME_SENSOR"],
+    )
+    sensor.hass = hass
+    remove_listener = MagicMock()
+    coordinator.schedule_coordinator.async_add_listener = MagicMock(
+        return_value=remove_listener
+    )
+    coordinator.schedule_coordinator.async_start_first_refresh = MagicMock()
+
+    with patch(
+        "custom_components.solem_blip.sensor.SolemSensorEntity.async_added_to_hass",
+        new=AsyncMock(),
+    ):
+        await sensor.async_added_to_hass()
+
+    coordinator.schedule_coordinator.async_add_listener.assert_called_once()
+    coordinator.schedule_coordinator.async_start_first_refresh.assert_called_once()
 
 
 @pytest.mark.asyncio

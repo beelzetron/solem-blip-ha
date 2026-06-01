@@ -17,6 +17,7 @@ from custom_components.solem_blip import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.solem_blip.repairs import CONSECUTIVE_FAILURES_THRESHOLD
 
 
 @pytest.mark.asyncio
@@ -133,11 +134,28 @@ async def test_remove_entry_requests_rediscovery(
 
 
 @pytest.mark.asyncio
-async def test_remove_config_entry_device_is_allowed(
+async def test_remove_config_entry_device_is_rejected_while_healthy(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Device removal is allowed for the single-controller integration."""
+    """Device removal is rejected while the controller is updating."""
     device_entry = MagicMock()
-    assert await async_remove_config_entry_device(
+    coordinator = MagicMock()
+    coordinator._consecutive_update_failures = 0
+    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+
+    assert not await async_remove_config_entry_device(
         hass, mock_config_entry, device_entry
     )
+
+
+@pytest.mark.asyncio
+async def test_remove_config_entry_device_is_allowed_after_repeated_failures(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Device removal is enabled after the stale-device failure threshold."""
+    device_entry = MagicMock()
+    coordinator = MagicMock()
+    coordinator._consecutive_update_failures = CONSECUTIVE_FAILURES_THRESHOLD
+    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+
+    assert await async_remove_config_entry_device(hass, mock_config_entry, device_entry)

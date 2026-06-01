@@ -10,6 +10,7 @@ from homeassistant.helpers import device_registry as dr
 from .config_entry import MyConfigEntry, RuntimeData
 from .const import CONTROLLER_MAC_ADDRESS, DOMAIN
 from .coordinator import SolemCoordinator
+from .repairs import CONSECUTIVE_FAILURES_THRESHOLD
 
 __all__ = ["DOMAIN", "MyConfigEntry", "RuntimeData", "PLATFORMS"]
 
@@ -71,5 +72,8 @@ async def async_remove_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -
 async def async_remove_config_entry_device(
     hass: HomeAssistant, config_entry: MyConfigEntry, device_entry: dr.DeviceEntry
 ) -> bool:
-    """Allow removing the controller device for this config entry."""
-    return True
+    """Allow removing the controller only after repeated failed updates."""
+    return (
+        config_entry.runtime_data.coordinator._consecutive_update_failures
+        >= CONSECUTIVE_FAILURES_THRESHOLD
+    )

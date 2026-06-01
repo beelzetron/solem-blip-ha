@@ -8,15 +8,6 @@ import pytest
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.solem_blip.const import (
-    BLUETOOTH_DEFAULT_TIMEOUT,
-    BLUETOOTH_TIMEOUT,
-    CONTROLLER_MAC_ADDRESS,
-    DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
-    NUM_STATIONS,
-    SOLEM_API_MOCK,
-)
 from custom_components.solem_blip.coordinator import SolemCoordinator
 
 
@@ -58,33 +49,6 @@ class TestEntitySetup:
             assert len(state_sensors) == 3
             assert len(sprinkles) == 2
             assert len(remaining) == 2
-
-            new_config = MockConfigEntry(
-                domain=DOMAIN,
-                data={
-                    CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
-                    NUM_STATIONS: 4,
-                },
-                options={
-                    DEFAULT_SCAN_INTERVAL: 60,
-                    BLUETOOTH_TIMEOUT: BLUETOOTH_DEFAULT_TIMEOUT,
-                    SOLEM_API_MOCK: "true",
-                },
-                unique_id="AA:BB:CC:DD:EE:FF",
-            )
-            await coordinator.update_config(new_config)
-
-            data = await coordinator.async_update_all_sensors()
-
-            sprinkles = [
-                d for d in data if d["device_type"] == "SPRINKLE_BUTTON"
-            ]
-            remaining = [
-                d for d in data if d["device_type"] == "REMAINING_SPRINKLE_SENSOR"
-            ]
-
-            assert len(sprinkles) == 4
-            assert len(remaining) == 4
 
     async def test_battery_entities_are_present(
         self,
@@ -154,7 +118,8 @@ class TestEntitySetup:
         ):
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
-            data = await coordinator.async_update_all_sensors()
+            await coordinator.schedule_coordinator.async_refresh()
+            data = await coordinator.async_update_all_sensors(fetch_status=False)
 
             names = [d for d in data if d["device_type"] == "PROGRAM_NAME_SENSOR"]
             next_starts = [

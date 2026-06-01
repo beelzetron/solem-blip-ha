@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
 
@@ -215,8 +215,7 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
     await fetch_device_metadata(coordinator)
-    await fetch_irrigation_config(coordinator)
-    return cast(dict[str, Any], status)
+    return status
 
 
 def remaining_seconds_for_station(
