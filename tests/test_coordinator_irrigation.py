@@ -167,12 +167,18 @@ class TestIrrigationMonitorLifecycle:
 
             assert coordinator._irrigation_monitor_task is not None
             assert not coordinator._irrigation_monitor_task.done()
+            coordinator.active_program_num = 2
+            coordinator.watering_origin = "program"
 
-            stop_task = asyncio.create_task(coordinator.stop_irrigation())
-            await stop_task
+            await asyncio.wait_for(coordinator.stop_irrigation(), timeout=0.1)
             await start_task
 
             assert coordinator._irrigation_monitor_task is None
+            assert coordinator._irrigation_active is False
+            assert coordinator.active_station_num is None
+            assert coordinator.remaining_seconds is None
+            assert coordinator.active_program_num is None
+            assert coordinator.watering_origin is None
 
     async def test_failed_start_resets_active_state(
         self,

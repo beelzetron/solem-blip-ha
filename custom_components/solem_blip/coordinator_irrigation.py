@@ -25,6 +25,8 @@ def clear_irrigation_idle_state(coordinator: SolemCoordinator) -> None:
     coordinator._irrigation_active = False
     coordinator.active_station_num = None
     coordinator.remaining_seconds = None
+    coordinator.active_program_num = None
+    coordinator.watering_origin = None
     for station in coordinator.stations:
         station.state = "stopped"
 
@@ -201,12 +203,18 @@ async def stop_irrigation(coordinator: SolemCoordinator) -> None:
             translation_domain=DOMAIN,
             translation_key="stop_irrigation_failed",
         ) from ex
+    coordinator.irrigation_stop_event.set()
+    task = coordinator._irrigation_monitor_task
+    if task is not None and not task.done():
+        task.cancel()
     await await_irrigation_monitor_task(coordinator)
     clear_irrigation_idle_state(coordinator)
     coordinator.request_schedule_refresh()
 
     _LOGGER.info("%s - Stopped watering.", coordinator.controller_mac_address)
-    coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
+    coordinator.async_set_updated_data(
+        await coordinator.async_update_all_sensors(fetch_status=False)
+    )
 
 
 async def turn_controller_on(coordinator: SolemCoordinator) -> None:

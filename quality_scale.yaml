@@ -1,3 +1,4 @@
+# Internal progress checklist toward Home Assistant quality-scale alignment.
 rules:
   action-setup:
     status: exempt

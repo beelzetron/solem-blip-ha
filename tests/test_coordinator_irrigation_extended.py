@@ -45,6 +45,34 @@ async def test_stop_irrigation_connection_error(
 
 
 @pytest.mark.asyncio
+async def test_start_irrigation_unexpected_error_cleans_up(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Unexpected start failures cancel the monitor and reset local state."""
+    mock_client = create_mock_solem_client(2)
+    mock_client.sprinkle_station_x_for_y_minutes = AsyncMock(
+        side_effect=RuntimeError("boom")
+    )
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await coordinator.start_irrigation(1, 1)
+
+        assert coordinator._irrigation_active is False
+        assert coordinator._irrigation_monitor_task is None
+        assert coordinator.active_station_num is None
+        assert coordinator.remaining_seconds is None
+
+
+@pytest.mark.asyncio
 async def test_turn_controller_on_connection_error(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:

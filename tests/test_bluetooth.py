@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -24,6 +24,7 @@ async def test_scan_devices_filters_by_service_uuid(hass: HomeAssistant) -> None
     )
 
     mock_bluetooth = MagicMock()
+    mock_bluetooth.async_request_active_scan = AsyncMock()
     mock_bluetooth.async_discovered_service_info = MagicMock(return_value=[matching, other])
 
     with patch.dict(
@@ -35,6 +36,7 @@ async def test_scan_devices_filters_by_service_uuid(hass: HomeAssistant) -> None
         devices = await bl_module.async_scan_devices(hass)
 
     assert devices == [matching.device]
+    mock_bluetooth.async_request_active_scan.assert_awaited_once_with(hass)
 
 
 def test_get_connectable_device_returns_ble_device(hass: HomeAssistant) -> None:
