@@ -3,7 +3,6 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![CI](https://github.com/beelzetron/solem-blip-ha/actions/workflows/ci.yml/badge.svg)](https://github.com/beelzetron/solem-blip-ha/actions/workflows/ci.yml)
 [![coverage](./badges/coverage.svg)](https://github.com/beelzetron/solem-blip-ha/actions/workflows/ci.yml)
-[![quality scale](https://img.shields.io/badge/quality%20scale-platinum-FFD700.svg)](https://github.com/beelzetron/solem-blip-ha/blob/main/quality_scale.yaml)
 [![GitHub release](https://img.shields.io/github/release/beelzetron/solem-blip-ha.svg)](https://github.com/beelzetron/solem-blip-ha/releases/)
 
 Minimal Home Assistant integration for the Solem **BL-IP** Bluetooth irrigation controller.
@@ -50,7 +49,7 @@ Setup asks only for the **Bluetooth controller** and **number of stations**.
 
 ### BLE dependency
 
-Home Assistant installs `solem-blip-ble>=0.1.23` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
+Home Assistant installs `solem-blip-ble==0.1.24` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
 
 ## Entities (example: 6 stations)
 

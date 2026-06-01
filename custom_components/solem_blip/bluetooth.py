@@ -11,11 +11,13 @@ from .const import V5_SERVICE_UUID
 
 async def async_scan_devices(hass: HomeAssistant, connectable: bool = True) -> list[Any]:
     """Return compatible BLE devices from Home Assistant discovery."""
-    from homeassistant.components.bluetooth import async_discovered_service_info
+    from homeassistant.components import bluetooth
 
+    if request_active_scan := getattr(bluetooth, "async_request_active_scan", None):
+        await request_active_scan(hass)
     return [
         info.device
-        for info in async_discovered_service_info(hass, connectable)
+        for info in bluetooth.async_discovered_service_info(hass, connectable)
         if V5_SERVICE_UUID in {uuid.lower() for uuid in (info.service_uuids or [])}
     ]
 

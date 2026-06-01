@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .config_entry import MyConfigEntry
-from .base import SolemBaseEntity
+from .entity import SolemBaseEntity
 from .coordinator import SolemCoordinator
 from .entity_descriptions import NUMBER_DESCRIPTIONS, SolemNumberEntityDescription
 

@@ -33,7 +33,7 @@ Use a virtual environment. Do not install test dependencies into the host Python
 
 ## Quality scale
 
-This integration tracks the [Home Assistant Integration Quality Scale](quality_scale.yaml). New work should preserve or improve documented rule status.
+This integration uses [quality_scale.yaml](quality_scale.yaml) as an internal progress checklist toward Home Assistant Integration Quality Scale alignment. New work should preserve or improve documented rule status.
 
 ## Related projects
 

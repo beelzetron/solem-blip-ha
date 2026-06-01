@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .config_entry import MyConfigEntry
-from .base import SolemBaseEntity
+from .entity import SolemBaseEntity
 from .coordinator import SolemCoordinator
 from .coordinator_polling import active_program_name
 from .entity_descriptions import SENSOR_DESCRIPTIONS, SolemSensorEntityDescription

@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .config_entry import MyConfigEntry
 from .api import APIConnectionError
-from .base import SolemBaseEntity
+from .entity import SolemBaseEntity
 from .const import DOMAIN
 from .coordinator import SolemCoordinator
 from .entity_descriptions import BUTTON_DESCRIPTIONS, SolemButtonEntityDescription

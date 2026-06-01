@@ -15,10 +15,9 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/beelzetron/solem-blip-ha/issues",
-  "quality_scale": "platinum",
-  "requirements": ["solem-blip-ble>=0.1.23"],
+  "requirements": ["solem-blip-ble==0.1.24"],
   "single_config_entry": false,
   "ssdp": [],
-  "version": "1.2.4",
+  "version": "1.2.5",
   "zeroconf": []
 }
