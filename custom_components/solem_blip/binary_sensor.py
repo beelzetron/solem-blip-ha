@@ -77,7 +77,7 @@ class ProgramRunning(SolemBinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         program_num = self.device.get("program_num")
-        if program_num is None:
+        if not isinstance(program_num, int):
             return False
         return self.coordinator.active_program_num == program_num
 
