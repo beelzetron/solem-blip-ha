@@ -11,7 +11,7 @@ from .config_entry import MyConfigEntry, RuntimeData
 from .const import CONTROLLER_MAC_ADDRESS, DOMAIN
 from .coordinator import SolemCoordinator
 from .migrate import async_migrate_unique_ids, async_remove_program_name_entities
-from .repairs import CONSECUTIVE_FAILURES_THRESHOLD
+from .bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
 
 CONFIG_VERSION = 2
 

@@ -48,7 +48,7 @@ from .coordinator_polling import (
 from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
-from .repairs import async_manage_bluetooth_issue
+from .bluetooth_issue import async_manage_bluetooth_issue
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ from custom_components.solem_blip import (
     async_setup_entry,
     async_unload_entry,
 )
-from custom_components.solem_blip.repairs import CONSECUTIVE_FAILURES_THRESHOLD
+from custom_components.solem_blip.bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
 
 
 @pytest.mark.asyncio
