@@ -34,9 +34,7 @@ async def test_offline_setup_does_not_block_platform_setup(
         refresh_started.set()
         await finish_refresh.wait()
 
-    coordinator.async_config_entry_first_refresh = AsyncMock(
-        side_effect=refresh
-    )
+    coordinator.async_refresh = AsyncMock(side_effect=refresh)
     coordinator.async_shutdown = AsyncMock()
     hass.config_entries.async_forward_entry_setups = AsyncMock()
 
@@ -70,9 +68,7 @@ async def test_successful_setup_starts_background_refresh_after_platform_forward
     async def refresh() -> None:
         events.append("refresh")
 
-    coordinator.async_config_entry_first_refresh = AsyncMock(
-        side_effect=refresh
-    )
+    coordinator.async_refresh = AsyncMock(side_effect=refresh)
     hass.config_entries.async_forward_entry_setups = AsyncMock(
         side_effect=forward_entry_setups
     )
@@ -84,7 +80,7 @@ async def test_successful_setup_starts_background_refresh_after_platform_forward
         assert await async_setup_entry(hass, mock_config_entry)
         await hass.async_block_till_done()
 
-    coordinator.async_config_entry_first_refresh.assert_awaited_once()
+    coordinator.async_refresh.assert_awaited_once()
     hass.config_entries.async_forward_entry_setups.assert_awaited_once()
     assert events == ["platforms", "refresh"]
 
