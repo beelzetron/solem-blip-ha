@@ -80,8 +80,8 @@ jobs:
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          # coverage-badge still imports pkg_resources; setuptools 82+ drops it on Py3.14
-          pip install "setuptools>=69,<82" coverage-badge
+          # coverage-badge imports pkg_resources; setuptools 82+ removes it on Python 3.14
+          pip install "setuptools>=69,<81" coverage-badge
           coverage-badge -f -o badges/coverage.svg
 
       - name: Commit coverage badge

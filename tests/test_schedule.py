@@ -158,3 +158,35 @@ def test_schedule_context_attributes():
     assert attrs["period_length"] == 3
     assert attrs["period_start_date"] == "2026-06-01"
     assert attrs["enabled_start_count"] == 1
+
+
+def test_periodic_start_day_matches_rejects_invalid_period():
+    day = datetime(2026, 6, 1, tzinfo=ZoneInfo("Europe/Rome"))
+    assert not periodic_start_day_matches(day, date(2026, 6, 1), 0)
+
+
+def test_day_matches_cycle_pair_odd_and_even_month_days():
+    tz = ZoneInfo("Europe/Rome")
+    even_day = datetime(2026, 6, 2, 12, 0, tzinfo=tz)
+    odd_day = datetime(2026, 6, 1, 12, 0, tzinfo=tz)
+    assert day_matches_cycle(1, 0, 0, even_day)
+    assert not day_matches_cycle(1, 0, 0, odd_day)
+    assert day_matches_cycle(2, 0, 0, odd_day)
+    assert day_matches_cycle(3, 0, 0, odd_day)
+    assert not day_matches_cycle(99, 0, 0, odd_day)
+
+
+def test_day_matches_cycle_four_without_start_date():
+    day = datetime(2026, 6, 1, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
+    assert not day_matches_cycle(4, 3, 0, day, period_start_date=None)
+
+
+def test_next_start_datetime_handles_naive_now():
+    naive_now = datetime(2026, 6, 1, 10, 0)
+    program = {
+        **CAPTURE_PROGRAM_A,
+        "cycle": 0,
+        "week_days": 0x7F,
+        "period_length": 0,
+    }
+    assert next_start_datetime(program, naive_now) is not None

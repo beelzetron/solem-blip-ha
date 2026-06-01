@@ -29,3 +29,23 @@ async def test_program_running_binary_reflects_active_program(coordinator) -> No
 
     coordinator.active_program_num = 1
     assert entity.is_on is False
+
+
+@pytest.mark.asyncio
+async def test_program_running_binary_ignores_invalid_program_num(
+    coordinator,
+) -> None:
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+    device = next(
+        item
+        for item in coordinator.data
+        if item["device_type"] == "PROGRAM_RUNNING_SENSOR"
+    )
+    device["program_num"] = "bad"
+    entity = ProgramRunning(
+        coordinator,
+        device,
+        "state",
+        BINARY_SENSOR_DESCRIPTIONS["PROGRAM_RUNNING_SENSOR"],
+    )
+    assert entity.is_on is False
