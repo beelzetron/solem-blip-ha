@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "solem-blip-ha"
-version = "1.2.0"
+version = "1.2.1"
 description = "Home Assistant integration for Solem BL-IP irrigation controllers"
 requires-python = ">=3.14"
 dependencies = [
-    "solem-blip-ble>=0.1.20",
+    "solem-blip-ble>=0.1.21",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +41,3 @@ warn_return_any = true
 warn_unused_configs = true
 warn_unused_ignores = true
 files = ["custom_components/solem_blip"]
-
-[[tool.mypy.overrides]]
-module = "solem_blip_ble.*"
-ignore_missing_imports = true

@@ -221,8 +221,49 @@ async def test_irrigation_config_failures_are_cooled_down(
     ):
         coordinator = SolemCoordinator(hass, mock_config_entry)
         await coordinator.async_init()
-        await coordinator._fetch_device_status()
-        await coordinator._fetch_device_status()
+        await coordinator.schedule_coordinator.async_refresh()
+        await coordinator.schedule_coordinator.async_refresh()
 
     mock_solem_client.get_irrigation_config.assert_awaited_once()
     assert coordinator.irrigation_programs == {}
+
+
+@pytest.mark.asyncio
+async def test_status_poll_does_not_read_irrigation_config(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Slow schedule reads do not delay the status coordinator."""
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+
+    mock_solem_client.get_irrigation_config.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_irrigation_config_read_is_deferred_while_watering(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Schedule coordinator skips BLE reads during manual irrigation."""
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        coordinator._irrigation_active = True
+        await coordinator.schedule_coordinator.async_refresh()
+
+    mock_solem_client.get_irrigation_config.assert_not_awaited()

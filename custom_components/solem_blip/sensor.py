@@ -104,7 +104,20 @@ class LastTimeSyncSensor(SolemSensorEntity):
         return cast(datetime | None, self._descriptor_field())
 
 
-class ProgramNameSensor(SolemSensorEntity):
+class ProgramSensor(SolemSensorEntity):
+    """Base class for sensors refreshed by the slower schedule coordinator."""
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to schedule changes and start the first background read."""
+        await super().async_added_to_hass()
+        schedule_coordinator = self.coordinator.schedule_coordinator
+        self.async_on_remove(
+            schedule_coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+        schedule_coordinator.async_start_first_refresh()
+
+
+class ProgramNameSensor(ProgramSensor):
     """On-device program name sensor."""
 
     @property
@@ -112,7 +125,7 @@ class ProgramNameSensor(SolemSensorEntity):
         return cast(str | None, self._descriptor_field())
 
 
-class ProgramNextStartSensor(SolemSensorEntity):
+class ProgramNextStartSensor(ProgramSensor):
     """On-device program next start sensor."""
 
     @property
@@ -128,7 +141,7 @@ class ProgramNextStartSensor(SolemSensorEntity):
         }
 
 
-class ProgramScheduleSensor(SolemSensorEntity):
+class ProgramScheduleSensor(ProgramSensor):
     """On-device program schedule summary sensor."""
 
     @property

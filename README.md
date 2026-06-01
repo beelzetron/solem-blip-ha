@@ -48,7 +48,7 @@ Setup asks only for the **Bluetooth controller** and **number of stations**.
 
 ### BLE dependency
 
-Home Assistant installs `solem-blip-ble>=0.1.20` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
+Home Assistant installs `solem-blip-ble>=0.1.21` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
 
 ## Entities (example: 6 stations)
 
@@ -99,10 +99,15 @@ alias: Water station 1 unless rain forecast
 trigger:
   - platform: time
     at: "06:00:00"
-condition:
-  - condition: template
-    value_template: "{{ state_attr('weather.home', 'forecast')[0].precipitation | float(0) < 1 }}"
 action:
+  - action: weather.get_forecasts
+    target:
+      entity_id: weather.home
+    data:
+      type: daily
+    response_variable: daily
+  - condition: template
+    value_template: "{{ daily['weather.home'].forecast[0].precipitation | float(0) < 1 }}"
   - action: button.press
     target:
       entity_id: button.solem_blip_aabbccddeeff_sprinkle_station_1
@@ -145,14 +150,16 @@ From the integration **Configure** menu:
 - **Bluetooth timeout** — connection timeout (seconds)
 - **Mock Solem API** — debug without hardware
 
-The integration polls BLE status every 60 seconds by default and exposes the
-schedule stored on the controller as read-only sensors. Schedule changes remain
+The integration polls BLE status every 60 seconds by default and refreshes the
+schedule stored on the controller separately every hour. Failed schedule reads
+retry every 15 minutes without delaying status updates. Schedule changes remain
 the responsibility of the Solem app or Home Assistant automations.
 
 ## Removal
 
 Remove the integration from Settings → Devices & Services → Solem BL-IP. The
-controller device is tied to its config entry and cannot be removed independently.
+controller device is tied to its config entry. Home Assistant only enables independent
+device removal after repeated polling failures indicate that the controller is stale.
 
 ## Troubleshooting
 

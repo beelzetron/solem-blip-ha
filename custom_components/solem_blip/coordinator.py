@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_MANUAL_DURATION,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    IRRIGATION_CONFIG_UPDATE_INTERVAL,
     NUM_STATIONS,
     SOLEM_API_MOCK,
 )
@@ -40,6 +41,7 @@ from .coordinator_polling import (
     apply_status,
     fetch_device_metadata,
     fetch_device_status,
+    fetch_irrigation_config,
     remaining_seconds_for_station,
 )
 from .bluetooth import async_get_connectable_device
@@ -78,6 +80,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             name=f"{DOMAIN} ({config_entry.unique_id})",
             update_method=self.async_update_data,
             update_interval=timedelta(seconds=self.poll_interval),
+            config_entry=config_entry,
+            always_update=False,
         )
 
         self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
@@ -119,6 +123,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.irrigation_programs: dict[int, IrrigationProgram] = {}
         self._irrigation_config_retry_after = 0.0
         self._irrigation_config_refresh_after = 0.0
+        self.schedule_coordinator = SolemScheduleCoordinator(hass, config_entry, self)
         self._last_set_time_at = 0.0
         self._last_set_time_sync: datetime | None = None
         self._set_time_pending = True
@@ -126,57 +131,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
-            self.controller_mac_address,
-        )
-
-    async def update_config(self, config_entry: MyConfigEntry) -> None:
-        """Apply a reconfigured config entry."""
-        _LOGGER.info(
-            "%s - Updating coordinator with new config...",
-            self.controller_mac_address,
-        )
-        self.config_entry = config_entry
-        self.controller_mac_address = config_entry.data[CONTROLLER_MAC_ADDRESS].rsplit(
-            " - ", 1
-        )[1]
-        self.poll_interval = config_entry.options.get(
-            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-        )
-        self.bluetooth_timeout = config_entry.options.get(
-            BLUETOOTH_TIMEOUT, BLUETOOTH_DEFAULT_TIMEOUT
-        )
-        self.solem_api_mock = (
-            config_entry.options.get(SOLEM_API_MOCK, "false") == "true"
-        )
-        self.update_interval = timedelta(seconds=self.poll_interval)
-        self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
-        self.station_names = {}
-        self.firmware_version = None
-        self._firmware_retry_after = 0.0
-        self._station_names_retry_after = 0.0
-        self.controller.software_version = None
-        self.irrigation_programs = {}
-        self._irrigation_config_retry_after = 0.0
-        self._irrigation_config_refresh_after = 0.0
-        self._last_set_time_at = 0.0
-        self._last_set_time_sync = None
-        self._set_time_pending = True
-
-        self.api = SolemClient(
-            self.controller_mac_address,
-            bluetooth_timeout=self.bluetooth_timeout,
-            mock=self.solem_api_mock,
-            max_station_num=self.num_stations,
-            ble_device_resolver=lambda: async_get_connectable_device(
-                self.hass, self.controller_mac_address
-            ),
-        )
-
-        self.stations = self._build_stations()
-
-        await self.async_request_refresh()
-        _LOGGER.info(
-            "%s - Updated coordinator with new config.",
             self.controller_mac_address,
         )
 
@@ -205,7 +159,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             task.cancel()
         await self._await_irrigation_monitor_task()
         self._clear_irrigation_idle_state()
+        await self.schedule_coordinator.async_shutdown()
         await self.api.disconnect()
+
+    def request_schedule_refresh(self) -> None:
+        """Mark schedule data due for the next slow-coordinator refresh."""
+        self._irrigation_config_refresh_after = 0.0
 
     async def async_init(self) -> None:
         """Build initial entity data without blocking setup on BLE availability."""
@@ -294,3 +253,43 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         if device := self.get_device(device_id):
             return device.get(parameter)
         return None
+
+
+class SolemScheduleCoordinator(DataUpdateCoordinator[dict[int, IrrigationProgram]]):
+    """Refresh persisted irrigation schedules without delaying status polls."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: MyConfigEntry,
+        coordinator: SolemCoordinator,
+    ) -> None:
+        self.solem_coordinator = coordinator
+        self._first_refresh_started = False
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN} schedule ({config_entry.unique_id})",
+            update_method=self.async_update_data,
+            update_interval=timedelta(seconds=IRRIGATION_CONFIG_UPDATE_INTERVAL),
+            config_entry=config_entry,
+            always_update=False,
+        )
+
+    def async_start_first_refresh(self) -> None:
+        """Start the first schedule refresh after schedule entities subscribe."""
+        if self._first_refresh_started:
+            return
+        self._first_refresh_started = True
+        self.hass.async_create_task(
+            self.async_config_entry_first_refresh(),
+            name=f"{DOMAIN} schedule first refresh",
+        )
+
+    async def async_update_data(self) -> dict[int, IrrigationProgram]:
+        """Refresh schedule state and publish updated program descriptors."""
+        await fetch_irrigation_config(self.solem_coordinator)
+        self.solem_coordinator.async_set_updated_data(
+            await self.solem_coordinator.async_update_all_sensors(fetch_status=False)
+        )
+        return self.solem_coordinator.irrigation_programs
