@@ -34,5 +34,8 @@ PROGRAM_LABELS = ("A", "B", "C")
 
 SET_TIME_MIN_INTERVAL = 24 * 60 * 60
 
+# Defer heavy GATT reads until status polling has been stable for this long.
+HEAVY_READ_DEFER_SECONDS = 60
+
 SOLEM_API_MOCK = "solem_api_mock"
 DEFAULT_MANUAL_DURATION = 10

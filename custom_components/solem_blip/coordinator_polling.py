@@ -11,6 +11,7 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import (
     DOMAIN,
+    HEAVY_READ_DEFER_SECONDS,
     IRRIGATION_CONFIG_READ_TIMEOUT,
     IRRIGATION_CONFIG_REFRESH_INTERVAL,
     IRRIGATION_CONFIG_RETRY_INTERVAL,
@@ -21,6 +22,7 @@ from .const import (
     STATION_NAMES_READ_TIMEOUT,
 )
 from .util import normalize_entity_state
+from .coordinator_publish import publish_descriptor_update
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
@@ -201,9 +203,32 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
                 station.device_name = (
                     f"{coordinator._station_name(station.station_number)} Status"
                 )
-            coordinator.async_set_updated_data(
-                await coordinator.async_update_all_sensors(fetch_status=False)
+            publish_descriptor_update(
+                coordinator,
+                await coordinator.async_update_all_sensors(fetch_status=False),
             )
+
+
+def _mark_first_successful_status_poll(coordinator: SolemCoordinator) -> None:
+    """Record the first successful status poll and defer heavy BLE reads."""
+    now = asyncio.get_running_loop().time()
+    if coordinator._first_successful_status_at is not None:
+        return
+    coordinator._first_successful_status_at = now
+    coordinator._metadata_ready_after = now + HEAVY_READ_DEFER_SECONDS
+    coordinator._schedule_ready_after = now + HEAVY_READ_DEFER_SECONDS
+    _LOGGER.debug(
+        "%s - First status poll succeeded; deferring metadata/schedule reads for %ss",
+        coordinator.controller_mac_address,
+        HEAVY_READ_DEFER_SECONDS,
+    )
+
+
+def _heavy_reads_ready(coordinator: SolemCoordinator) -> bool:
+    """Return True when deferred metadata/schedule reads may start."""
+    if coordinator._first_successful_status_at is None:
+        return False
+    return asyncio.get_running_loop().time() >= coordinator._metadata_ready_after
 
 
 async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
@@ -249,7 +274,8 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
         await maybe_set_device_time(coordinator)
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
-    if not coordinator._irrigation_active:
+    _mark_first_successful_status_poll(coordinator)
+    if not coordinator._irrigation_active and _heavy_reads_ready(coordinator):
         config_entry = coordinator.config_entry
         metadata_task = coordinator._metadata_task
         if (
@@ -261,6 +287,15 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
                 fetch_device_metadata(coordinator),
                 f"{DOMAIN} metadata refresh ({coordinator.controller_mac_address})",
             )
+    elif (
+        not coordinator._irrigation_active
+        and coordinator._first_successful_status_at is not None
+        and not _heavy_reads_ready(coordinator)
+    ):
+        _LOGGER.debug(
+            "%s - Metadata read deferred until heavy-read gate elapses",
+            coordinator.controller_mac_address,
+        )
     return status
 
 

@@ -146,6 +146,8 @@ async def start_irrigation(
 
     coordinator.irrigation_stop_event.clear()
     coordinator._irrigation_active = True
+    coordinator._is_watering = True
+    coordinator.active_station_num = station
     coordinator.stations[station - 1].state = "sprinkling"
     coordinator.async_set_updated_data(
         await coordinator.async_update_all_sensors(fetch_status=False)
