@@ -48,6 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
     config_entry.async_on_unload(listener)
     config_entry.runtime_data = RuntimeData(coordinator, listener)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    coordinator.schedule_coordinator.async_start_first_refresh()
     config_entry.async_create_background_task(
         hass,
         coordinator.async_refresh(),

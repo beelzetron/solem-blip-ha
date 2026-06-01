@@ -18,6 +18,7 @@ from .const import (
     METADATA_RETRY_INTERVAL,
     PROGRAM_LABELS,
     SET_TIME_MIN_INTERVAL,
+    STATION_NAMES_READ_TIMEOUT,
 )
 from .util import normalize_entity_state
 
@@ -44,9 +45,12 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     coordinator.battery_level = status.get("battery_level")
     coordinator.battery_low = bool(status.get("battery_low", False))
     coordinator._has_status = True
+    coordinator._is_watering = bool(status.get("is_watering"))
     coordinator.active_program_num = status.get("active_program")
     watering_origin = status.get("watering_origin")
-    if status.get("is_watering") and status.get("active_program"):
+    if coordinator.active_program_num is not None:
+        watering_origin = "program"
+    elif status.get("is_watering") and status.get("active_program"):
         watering_origin = "program"
     coordinator.watering_origin = watering_origin
 
@@ -71,8 +75,8 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     elif not status.get("is_watering"):
         coordinator.active_station_num = None
         coordinator.remaining_seconds = None
-        coordinator.active_program_num = None
-        coordinator.watering_origin = None
+        if coordinator.active_program_num is None:
+            coordinator.watering_origin = None
         for station in coordinator.stations:
             station.state = "stopped"
     else:
@@ -172,7 +176,7 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
         try:
             station_names = await asyncio.wait_for(
                 coordinator.api.get_station_names(),
-                timeout=METADATA_READ_TIMEOUT,
+                timeout=STATION_NAMES_READ_TIMEOUT,
             )
         except Exception as err:
             coordinator._station_names_retry_after = now + METADATA_RETRY_INTERVAL
@@ -182,11 +186,13 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
                 err or type(err).__name__,
             )
         else:
-            coordinator.station_names = {
-                station_id: name.strip() or f"Station {station_id}"
-                for station_id, name in station_names.items()
-                if 1 <= station_id <= coordinator.num_stations
-            }
+            coordinator.station_names.update(
+                {
+                    station_id: name.strip() or f"Station {station_id}"
+                    for station_id, name in station_names.items()
+                    if 1 <= station_id <= coordinator.num_stations
+                }
+            )
             for station in coordinator.stations:
                 station.device_name = (
                     f"{coordinator._station_name(station.station_number)} Status"
@@ -232,10 +238,12 @@ async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
 
 async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     """Poll device and update controller/station states from BLE status."""
-    await maybe_set_device_time(coordinator)
+    if not coordinator._irrigation_active:
+        await maybe_set_device_time(coordinator)
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
-    await fetch_device_metadata(coordinator)
+    if not coordinator._irrigation_active:
+        await fetch_device_metadata(coordinator)
     return status
 
 

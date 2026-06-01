@@ -65,3 +65,26 @@ def test_apply_status_clears_program_when_idle(coordinator: MagicMock) -> None:
     )
     assert coordinator.active_program_num is None
     assert coordinator.watering_origin is None
+
+
+def test_apply_status_keeps_program_during_inter_station_idle(
+    coordinator: MagicMock,
+) -> None:
+    """Program run stays visible when controller is idle between stations."""
+    apply_status(
+        coordinator,
+        {
+            "controller_state": "On",
+            "is_watering": False,
+            "station_num": None,
+            "remaining_seconds": None,
+            "battery_voltage": 79,
+            "battery_level": 4,
+            "battery_low": False,
+            "active_program": 1,
+            "watering_origin": "program",
+        },
+    )
+    assert coordinator.active_program_num == 1
+    assert coordinator.watering_origin == "program"
+    assert coordinator.stations[0].state == "stopped"

@@ -131,6 +131,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_set_time_sync: datetime | None = None
         self._set_time_pending = True
         self._consecutive_update_failures = 0
+        self._last_successful_poll_at: float | None = None
+        self._is_watering = False
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -214,13 +216,14 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self, *, fetch_status: bool = True
     ) -> list[dict[str, Any]]:
         """Build entity descriptor list from current coordinator state."""
-        if fetch_status and not self._irrigation_active:
+        if fetch_status:
             await self._fetch_device_status()
         return build_all_descriptors(self)
 
     async def async_update_data(self) -> list[dict[str, Any]]:
         try:
             data = await self.async_update_all_sensors()
+            self._last_successful_poll_at = asyncio.get_running_loop().time()
             async_manage_bluetooth_issue(self, success=True)
             return data
         except Exception as err:
