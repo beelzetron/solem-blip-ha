@@ -133,6 +133,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._consecutive_update_failures = 0
         self._last_successful_poll_at: float | None = None
         self._is_watering = False
+        self._metadata_task: asyncio.Task[None] | None = None
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -295,7 +296,7 @@ class SolemScheduleCoordinator(DataUpdateCoordinator[dict[int, IrrigationProgram
             return
         self._first_refresh_started = True
         self.hass.async_create_task(
-            self.async_config_entry_first_refresh(),
+            self.async_refresh(),
             name=f"{DOMAIN} schedule first refresh",
         )
 

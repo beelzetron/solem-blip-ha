@@ -201,6 +201,9 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
                 station.device_name = (
                     f"{coordinator._station_name(station.station_number)} Status"
                 )
+            coordinator.async_set_updated_data(
+                await coordinator.async_update_all_sensors(fetch_status=False)
+            )
 
 
 async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
@@ -248,8 +251,12 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     apply_status(coordinator, status)
     if not coordinator._irrigation_active:
         config_entry = coordinator.config_entry
-        if config_entry is not None:
-            config_entry.async_create_background_task(
+        metadata_task = coordinator._metadata_task
+        if (
+            config_entry is not None
+            and (metadata_task is None or metadata_task.done())
+        ):
+            coordinator._metadata_task = config_entry.async_create_background_task(
                 coordinator.hass,
                 fetch_device_metadata(coordinator),
                 f"{DOMAIN} metadata refresh ({coordinator.controller_mac_address})",
