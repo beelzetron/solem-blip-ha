@@ -7,12 +7,21 @@ from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
+from solem_blip_ble import IrrigationProgram
 
 from .config_entry import MyConfigEntry
 from .const import CONTROLLER_MAC_ADDRESS, PROGRAM_LABELS
 from .coordinator_polling import active_program_name
 
 _TO_REDACT = {CONTROLLER_MAC_ADDRESS}
+
+
+def _program_diagnostic_name(program: IrrigationProgram | None) -> str | None:
+    """Return a trimmed program name for diagnostics, or None if unavailable."""
+    if program is None:
+        return None
+    name = program.get("name", "").strip()
+    return name or None
 
 
 async def async_get_config_entry_diagnostics(
@@ -26,9 +35,8 @@ async def async_get_config_entry_diagnostics(
         last_poll_age = round(now - coordinator._last_successful_poll_at, 1)
 
     program_names = {
-        PROGRAM_LABELS[index]: (
-            coordinator.irrigation_programs.get(index, {}).get("name", "").strip()
-            or None
+        PROGRAM_LABELS[index]: _program_diagnostic_name(
+            coordinator.irrigation_programs.get(index)
         )
         for index in range(len(PROGRAM_LABELS))
     }
