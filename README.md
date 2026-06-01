@@ -12,13 +12,14 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 
 ## Features
 
-- Controller and per-station status (Stopped / Sprinkling)
+- Controller and per-station status (`on` / `off` / `sprinkling` / `stopped`; translated in the UI)
 - Per-station remaining sprinkle time (seconds from BLE while watering)
 - Battery percentage, voltage (diagnostic), and low-battery alert
 - Manual sprinkle per station, stop, controller on/off
 - Configurable manual duration (minutes)
 - Read-only on-device program schedule sensors
 - Daily controller RTC synchronization after a successful BLE poll
+- Repair issue when Bluetooth polling fails repeatedly
 - Uses the [`solem-blip-ble`](https://pypi.org/project/solem-blip-ble/) library via Home Assistant Bluetooth
 
 This integration supports the original Solem BL-IP controller running firmware 5.x.
@@ -51,12 +52,12 @@ Home Assistant installs `solem-blip-ble>=0.1.20` from PyPI automatically. Protoc
 
 | Entity | Purpose |
 |--------|---------|
-| Controller status | On / Off / Unknown |
+| Controller status | `on` / `off` / `unknown` |
 | Device firmware | Shown in the Home Assistant device information |
 | Battery | 0–100% (from 9V battery level 0–5) |
 | Battery voltage | Diagnostic (disabled by default) |
 | Battery low | Binary alert |
-| Station status | Stopped / Sprinkling, using the controller-provided station name |
+| Station status | `sprinkling` / `stopped`, using the controller-provided station name |
 | Station remaining time | Seconds left while sprinkling (`0` when idle) |
 | Irrigation manual duration | Minutes for sprinkle buttons |
 | Sprinkle station N | Start manual watering |
@@ -80,7 +81,7 @@ trigger:
 condition:
   - condition: state
     entity_id: sensor.solem_blip_aabbccddeeff_station_1_status
-    state: "Stopped"
+    state: "stopped"
 action:
   - action: button.press
     target:
@@ -155,6 +156,7 @@ controller device is tied to its config entry and cannot be removed independentl
 
 - Keep mobile apps disconnected while Home Assistant is connecting to the controller.
 - Add a Bluetooth proxy closer to the controller if discovery is intermittent.
+- If polling fails repeatedly, open **Settings → System → Repairs** and follow the Bluetooth unavailable issue for the controller.
 - Use the integration diagnostics download to inspect availability, battery state,
   metadata retry timing, and schedule-read state. The controller MAC address is redacted.
 - BL-IP V2 firmware 6.x is intentionally unsupported.
