@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.config_entries import ConfigEntryNotReady
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -21,41 +21,21 @@ from custom_components.solem_blip.bluetooth_issue import CONSECUTIVE_FAILURES_TH
 
 
 @pytest.mark.asyncio
-async def test_offline_setup_raises_retry_state_and_cleans_up(
+async def test_offline_setup_does_not_block_platform_setup(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """A failed first refresh closes BLE and leaves no runtime reference."""
+    """BLE polling runs in the background so an offline device cannot block setup."""
     coordinator = MagicMock()
     coordinator.async_init = AsyncMock()
-    coordinator.async_config_entry_first_refresh = AsyncMock(
-        side_effect=ConfigEntryNotReady
-    )
+    refresh_started = asyncio.Event()
+    finish_refresh = asyncio.Event()
+
+    async def refresh() -> None:
+        refresh_started.set()
+        await finish_refresh.wait()
+
+    coordinator.async_refresh = AsyncMock(side_effect=refresh)
     coordinator.async_shutdown = AsyncMock()
-
-    with patch(
-        "custom_components.solem_blip.SolemCoordinator",
-        return_value=coordinator,
-    ):
-        with pytest.raises(ConfigEntryNotReady):
-            await async_setup_entry(hass, mock_config_entry)
-
-    coordinator.async_shutdown.assert_awaited_once()
-    assert mock_config_entry.runtime_data is None
-
-
-@pytest.mark.asyncio
-async def test_successful_setup_refreshes_before_platform_forwarding(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    """Platforms only see the coordinator after its first successful refresh."""
-    coordinator = MagicMock()
-    coordinator.data = []
-    coordinator.async_init = AsyncMock()
-
-    async def first_refresh() -> None:
-        coordinator.data = [{"device_id": "controller"}]
-
-    coordinator.async_config_entry_first_refresh = AsyncMock(side_effect=first_refresh)
     hass.config_entries.async_forward_entry_setups = AsyncMock()
 
     with patch(
@@ -63,10 +43,46 @@ async def test_successful_setup_refreshes_before_platform_forwarding(
         return_value=coordinator,
     ):
         assert await async_setup_entry(hass, mock_config_entry)
+        await refresh_started.wait()
 
-    coordinator.async_config_entry_first_refresh.assert_awaited_once()
+    coordinator.async_shutdown.assert_not_awaited()
     hass.config_entries.async_forward_entry_setups.assert_awaited_once()
-    assert mock_config_entry.runtime_data.coordinator.data
+    assert mock_config_entry.runtime_data.coordinator is coordinator
+
+    finish_refresh.set()
+    await hass.async_block_till_done()
+
+
+@pytest.mark.asyncio
+async def test_successful_setup_starts_background_refresh_after_platform_forwarding(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Platforms load from placeholder data before the initial BLE refresh starts."""
+    coordinator = MagicMock()
+    coordinator.async_init = AsyncMock()
+    events = []
+
+    async def forward_entry_setups(*args) -> None:
+        events.append("platforms")
+
+    async def refresh() -> None:
+        events.append("refresh")
+
+    coordinator.async_refresh = AsyncMock(side_effect=refresh)
+    hass.config_entries.async_forward_entry_setups = AsyncMock(
+        side_effect=forward_entry_setups
+    )
+
+    with patch(
+        "custom_components.solem_blip.SolemCoordinator",
+        return_value=coordinator,
+    ):
+        assert await async_setup_entry(hass, mock_config_entry)
+        await hass.async_block_till_done()
+
+    coordinator.async_refresh.assert_awaited_once()
+    hass.config_entries.async_forward_entry_setups.assert_awaited_once()
+    assert events == ["platforms", "refresh"]
 
 
 @pytest.mark.asyncio

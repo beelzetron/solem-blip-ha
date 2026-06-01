@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntryNotReady
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -48,14 +47,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
     listener = config_entry.add_update_listener(_async_update_listener)
     config_entry.async_on_unload(listener)
     config_entry.runtime_data = RuntimeData(coordinator, listener)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryNotReady:
-        await coordinator.async_shutdown()
-        config_entry.runtime_data = None  # type: ignore[assignment]
-        raise
-
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    config_entry.async_create_background_task(
+        hass,
+        coordinator.async_refresh(),
+        f"{DOMAIN} initial BLE status refresh",
+    )
     return True
 
 
