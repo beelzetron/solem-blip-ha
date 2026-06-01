@@ -116,6 +116,7 @@ class TestEntitySetupMetadata:
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
         mock_solem_client: MagicMock,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Optional metadata failures do not stall every status refresh."""
         import asyncio
@@ -137,6 +138,65 @@ class TestEntitySetupMetadata:
 
             mock_solem_client.get_firmware_version.assert_awaited_once()
             mock_solem_client.get_station_names.assert_awaited_once()
+            assert caplog.messages[-2:] == [
+                "AA:BB:CC:DD:EE:FF - Failed to read firmware version: TimeoutError",
+                "AA:BB:CC:DD:EE:FF - Failed to read station names: TimeoutError",
+            ]
+
+    async def test_metadata_timeout_does_not_prevent_later_status_poll(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        mock_solem_client: MagicMock,
+    ) -> None:
+        """Optional metadata timeout does not block the next battery poll."""
+        import asyncio
+
+        mock_solem_client.get_firmware_version.side_effect = asyncio.TimeoutError
+
+        with patch(
+            "custom_components.solem_blip.coordinator.SolemClient",
+            return_value=mock_solem_client,
+        ), patch(
+            "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+        ):
+            coordinator = SolemCoordinator(hass, mock_config_entry)
+            await coordinator.async_init()
+
+            await coordinator._fetch_device_metadata()
+            await coordinator.async_update_data()
+
+        mock_solem_client.get_status.assert_awaited_once()
+        assert coordinator.battery_voltage == 90
+
+    async def test_station_name_failure_cools_down_without_blocking_battery(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        mock_solem_client: MagicMock,
+    ) -> None:
+        """Station-name retries cool down while status polls keep advancing."""
+        import asyncio
+
+        mock_solem_client.get_station_names.side_effect = asyncio.TimeoutError
+
+        with patch(
+            "custom_components.solem_blip.coordinator.SolemClient",
+            return_value=mock_solem_client,
+        ), patch(
+            "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+        ):
+            coordinator = SolemCoordinator(hass, mock_config_entry)
+            await coordinator.async_init()
+
+            await coordinator._fetch_device_metadata()
+            await coordinator.async_update_data()
+            await coordinator._fetch_device_metadata()
+            await coordinator.async_update_data()
+
+        mock_solem_client.get_station_names.assert_awaited_once()
+        assert mock_solem_client.get_status.await_count == 2
+        assert coordinator.battery_voltage == 90
 
 
 @pytest.mark.asyncio

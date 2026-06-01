@@ -130,7 +130,7 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
         _LOGGER.warning(
             "%s - Failed to sync device time: %s",
             coordinator.controller_mac_address,
-            err or type(err).__name__,
+            str(err) or type(err).__name__,
         )
         return
 
@@ -158,7 +158,7 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
             _LOGGER.warning(
                 "%s - Failed to read firmware version: %s",
                 coordinator.controller_mac_address,
-                err or type(err).__name__,
+                str(err) or type(err).__name__,
             )
         else:
             coordinator.firmware_version = firmware["raw_hex"]
@@ -189,7 +189,7 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
             _LOGGER.warning(
                 "%s - Failed to read station names: %s",
                 coordinator.controller_mac_address,
-                err or type(err).__name__,
+                str(err) or type(err).__name__,
             )
         else:
             coordinator.station_names.update(
@@ -255,7 +255,7 @@ async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
         _LOGGER.warning(
             "%s - Failed to read irrigation config: %s",
             coordinator.controller_mac_address,
-            err or type(err).__name__,
+            str(err) or type(err).__name__,
         )
         return
 

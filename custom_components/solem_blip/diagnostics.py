@@ -33,6 +33,8 @@ async def async_get_config_entry_diagnostics(
     last_poll_age = None
     if coordinator._last_successful_poll_at is not None:
         last_poll_age = round(now - coordinator._last_successful_poll_at, 1)
+    metadata_task = coordinator._metadata_task
+    metadata_task_finished = metadata_task is not None and metadata_task.done()
 
     program_names = {
         PROGRAM_LABELS[index]: _program_diagnostic_name(
@@ -67,6 +69,10 @@ async def async_get_config_entry_diagnostics(
         "metadata_retry_after": {
             "firmware": coordinator._firmware_retry_after,
             "station_names": coordinator._station_names_retry_after,
+        },
+        "metadata_task": {
+            "active": metadata_task is not None and not metadata_task_finished,
+            "finished": metadata_task_finished,
         },
         "schedule_read": {
             "program_count": len(coordinator.irrigation_programs),

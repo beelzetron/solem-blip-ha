@@ -34,6 +34,8 @@ async def test_diagnostics_redact_mac_and_include_runtime_state(
     coordinator.station_names = {1: "Zone 1", 2: "Zone 2"}
     coordinator._firmware_retry_after = 1.0
     coordinator._station_names_retry_after = 2.0
+    coordinator._metadata_task = MagicMock()
+    coordinator._metadata_task.done.return_value = False
     coordinator._last_successful_poll_at = 100.0
     coordinator.irrigation_programs = {
         0: {"name": "Programma A"},
@@ -59,4 +61,5 @@ async def test_diagnostics_redact_mac_and_include_runtime_state(
     assert result["irrigation"]["active_program_name"] == "Programma C"
     assert result["irrigation"]["watering_origin"] == "schedule"
     assert result["metadata_retry_after"]["station_names"] == 2.0
+    assert result["metadata_task"] == {"active": True, "finished": False}
     assert result["schedule_read"]["program_count"] == 2
