@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.solem_blip.repairs import CONSECUTIVE_FAILURES_THRESHOLD
+from custom_components.solem_blip.bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
 
 
 @pytest.mark.asyncio
@@ -30,7 +30,7 @@ async def test_coordinator_tracks_consecutive_failures(coordinator) -> None:
         "async_update_all_sensors",
         new=AsyncMock(side_effect=RuntimeError("offline")),
     ), patch(
-        "custom_components.solem_blip.repairs.ir.async_create_issue"
+        "custom_components.solem_blip.bluetooth_issue.ir.async_create_issue"
     ) as create_issue:
         for _ in range(CONSECUTIVE_FAILURES_THRESHOLD):
             with pytest.raises(UpdateFailed):

@@ -1,4 +1,4 @@
-"""Repair issues for the Solem BL-IP integration."""
+"""Bluetooth repair issues for the Solem BL-IP integration."""
 
 from __future__ import annotations
 
