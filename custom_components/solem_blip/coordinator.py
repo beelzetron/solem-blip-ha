@@ -120,6 +120,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.irrigation_manual_duration = DEFAULT_MANUAL_DURATION
         self.remaining_seconds: int | None = None
         self.active_station_num: int | None = None
+        self.active_program_num: int | None = None
+        self.watering_origin: str | None = None
         self.irrigation_programs: dict[int, IrrigationProgram] = {}
         self._irrigation_config_retry_after = 0.0
         self._irrigation_config_refresh_after = 0.0

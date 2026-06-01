@@ -12,6 +12,7 @@ from .schedule import (
     build_schedule_attributes,
     enabled_start_count,
     next_start_datetime,
+    schedule_context_attributes,
 )
 from .util import mac_to_uuid
 
@@ -267,6 +268,10 @@ def build_program_descriptors(
         if next_start is not None:
             next_minutes = next_start.hour * 60 + next_start.minute
 
+        next_attrs: dict[str, Any] = {"minutes_since_midnight": next_minutes}
+        if program:
+            next_attrs.update(schedule_context_attributes(program))
+
         data.append(
             {
                 "device_id": f"{mac}_program_{label_lower}_next_start",
@@ -275,7 +280,26 @@ def build_program_descriptors(
                 "device_uid": mac_to_uuid(mac, program_counter),
                 "software_version": "1.0",
                 "state": next_start,
-                "attributes": {"minutes_since_midnight": next_minutes},
+                "attributes": next_attrs,
+                "last_reboot": None,
+                "translation_placeholders": {"program": label},
+            }
+        )
+        program_counter += 1
+
+        data.append(
+            {
+                "device_id": f"{mac}_program_{label_lower}_running",
+                "device_type": "PROGRAM_RUNNING_SENSOR",
+                "device_name": f"Program {label} running",
+                "device_uid": mac_to_uuid(mac, program_counter),
+                "software_version": "1.0",
+                "state": (
+                    coordinator.active_program_num == program_index + 1
+                    if coordinator.active_program_num is not None
+                    else False
+                ),
+                "program_num": program_index + 1,
                 "last_reboot": None,
                 "translation_placeholders": {"program": label},
             }

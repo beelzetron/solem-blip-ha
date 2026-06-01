@@ -12,6 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .config_entry import MyConfigEntry
 from .base import SolemBaseEntity
 from .coordinator import SolemCoordinator
+from .coordinator_polling import active_program_name
 from .entity_descriptions import SENSOR_DESCRIPTIONS, SolemSensorEntityDescription
 
 PARALLEL_UPDATES = 1
@@ -63,6 +64,18 @@ class StateSensor(SolemSensorEntity):
         return cast(
             int | float | str | None, self._descriptor_field()
         )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int | str | None]:
+        if "_irrigation_controller_" not in self.device_id:
+            return {}
+        attributes: dict[str, int | str | None] = {}
+        if self.coordinator.active_program_num is not None:
+            attributes["active_program"] = self.coordinator.active_program_num
+            attributes["active_program_name"] = active_program_name(self.coordinator)
+        if self.coordinator.watering_origin is not None:
+            attributes["watering_origin"] = self.coordinator.watering_origin
+        return attributes
 
 
 class BatterySensor(SolemSensorEntity):
@@ -133,12 +146,9 @@ class ProgramNextStartSensor(ProgramSensor):
         return cast(datetime | None, self._descriptor_field())
 
     @property
-    def extra_state_attributes(self) -> dict[str, int | None]:
+    def extra_state_attributes(self) -> dict[str, int | str | None]:
         device = self.coordinator.get_device(self.device_id) or {}
-        attributes = device.get("attributes") or {}
-        return {
-            "minutes_since_midnight": attributes.get("minutes_since_midnight"),
-        }
+        return dict(device.get("attributes") or {})
 
 
 class ProgramScheduleSensor(ProgramSensor):

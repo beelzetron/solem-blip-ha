@@ -125,6 +125,13 @@ BINARY_SENSOR_DESCRIPTIONS: dict[str, SolemBinarySensorEntityDescription] = {
         entity_category=EntityCategory.DIAGNOSTIC,
         has_entity_name=True,
     ),
+    "PROGRAM_RUNNING_SENSOR": SolemBinarySensorEntityDescription(
+        key="program_running",
+        device_type="PROGRAM_RUNNING_SENSOR",
+        translation_key="program_running",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        has_entity_name=True,
+    ),
 }
 
 BUTTON_DESCRIPTIONS: dict[str, SolemButtonEntityDescription] = {

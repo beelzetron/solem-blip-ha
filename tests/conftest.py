@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -28,6 +29,8 @@ MOCK_IRRIGATION_PROGRAMS = {
         "cycle": 4,
         "week_days": 0x7F,
         "period_length": 2,
+        "synchro_day": 0,
+        "period_start_date": None,
         "start_times": [1060, None, None, None, None, None, None, None],
         "station_durations": [1200, 0, 0, 0, 1800, 0],
     },
@@ -38,6 +41,8 @@ MOCK_IRRIGATION_PROGRAMS = {
         "cycle": 4,
         "week_days": 0x7F,
         "period_length": 2,
+        "synchro_day": 0,
+        "period_start_date": None,
         "start_times": [None] * 8,
         "station_durations": [0, 0],
     },
@@ -48,6 +53,8 @@ MOCK_IRRIGATION_PROGRAMS = {
         "cycle": 4,
         "week_days": 0x11,
         "period_length": 3,
+        "synchro_day": 1,
+        "period_start_date": date(2026, 6, 1),
         "start_times": [270, None, None, None, None, None, None, None],
         "station_durations": [0, 1500, 1500, 0],
     },
@@ -85,6 +92,8 @@ def create_mock_solem_client(station_num: int = 2) -> MagicMock:
         "battery_low": False,
         "station_num": None,
         "remaining_seconds": None,
+        "active_program": None,
+        "watering_origin": None,
     })
     client.get_firmware_version = AsyncMock(return_value={
         "major": 5,
