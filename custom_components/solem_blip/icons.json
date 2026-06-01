@@ -44,8 +44,9 @@
       "controller_status": {
         "default": "mdi:help-circle",
         "state": {
-          "On": "mdi:power",
-          "Off": "mdi:power-off"
+          "on": "mdi:power",
+          "off": "mdi:power-off",
+          "unknown": "mdi:help-circle"
         }
       },
       "last_time_sync": {
@@ -66,8 +67,9 @@
       "station_status": {
         "default": "mdi:help-circle",
         "state": {
-          "Sprinkling": "mdi:sprinkler-variant",
-          "Stopped": "mdi:sprinkler"
+          "sprinkling": "mdi:sprinkler-variant",
+          "stopped": "mdi:sprinkler",
+          "unknown": "mdi:help-circle"
         }
       }
     }

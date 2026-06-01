@@ -26,7 +26,7 @@ def clear_irrigation_idle_state(coordinator: SolemCoordinator) -> None:
     coordinator.active_station_num = None
     coordinator.remaining_seconds = None
     for station in coordinator.stations:
-        station.state = "Stopped"
+        station.state = "stopped"
 
 
 def clear_monitor_task_ref(
@@ -142,7 +142,7 @@ async def start_irrigation(
 
     coordinator.irrigation_stop_event.clear()
     coordinator._irrigation_active = True
-    coordinator.stations[station - 1].state = "Sprinkling"
+    coordinator.stations[station - 1].state = "sprinkling"
     coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
 
     coordinator._irrigation_monitor_task = coordinator.hass.async_create_task(

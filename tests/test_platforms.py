@@ -47,8 +47,8 @@ def _seed_coordinator_state(coordinator: SolemCoordinator) -> None:
     """Populate coordinator fields used by descriptor builders in tests."""
     coordinator.battery_level = 5
     coordinator.battery_voltage = 90
-    coordinator.controller.state = "On"
-    coordinator.stations[0].state = "Stopped"
+    coordinator.controller.state = "on"
+    coordinator.stations[0].state = "stopped"
     coordinator._has_status = True
     coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
 
