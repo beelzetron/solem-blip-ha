@@ -1,70 +1,76 @@
 """Sensor platform for the Solem BL-IP integration."""
 
-from dataclasses import dataclass
-from datetime import datetime
+from __future__ import annotations
 
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
-)
-from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, UnitOfTime
+from datetime import datetime
+from typing import Any, cast
+
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import MyConfigEntry
+from .config_entry import MyConfigEntry
 from .base import SolemBaseEntity
 from .coordinator import SolemCoordinator
+from .entity_descriptions import SENSOR_DESCRIPTIONS, SolemSensorEntityDescription
 
 PARALLEL_UPDATES = 1
-
-
-@dataclass(frozen=True)
-class SensorTypeClass:
-    """Map coordinator device types to sensor classes."""
-
-    device_type: str
-    state_field: str
-    sensor_class: object
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MyConfigEntry,
     async_add_entities: AddEntitiesCallback,
-):
+) -> None:
     """Set up Solem BL-IP sensors."""
-    coordinator: SolemCoordinator = config_entry.runtime_data.coordinator
+    coordinator = config_entry.runtime_data.coordinator
+    sensors: list[SolemSensorEntity] = []
 
-    sensors = []
-    for sensor_type in SENSOR_TYPES:
-        sensors.extend(
-            [
-                sensor_type.sensor_class(coordinator, device, sensor_type.state_field)
-                for device in coordinator.data
-                if device.get("device_type") == sensor_type.device_type
-            ]
+    for device in coordinator.data:
+        device_type = device.get("device_type")
+        if not device_type or device_type not in SENSOR_DESCRIPTIONS:
+            continue
+        description = SENSOR_DESCRIPTIONS[device_type]
+        entity_class = SENSOR_ENTITY_CLASSES.get(device_type, SolemSensorEntity)
+        sensors.append(
+            entity_class(coordinator, device, description.state_field, description)
         )
 
     async_add_entities(sensors)
 
 
-class StateSensor(SolemBaseEntity, SensorEntity):
+class SolemSensorEntity(SolemBaseEntity, SensorEntity):
+    """Generic Solem BL-IP sensor entity."""
+
+    entity_description: SolemSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: SolemCoordinator,
+        device: dict[str, Any],
+        parameter: str,
+        description: SolemSensorEntityDescription,
+    ) -> None:
+        """Initialise sensor."""
+        super().__init__(coordinator, device, parameter, description)
+
+
+class StateSensor(SolemSensorEntity):
+    """Controller or station status sensor."""
+
     @property
-    def native_value(self) -> int | float | str:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+    def native_value(self) -> int | float | str | None:
+        return cast(
+            int | float | str | None, self._descriptor_field()
+        )
 
 
-class BatterySensor(SolemBaseEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.BATTERY
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = PERCENTAGE
+class BatterySensor(SolemSensorEntity):
+    """Battery percentage sensor."""
 
     @property
     def native_value(self) -> int | None:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+        return cast(int | None, self._descriptor_field())
 
     @property
     def extra_state_attributes(self) -> dict[str, int | bool | None]:
@@ -74,50 +80,44 @@ class BatterySensor(SolemBaseEntity, SensorEntity):
         }
 
 
-class BatteryVoltageSensor(SolemBaseEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.VOLTAGE
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
-    _attr_entity_registry_enabled_default = False
+class BatteryVoltageSensor(SolemSensorEntity):
+    """Battery voltage diagnostic sensor."""
 
     @property
     def native_value(self) -> float | None:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+        return cast(float | None, self._descriptor_field())
 
 
-class RemainingSprinkleSensor(SolemBaseEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.DURATION
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+class RemainingSprinkleSensor(SolemSensorEntity):
+    """Per-station remaining sprinkle time sensor."""
 
     @property
     def native_value(self) -> int | None:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+        return cast(int | None, self._descriptor_field())
 
 
-class LastTimeSyncSensor(SolemBaseEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
+class LastTimeSyncSensor(SolemSensorEntity):
+    """Last RTC sync timestamp sensor."""
 
     @property
     def native_value(self) -> datetime | None:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+        return cast(datetime | None, self._descriptor_field())
 
 
-class ProgramNameSensor(SolemBaseEntity, SensorEntity):
+class ProgramNameSensor(SolemSensorEntity):
+    """On-device program name sensor."""
+
     @property
     def native_value(self) -> str | None:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+        return cast(str | None, self._descriptor_field())
 
 
-class ProgramNextStartSensor(SolemBaseEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
+class ProgramNextStartSensor(SolemSensorEntity):
+    """On-device program next start sensor."""
 
     @property
     def native_value(self) -> datetime | None:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+        return cast(datetime | None, self._descriptor_field())
 
     @property
     def extra_state_attributes(self) -> dict[str, int | None]:
@@ -128,10 +128,12 @@ class ProgramNextStartSensor(SolemBaseEntity, SensorEntity):
         }
 
 
-class ProgramScheduleSensor(SolemBaseEntity, SensorEntity):
+class ProgramScheduleSensor(SolemSensorEntity):
+    """On-device program schedule summary sensor."""
+
     @property
     def native_value(self) -> int | None:
-        return self.coordinator.get_device_parameter(self.device_id, self.parameter)
+        return cast(int | None, self._descriptor_field())
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
@@ -139,13 +141,13 @@ class ProgramScheduleSensor(SolemBaseEntity, SensorEntity):
         return dict(device.get("attributes") or {})
 
 
-SENSOR_TYPES = (
-    SensorTypeClass("STATE_SENSOR", "state", StateSensor),
-    SensorTypeClass("BATTERY_SENSOR", "state", BatterySensor),
-    SensorTypeClass("BATTERY_VOLTAGE_SENSOR", "state", BatteryVoltageSensor),
-    SensorTypeClass("REMAINING_SPRINKLE_SENSOR", "state", RemainingSprinkleSensor),
-    SensorTypeClass("LAST_TIME_SYNC_SENSOR", "state", LastTimeSyncSensor),
-    SensorTypeClass("PROGRAM_NAME_SENSOR", "state", ProgramNameSensor),
-    SensorTypeClass("PROGRAM_NEXT_START_SENSOR", "state", ProgramNextStartSensor),
-    SensorTypeClass("PROGRAM_SCHEDULE_SENSOR", "state", ProgramScheduleSensor),
-)
+SENSOR_ENTITY_CLASSES: dict[str, type[SolemSensorEntity]] = {
+    "STATE_SENSOR": StateSensor,
+    "BATTERY_SENSOR": BatterySensor,
+    "BATTERY_VOLTAGE_SENSOR": BatteryVoltageSensor,
+    "REMAINING_SPRINKLE_SENSOR": RemainingSprinkleSensor,
+    "LAST_TIME_SYNC_SENSOR": LastTimeSyncSensor,
+    "PROGRAM_NAME_SENSOR": ProgramNameSensor,
+    "PROGRAM_NEXT_START_SENSOR": ProgramNextStartSensor,
+    "PROGRAM_SCHEDULE_SENSOR": ProgramScheduleSensor,
+}
