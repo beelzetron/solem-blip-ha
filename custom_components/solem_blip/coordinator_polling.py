@@ -247,11 +247,13 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
     if not coordinator._irrigation_active:
-        coordinator.config_entry.async_create_background_task(
-            coordinator.hass,
-            fetch_device_metadata(coordinator),
-            f"{DOMAIN} metadata refresh ({coordinator.controller_mac_address})",
-        )
+        config_entry = coordinator.config_entry
+        if config_entry is not None:
+            config_entry.async_create_background_task(
+                coordinator.hass,
+                fetch_device_metadata(coordinator),
+                f"{DOMAIN} metadata refresh ({coordinator.controller_mac_address})",
+            )
     return status
 
 
