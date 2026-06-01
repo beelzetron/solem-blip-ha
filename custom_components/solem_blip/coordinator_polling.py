@@ -46,7 +46,11 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     coordinator.battery_low = bool(status.get("battery_low", False))
     coordinator._has_status = True
     coordinator._is_watering = bool(status.get("is_watering"))
-    coordinator.active_program_num = status.get("active_program")
+    active_program = status.get("active_program")
+    if active_program is not None:
+        coordinator.active_program_num = active_program
+    elif not status.get("is_watering"):
+        coordinator.active_program_num = None
     watering_origin = status.get("watering_origin")
     if coordinator.active_program_num is not None:
         watering_origin = "program"
@@ -243,7 +247,13 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
     if not coordinator._irrigation_active:
-        await fetch_device_metadata(coordinator)
+        config_entry = coordinator.config_entry
+        if config_entry is not None:
+            config_entry.async_create_background_task(
+                coordinator.hass,
+                fetch_device_metadata(coordinator),
+                f"{DOMAIN} metadata refresh ({coordinator.controller_mac_address})",
+            )
     return status
 
 

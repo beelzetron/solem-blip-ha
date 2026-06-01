@@ -60,6 +60,9 @@ async def test_controller_status_sensor_exposes_program_attributes(
     _seed_coordinator_state(coordinator)
     coordinator.active_program_num = 3
     coordinator.watering_origin = "program"
+    coordinator._is_watering = True
+    coordinator.active_station_num = 5
+    coordinator.remaining_seconds = 900
     coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
 
     device = next(
@@ -71,6 +74,9 @@ async def test_controller_status_sensor_exposes_program_attributes(
         coordinator, device, "state", SENSOR_DESCRIPTIONS["STATE_SENSOR"]
     )
     assert entity.extra_state_attributes == {
+        "is_watering": True,
+        "active_station": 5,
+        "remaining_seconds": 900,
         "active_program": 3,
         "active_program_name": "Programma C",
         "watering_origin": "program",

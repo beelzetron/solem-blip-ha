@@ -51,8 +51,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
     coordinator.schedule_coordinator.async_start_first_refresh()
     config_entry.async_create_background_task(
         hass,
-        coordinator.async_refresh(),
-        f"{DOMAIN} initial BLE status refresh",
+        coordinator.async_config_entry_first_refresh(),
+        f"{DOMAIN} coordinator refresh listener",
     )
     return True
 

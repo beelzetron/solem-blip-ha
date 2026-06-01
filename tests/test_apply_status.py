@@ -88,3 +88,29 @@ def test_apply_status_keeps_program_during_inter_station_idle(
     assert coordinator.active_program_num == 1
     assert coordinator.watering_origin == "program"
     assert coordinator.stations[0].state == "stopped"
+
+
+def test_apply_status_preserves_program_during_watering_without_byte_8(
+    coordinator: MagicMock,
+) -> None:
+    """Keep program identity when a watering frame omits byte 8."""
+    coordinator.active_program_num = 2
+    coordinator.watering_origin = "program"
+    apply_status(
+        coordinator,
+        {
+            "controller_state": "On",
+            "is_watering": True,
+            "station_num": 1,
+            "remaining_seconds": 900,
+            "battery_voltage": 79,
+            "battery_level": 4,
+            "battery_low": False,
+            "active_program": None,
+            "watering_origin": "manual",
+        },
+    )
+    assert coordinator.active_program_num == 2
+    assert coordinator.watering_origin == "program"
+    assert coordinator.stations[0].state == "sprinkling"
+    assert coordinator.stations[1].state == "stopped"
