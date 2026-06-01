@@ -82,7 +82,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             update_method=self.async_update_data,
             update_interval=timedelta(seconds=self.poll_interval),
             config_entry=config_entry,
-            always_update=False,
+            always_update=True,
         )
 
         self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
