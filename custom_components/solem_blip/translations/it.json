@@ -9,7 +9,6 @@
     "error": {
       "cannot_connect": "Connessione fallita",
       "cannot_connect_slots": "L'adattatore o proxy Bluetooth non ha slot liberi e il controller non risulta in discovery. Attendi e riprova, chiudi le altre app mobili che usano il controller o aggiungi un proxy più vicino.",
-      "invalid_auth": "Autenticazione non valida",
       "unknown": "Errore imprevisto"
     },
     "step": {
@@ -71,6 +70,29 @@
       "program_schedule": { "name": "Programmazione programma {program}" },
       "station_remaining_time": { "name": "Tempo residuo {station_name}" },
       "station_status": { "name": "Stato {station_name}" }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Impossibile connettersi al controller via Bluetooth."
+    },
+    "start_irrigation_failed": {
+      "message": "Avvio irrigazione sulla stazione {station} non riuscito."
+    },
+    "stop_irrigation_failed": {
+      "message": "Arresto irrigazione non riuscito."
+    },
+    "controller_on_failed": {
+      "message": "Accensione controller non riuscita."
+    },
+    "controller_off_failed": {
+      "message": "Spegnimento controller non riuscito."
+    }
+  },
+  "issues": {
+    "bluetooth_unavailable": {
+      "title": "Connessione Bluetooth non disponibile",
+      "description": "Home Assistant non riesce a interrogare il controller {mac} via Bluetooth dopo diversi tentativi. Verifica che sia acceso, nel raggio e non connesso ad altre app."
     }
   },
   "selector": {

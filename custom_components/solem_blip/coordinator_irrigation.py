@@ -166,7 +166,11 @@ async def start_irrigation(
             task.cancel()
         await await_irrigation_monitor_task(coordinator)
         clear_irrigation_idle_state(coordinator)
-        raise HomeAssistantError(str(ex)) from ex
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="start_irrigation_failed",
+            translation_placeholders={"station": str(station)},
+        ) from ex
     except Exception as ex:
         _LOGGER.error(
             "%s - Failed to start irrigation due to error: %s",
@@ -192,9 +196,10 @@ async def stop_irrigation(coordinator: SolemCoordinator) -> None:
             "%s - Failed to stop irrigation due to connection error.",
             coordinator.controller_mac_address,
         )
-        raise HomeAssistantError(str(ex)) from ex
-
-    coordinator.irrigation_stop_event.set()
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="stop_irrigation_failed",
+        ) from ex
     await await_irrigation_monitor_task(coordinator)
     clear_irrigation_idle_state(coordinator)
 
@@ -215,9 +220,10 @@ async def turn_controller_on(coordinator: SolemCoordinator) -> None:
             "%s - Failed to turn controller on due to connection error.",
             coordinator.controller_mac_address,
         )
-        raise HomeAssistantError(str(ex)) from ex
-
-    coordinator.controller.state = "On"
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="controller_on_failed",
+        ) from ex
     coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
     _LOGGER.info(
         "%s - Irrigation controller turned on.",
@@ -238,9 +244,10 @@ async def turn_controller_off(coordinator: SolemCoordinator) -> None:
             "%s - Failed to turn controller off due to connection error.",
             coordinator.controller_mac_address,
         )
-        raise HomeAssistantError(str(ex)) from ex
-
-    coordinator.controller.state = "Off"
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="controller_off_failed",
+        ) from ex
     coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
     _LOGGER.info(
         "%s - Irrigation controller turned off.",

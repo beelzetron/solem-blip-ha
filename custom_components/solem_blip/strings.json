@@ -9,7 +9,6 @@
     "error": {
       "cannot_connect": "Failed to connect",
       "cannot_connect_slots": "Bluetooth adapter or proxy has no free connection slots and the controller is not visible in discovery. Wait and retry, close other mobile apps using the controller, check Settings → Bluetooth → Connection monitor, or add a Bluetooth proxy closer to the controller.",
-      "invalid_auth": "Invalid authentication",
       "unknown": "Unexpected error"
     },
     "step": {
@@ -71,6 +70,29 @@
       "program_schedule": { "name": "Program {program} schedule" },
       "station_remaining_time": { "name": "{station_name} remaining time" },
       "station_status": { "name": "{station_name} status" }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Could not connect to the controller over Bluetooth."
+    },
+    "start_irrigation_failed": {
+      "message": "Failed to start irrigation on station {station}."
+    },
+    "stop_irrigation_failed": {
+      "message": "Failed to stop irrigation."
+    },
+    "controller_on_failed": {
+      "message": "Failed to turn the controller on."
+    },
+    "controller_off_failed": {
+      "message": "Failed to turn the controller off."
+    }
+  },
+  "issues": {
+    "bluetooth_unavailable": {
+      "title": "Bluetooth connection unavailable",
+      "description": "Home Assistant could not poll controller {mac} over Bluetooth after several attempts. Check that the controller is powered on, in range, and not connected to another app."
     }
   },
   "selector": {

@@ -1,0 +1,75 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "battery_low": {
+        "default": "mdi:battery-alert"
+      }
+    },
+    "button": {
+      "controller_off": {
+        "default": "mdi:power-off"
+      },
+      "controller_on": {
+        "default": "mdi:power-on"
+      },
+      "sprinkle_station": {
+        "default": "mdi:sprinkler"
+      },
+      "stop_sprinkle": {
+        "default": "mdi:water-off"
+      }
+    },
+    "number": {
+      "irrigation_manual_duration": {
+        "default": "mdi:clock-time-five-outline"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "default": "mdi:battery-unknown",
+        "range": {
+          "0": "mdi:battery-outline",
+          "10": "mdi:battery-10",
+          "20": "mdi:battery-20",
+          "30": "mdi:battery-30",
+          "40": "mdi:battery-40",
+          "50": "mdi:battery-50",
+          "60": "mdi:battery-60",
+          "70": "mdi:battery-70",
+          "80": "mdi:battery-80",
+          "90": "mdi:battery-90",
+          "100": "mdi:battery"
+        }
+      },
+      "controller_status": {
+        "default": "mdi:help-circle",
+        "state": {
+          "On": "mdi:power",
+          "Off": "mdi:power-off"
+        }
+      },
+      "last_time_sync": {
+        "default": "mdi:clock-check-outline"
+      },
+      "program_name": {
+        "default": "mdi:calendar-text"
+      },
+      "program_next_start": {
+        "default": "mdi:calendar-clock"
+      },
+      "program_schedule": {
+        "default": "mdi:calendar-month"
+      },
+      "station_remaining_time": {
+        "default": "mdi:timer-outline"
+      },
+      "station_status": {
+        "default": "mdi:help-circle",
+        "state": {
+          "Sprinkling": "mdi:sprinkler-variant",
+          "Stopped": "mdi:sprinkler"
+        }
+      }
+    }
+  }
+}

@@ -7,14 +7,14 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
+
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from solem_blip_ble import IrrigationProgram, SolemClient
 
-from .bluetooth import async_get_connectable_device
+from .config_entry import MyConfigEntry
 from .const import (
     BLUETOOTH_DEFAULT_TIMEOUT,
     BLUETOOTH_TIMEOUT,
@@ -42,7 +42,10 @@ from .coordinator_polling import (
     fetch_device_status,
     remaining_seconds_for_station,
 )
+from .bluetooth import async_get_connectable_device
+
 from .models import IrrigationController, IrrigationStation
+from .repairs import async_manage_bluetooth_issue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,7 +53,7 @@ _LOGGER = logging.getLogger(__name__)
 class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     """Poll BLE status and expose manual irrigation controls."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, config_entry: MyConfigEntry) -> None:
         self.controller_mac_address = config_entry.data[CONTROLLER_MAC_ADDRESS].rsplit(
             " - ", 1
         )[1]
@@ -85,7 +88,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             device_name="Controller Status",
             device_uid="",
             software_version=None,
-            icon="mdi:state-machine",
         )
         self.station_names: dict[int, str] = {}
         self.firmware_version: str | None = None
@@ -120,13 +122,14 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_set_time_at = 0.0
         self._last_set_time_sync: datetime | None = None
         self._set_time_pending = True
+        self._consecutive_update_failures = 0
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
             self.controller_mac_address,
         )
 
-    async def update_config(self, config_entry: ConfigEntry) -> None:
+    async def update_config(self, config_entry: MyConfigEntry) -> None:
         """Apply a reconfigured config entry."""
         _LOGGER.info(
             "%s - Updating coordinator with new config...",
@@ -190,7 +193,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 device_uid="",
                 station_number=station_id,
                 software_version=self.firmware_version,
-                icon="mdi:state-machine",
             )
             for station_id in range(1, self.num_stations + 1)
         ]
@@ -249,8 +251,11 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     async def async_update_data(self) -> list[dict[str, Any]]:
         try:
-            return await self.async_update_all_sensors()
+            data = await self.async_update_all_sensors()
+            async_manage_bluetooth_issue(self, success=True)
+            return data
         except Exception as err:
+            async_manage_bluetooth_issue(self, success=False)
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
     async def start_irrigation(
