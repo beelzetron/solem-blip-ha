@@ -45,6 +45,7 @@ from .coordinator_polling import (
     fetch_irrigation_config,
     remaining_seconds_for_station,
 )
+from .coordinator_publish import publish_descriptor_update
 from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
@@ -134,6 +135,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_successful_poll_at: float | None = None
         self._is_watering = False
         self._metadata_task: asyncio.Task[None] | None = None
+        self._first_successful_status_at: float | None = None
+        self._metadata_ready_after = float("inf")
+        self._schedule_ready_after = float("inf")
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -222,10 +226,18 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         return build_all_descriptors(self)
 
     async def async_update_data(self) -> list[dict[str, Any]]:
+        _LOGGER.debug(
+            "%s - Status poll started",
+            self.controller_mac_address,
+        )
         try:
             data = await self.async_update_all_sensors()
             self._last_successful_poll_at = asyncio.get_running_loop().time()
             async_manage_bluetooth_issue(self, success=True)
+            _LOGGER.debug(
+                "%s - Status poll completed",
+                self.controller_mac_address,
+            )
             return data
         except Exception as err:
             async_manage_bluetooth_issue(self, success=False)
@@ -296,14 +308,32 @@ class SolemScheduleCoordinator(DataUpdateCoordinator[dict[int, IrrigationProgram
             return
         self._first_refresh_started = True
         self.hass.async_create_task(
-            self.async_refresh(),
+            self._async_deferred_first_refresh(),
             name=f"{DOMAIN} schedule first refresh",
         )
+
+    async def _async_deferred_first_refresh(self) -> None:
+        """Wait for the heavy-read gate before the first irrigation config read."""
+        coordinator = self.solem_coordinator
+        while True:
+            now = asyncio.get_running_loop().time()
+            if (
+                coordinator._first_successful_status_at is not None
+                and now >= coordinator._schedule_ready_after
+            ):
+                break
+            await asyncio.sleep(1)
+        _LOGGER.debug(
+            "%s - Schedule coordinator starting first refresh",
+            coordinator.controller_mac_address,
+        )
+        await self.async_refresh()
 
     async def async_update_data(self) -> dict[int, IrrigationProgram]:
         """Refresh schedule state and publish updated program descriptors."""
         await fetch_irrigation_config(self.solem_coordinator)
-        self.solem_coordinator.async_set_updated_data(
-            await self.solem_coordinator.async_update_all_sensors(fetch_status=False)
+        publish_descriptor_update(
+            self.solem_coordinator,
+            await self.solem_coordinator.async_update_all_sensors(fetch_status=False),
         )
         return self.solem_coordinator.irrigation_programs

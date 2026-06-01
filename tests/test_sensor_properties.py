@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
@@ -81,6 +83,55 @@ async def test_controller_status_sensor_exposes_program_attributes(
         "active_program_name": "Programma C",
         "watering_origin": "program",
     }
+
+
+@pytest.mark.asyncio
+async def test_controller_status_sensor_shows_manual_watering_on_start(
+    hass,
+    mock_config_entry,
+    mock_solem_client,
+) -> None:
+    """Manual irrigation start exposes controller watering attributes immediately."""
+    from unittest.mock import patch
+
+    from custom_components.solem_blip.coordinator import SolemCoordinator
+    from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
+    from custom_components.solem_blip.sensor import StateSensor
+
+    async def block_sprinkle(*_args, **_kwargs) -> None:
+        await release_sprinkle.wait()
+
+    release_sprinkle = asyncio.Event()
+    mock_solem_client.sprinkle_station_x_for_y_minutes = block_sprinkle
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        start_task = asyncio.create_task(coordinator.start_irrigation(station=1, minutes=1))
+        await asyncio.sleep(0)
+
+        device = next(
+            item
+            for item in coordinator.data
+            if item["device_id"].endswith("_irrigation_controller_status")
+        )
+        entity = StateSensor(
+            coordinator, device, "state", SENSOR_DESCRIPTIONS["STATE_SENSOR"]
+        )
+        assert entity.extra_state_attributes["is_watering"] is True
+        assert entity.extra_state_attributes["active_station"] == 1
+
+        coordinator.irrigation_stop_event.set()
+        release_sprinkle.set()
+        task = coordinator._irrigation_monitor_task
+        if task is not None and not task.done():
+            task.cancel()
+        await start_task
 
 
 @pytest.mark.asyncio

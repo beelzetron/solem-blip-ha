@@ -99,7 +99,9 @@ class TestEntitySetupMetadata:
                 identifiers={(DOMAIN, coordinator.controller_mac_address)},
             )
 
-            data = await coordinator.async_update_all_sensors()
+            await coordinator._fetch_device_status()
+            await coordinator._fetch_device_metadata()
+            data = await coordinator.async_update_all_sensors(fetch_status=False)
 
             assert coordinator.firmware_version == "5.1.5"
             assert coordinator.controller.software_version == "5.1.5"
@@ -346,3 +348,115 @@ async def test_station_names_partial_reads_merge(
         await coordinator._fetch_device_metadata()
 
     assert coordinator.station_names == {1: "Zone 1", 2: "Zone 2"}
+
+
+@pytest.mark.asyncio
+async def test_two_consecutive_status_polls(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Two status polls both call get_status and advance last poll timestamp."""
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        first_poll_at = None
+
+        await coordinator.async_update_data()
+        first_poll_at = coordinator._last_successful_poll_at
+        assert first_poll_at is not None
+
+        await coordinator.async_update_data()
+
+    assert mock_solem_client.get_status.await_count == 2
+    assert coordinator._last_successful_poll_at >= first_poll_at
+
+
+@pytest.mark.asyncio
+async def test_metadata_deferred_until_heavy_read_gate(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Metadata background task does not start until the defer gate elapses."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+
+        assert coordinator._metadata_task is None
+        assert coordinator._first_successful_status_at is not None
+
+        coordinator._metadata_ready_after = 0.0
+        await coordinator._fetch_device_status()
+        await hass.async_block_till_done()
+
+    mock_solem_client.get_firmware_version.assert_awaited()
+    mock_solem_client.get_station_names.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_does_not_call_main_async_set_updated_data(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Schedule refresh publishes descriptors without resetting the main poll timer."""
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        main_set_updated = coordinator.async_set_updated_data
+        coordinator.async_set_updated_data = MagicMock(wraps=main_set_updated)
+
+        await coordinator.schedule_coordinator.async_refresh()
+
+    coordinator.async_set_updated_data.assert_not_called()
+    assert coordinator.irrigation_programs
+
+
+@pytest.mark.asyncio
+async def test_schedule_first_refresh_waits_for_heavy_read_gate(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Schedule coordinator defers its first irrigation config read."""
+    import asyncio
+
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        coordinator.schedule_coordinator.async_start_first_refresh()
+        await asyncio.sleep(0.05)
+
+        mock_solem_client.get_irrigation_config.assert_not_awaited()
+
+        coordinator._first_successful_status_at = 1.0
+        coordinator._schedule_ready_after = 0.0
+        await hass.async_block_till_done()
+
+    mock_solem_client.get_irrigation_config.assert_awaited()
