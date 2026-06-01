@@ -129,9 +129,14 @@ class TestEntitySetup:
                 d for d in data if d["device_type"] == "PROGRAM_SCHEDULE_SENSOR"
             ]
 
+            running = [
+                d for d in data if d["device_type"] == "PROGRAM_RUNNING_SENSOR"
+            ]
+
             assert len(names) == 3
             assert len(next_starts) == 3
             assert len(schedules) == 3
+            assert len(running) == 3
             assert any(d["state"] == "Programma A" for d in names)
             assert coordinator.irrigation_programs[0]["name"] == "Programma A"
 

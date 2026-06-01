@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from .config_entry import MyConfigEntry
 from .const import CONTROLLER_MAC_ADDRESS
+from .coordinator_polling import active_program_name
 
 _TO_REDACT = {CONTROLLER_MAC_ADDRESS}
 
@@ -31,6 +32,9 @@ async def async_get_config_entry_diagnostics(
         "irrigation": {
             "active": coordinator._irrigation_active,
             "station": coordinator.active_station_num,
+            "active_program": coordinator.active_program_num,
+            "active_program_name": active_program_name(coordinator),
+            "watering_origin": coordinator.watering_origin,
             "remaining_seconds": coordinator.remaining_seconds,
         },
         "metadata_retry_after": {

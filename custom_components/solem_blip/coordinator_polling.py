@@ -11,6 +11,7 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import (
     DOMAIN,
+    PROGRAM_LABELS,
     IRRIGATION_CONFIG_READ_TIMEOUT,
     IRRIGATION_CONFIG_REFRESH_INTERVAL,
     IRRIGATION_CONFIG_RETRY_INTERVAL,
@@ -26,6 +27,19 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def active_program_name(coordinator: SolemCoordinator) -> str | None:
+    """Return the on-device program name for the active program index, if known."""
+    program_num = coordinator.active_program_num
+    if program_num is None or not 1 <= program_num <= len(PROGRAM_LABELS):
+        return None
+    program = coordinator.irrigation_programs.get(program_num - 1)
+    if program is not None:
+        name = program.get("name", "").strip()
+        if name:
+            return name
+    return f"Program {PROGRAM_LABELS[program_num - 1]}"
+
+
 def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     """Update coordinator state from a BLE status dict."""
     coordinator.controller.state = normalize_entity_state(
@@ -35,6 +49,11 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     coordinator.battery_level = status.get("battery_level")
     coordinator.battery_low = bool(status.get("battery_low", False))
     coordinator._has_status = True
+    coordinator.active_program_num = status.get("active_program")
+    watering_origin = status.get("watering_origin")
+    if status.get("is_watering") and status.get("active_program"):
+        watering_origin = "program"
+    coordinator.watering_origin = watering_origin
 
     if status.get("is_watering") and status.get("station_num"):
         active_station_num = status["station_num"]
@@ -57,6 +76,8 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     elif not status.get("is_watering"):
         coordinator.active_station_num = None
         coordinator.remaining_seconds = None
+        coordinator.active_program_num = None
+        coordinator.watering_origin = None
         for station in coordinator.stations:
             station.state = "stopped"
     else:
@@ -66,11 +87,16 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
         )
 
     _LOGGER.debug(
-        "%s - Status: controller=%s watering=%s station=%s remaining=%ss battery=%s (%s/5)",
+        (
+            "%s - Status: controller=%s watering=%s station=%s program=%s "
+            "origin=%s remaining=%ss battery=%s (%s/5)"
+        ),
         coordinator.controller_mac_address,
         coordinator.controller.state,
         status.get("is_watering"),
         status.get("station_num"),
+        coordinator.active_program_num,
+        coordinator.watering_origin,
         coordinator.remaining_seconds,
         coordinator.battery_voltage,
         coordinator.battery_level,

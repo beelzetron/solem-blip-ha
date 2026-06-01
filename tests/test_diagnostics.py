@@ -27,10 +27,12 @@ async def test_diagnostics_redact_mac_and_include_runtime_state(
     coordinator.battery_low = False
     coordinator._irrigation_active = True
     coordinator.active_station_num = 2
+    coordinator.active_program_num = 3
+    coordinator.watering_origin = "schedule"
     coordinator.remaining_seconds = 90
     coordinator._firmware_retry_after = 1.0
     coordinator._station_names_retry_after = 2.0
-    coordinator.irrigation_programs = {0: {}}
+    coordinator.irrigation_programs = {2: {"name": "Programma C"}}
     coordinator._irrigation_config_retry_after = 3.0
     coordinator._irrigation_config_refresh_after = 4.0
     mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
@@ -41,4 +43,7 @@ async def test_diagnostics_redact_mac_and_include_runtime_state(
     assert result["firmware_version"] == "5.1.7"
     assert result["station_count"] == 6
     assert result["irrigation"]["station"] == 2
+    assert result["irrigation"]["active_program"] == 3
+    assert result["irrigation"]["active_program_name"] == "Programma C"
+    assert result["irrigation"]["watering_origin"] == "schedule"
     assert result["schedule_read"]["program_count"] == 1

@@ -19,7 +19,9 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Battery percentage, voltage (diagnostic), and low-battery alert
 - Manual sprinkle per station, stop, controller on/off
 - Configurable manual duration (minutes)
-- Read-only on-device program schedule sensors
+- Read-only on-device program schedule sensors (next start, schedule summary, names)
+- Program run detection (`0x44` status) with per-program running binary sensors
+- Controller status attributes: active program, program name, watering origin
 - Daily controller RTC synchronization after a successful BLE poll
 - Repair issue when Bluetooth polling fails repeatedly
 - Uses the [`solem-blip-ble`](https://pypi.org/project/solem-blip-ble/) library via Home Assistant Bluetooth
@@ -48,13 +50,13 @@ Setup asks only for the **Bluetooth controller** and **number of stations**.
 
 ### BLE dependency
 
-Home Assistant installs `solem-blip-ble>=0.1.21` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
+Home Assistant installs `solem-blip-ble>=0.1.23` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
 
 ## Entities (example: 6 stations)
 
 | Entity | Purpose |
 |--------|---------|
-| Controller status | `on` / `off` / `unknown` |
+| Controller status | `on` / `off` / `unknown`; attributes `active_program`, `active_program_name`, `watering_origin` while watering |
 | Device firmware | Shown in the Home Assistant device information |
 | Battery | 0–100% (from 9V battery level 0–5) |
 | Battery voltage | Diagnostic (disabled by default) |
@@ -65,9 +67,34 @@ Home Assistant installs `solem-blip-ble>=0.1.21` from PyPI automatically. Protoc
 | Sprinkle station N | Start manual watering |
 | Stop sprinkle | Stop active watering |
 | Turn on / off controller | Enable or disable controller |
-| Program schedule | Read-only summary of the schedule stored on the controller |
+| Program A/B/C name | On-device program label |
+| Program A/B/C next start | Next scheduled run (timestamp + schedule context attributes) |
+| Program A/B/C schedule | Enabled start slots, cycle, period length, synchro day, station durations |
+| Program A/B/C running | `on` while that program is executing on the controller |
 
-Roughly **25 entities** for a 6-station controller.
+Roughly **34 entities** for a 6-station controller (adds 9 program entities vs earlier builds).
+
+### Monitor a scheduled program run
+
+Compare the **next start** sensor to the **running** binary when verifying on-device schedules:
+
+```yaml
+alias: Alert when Program C runs off-schedule
+trigger:
+  - platform: state
+    entity_id: binary_sensor.solem_blip_aabbccddeeff_program_c_running
+    to: "on"
+condition:
+  - condition: template
+    value_template: >
+      {{ (now() - states.sensor.solem_blip_aabbccddeeff_program_c_next_start.last_changed).total_seconds() > 900 }}
+action:
+  - action: notify.persistent_notification
+    data:
+      message: "Program C started more than 15 minutes from its next-start sensor"
+```
+
+While watering, check **Controller status** attributes: `watering_origin: program` and `active_program_name` match the running binary.
 
 ## Scheduling with Home Assistant
 
