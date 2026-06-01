@@ -49,7 +49,8 @@
   },
   "entity": {
     "binary_sensor": {
-      "battery_low": { "name": "Battery low" }
+      "battery_low": { "name": "Battery low" },
+      "program_running": { "name": "{program_name} running" }
     },
     "button": {
       "controller_off": { "name": "Turn off controller" },
@@ -72,9 +73,8 @@
         }
       },
       "last_time_sync": { "name": "Last time sync" },
-      "program_name": { "name": "Program {program} name" },
-      "program_next_start": { "name": "Program {program} next start" },
-      "program_schedule": { "name": "Program {program} schedule" },
+      "program_next_start": { "name": "{program_name} next start" },
+      "program_schedule": { "name": "{program_name} schedule" },
       "station_remaining_time": { "name": "{station_name} remaining time" },
       "station_status": {
         "name": "{station_name} status",

@@ -24,6 +24,7 @@ from .const import (
     DOMAIN,
     IRRIGATION_CONFIG_UPDATE_INTERVAL,
     NUM_STATIONS,
+    PROGRAM_LABELS,
     SOLEM_API_MOCK,
 )
 from .coordinator_descriptors import build_all_descriptors
@@ -139,6 +140,13 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     def _station_name(self, station_id: int) -> str:
         """Return the controller-provided station name or a stable fallback."""
         return self.station_names.get(station_id) or f"Station {station_id}"
+
+    def _program_display_name(self, program_index: int) -> str:
+        """Return the on-device program name or a stable slot fallback."""
+        program = self.irrigation_programs.get(program_index)
+        if program and (name := program.get("name", "").strip()):
+            return name
+        return f"Program {PROGRAM_LABELS[program_index]}"
 
     def _build_stations(self) -> list[IrrigationStation]:
         """Build station models for the configured station count."""

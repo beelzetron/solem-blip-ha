@@ -67,12 +67,11 @@ Home Assistant installs `solem-blip-ble>=0.1.23` from PyPI automatically. Protoc
 | Sprinkle station N | Start manual watering |
 | Stop sprinkle | Stop active watering |
 | Turn on / off controller | Enable or disable controller |
-| Program A/B/C name | On-device program label |
-| Program A/B/C next start | Next scheduled run (timestamp + schedule context attributes) |
-| Program A/B/C schedule | Enabled start slots, cycle, period length, synchro day, station durations |
-| Program A/B/C running | `on` while that program is executing on the controller |
+| Program next start | Per on-device program (e.g. `Siepe next start`); timestamp + schedule context attributes |
+| Program schedule | Enabled start slots, cycle, period length, synchro day, station durations |
+| Program running | `on` while that program is executing on the controller |
 
-Roughly **34 entities** for a 6-station controller (adds 9 program entities vs earlier builds).
+Roughly **31 entities** for a 6-station controller (6 program-related entities: next start, schedule, and running per program).
 
 ### Monitor a scheduled program run
 
@@ -181,6 +180,17 @@ The integration polls BLE status every 60 seconds by default and refreshes the
 schedule stored on the controller separately every hour. Failed schedule reads
 retry every 15 minutes without delaying status updates. Schedule changes remain
 the responsibility of the Solem app or Home Assistant automations.
+
+## Upgrading to 1.2.3+
+
+Version **1.2.3** migrates entity `unique_id` values to a stable MAC + role format
+(counter-based IDs are retired). Version **1.2.4** removes redundant per-program
+name sensors and uses on-device program names in entity titles. After updating:
+
+1. Restart Home Assistant or reload the **Solem BL-IP** integration once.
+2. Orphaned, restored, or retired program name entities are removed automatically.
+3. Program entities are recreated with device-based titles on the next schedule read.
+4. Existing `entity_id` values are preserved when possible for remaining entities.
 
 ## Removal
 

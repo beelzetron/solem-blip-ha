@@ -121,7 +121,6 @@ class TestEntitySetup:
             await coordinator.schedule_coordinator.async_refresh()
             data = await coordinator.async_update_all_sensors(fetch_status=False)
 
-            names = [d for d in data if d["device_type"] == "PROGRAM_NAME_SENSOR"]
             next_starts = [
                 d for d in data if d["device_type"] == "PROGRAM_NEXT_START_SENSOR"
             ]
@@ -133,11 +132,12 @@ class TestEntitySetup:
                 d for d in data if d["device_type"] == "PROGRAM_RUNNING_SENSOR"
             ]
 
-            assert len(names) == 3
             assert len(next_starts) == 3
             assert len(schedules) == 3
             assert len(running) == 3
-            assert any(d["state"] == "Programma A" for d in names)
+            assert next_starts[0]["translation_placeholders"] == {
+                "program_name": "Programma A"
+            }
             assert coordinator.irrigation_programs[0]["name"] == "Programma A"
 
     async def test_last_time_sync_sensor_is_present(

@@ -11,12 +11,12 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import (
     DOMAIN,
-    PROGRAM_LABELS,
     IRRIGATION_CONFIG_READ_TIMEOUT,
     IRRIGATION_CONFIG_REFRESH_INTERVAL,
     IRRIGATION_CONFIG_RETRY_INTERVAL,
     METADATA_READ_TIMEOUT,
     METADATA_RETRY_INTERVAL,
+    PROGRAM_LABELS,
     SET_TIME_MIN_INTERVAL,
 )
 from .util import normalize_entity_state
@@ -32,12 +32,7 @@ def active_program_name(coordinator: SolemCoordinator) -> str | None:
     program_num = coordinator.active_program_num
     if program_num is None or not 1 <= program_num <= len(PROGRAM_LABELS):
         return None
-    program = coordinator.irrigation_programs.get(program_num - 1)
-    if program is not None:
-        name = program.get("name", "").strip()
-        if name:
-            return name
-    return f"Program {PROGRAM_LABELS[program_num - 1]}"
+    return coordinator._program_display_name(program_num - 1)
 
 
 def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
