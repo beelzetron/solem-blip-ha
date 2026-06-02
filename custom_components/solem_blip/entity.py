@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, cast
 
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
@@ -15,6 +18,53 @@ from .coordinator import SolemCoordinator
 from .util import format_entity_unique_id
 
 _LOGGER = logging.getLogger(__name__)
+
+_DYNAMIC_NAME_KEYS: dict[str, tuple[str, str]] = {
+    "STATE_SENSOR": ("sensor", "station_status"),
+    "REMAINING_SPRINKLE_SENSOR": ("sensor", "station_remaining_time"),
+    "PROGRAM_NEXT_START_SENSOR": ("sensor", "program_next_start"),
+    "PROGRAM_SCHEDULE_SENSOR": ("sensor", "program_schedule"),
+    "PROGRAM_RUNNING_SENSOR": ("binary_sensor", "program_running"),
+    "SPRINKLE_BUTTON": ("button", "sprinkle_station"),
+}
+
+
+@lru_cache
+def _load_translation(language: str) -> dict[str, Any]:
+    """Load bundled translations for one Home Assistant language."""
+    language = language.replace("_", "-").split("-", 1)[0]
+    translations = Path(__file__).with_name("translations")
+    path = translations / f"{language}.json"
+    if not path.exists() and language != "en":
+        path = translations / "en.json"
+    try:
+        return cast(dict[str, Any], json.loads(path.read_text()))
+    except OSError:
+        return {}
+
+
+def _localized_entity_name(
+    language: str,
+    device_type: str | None,
+    placeholders: dict[str, str],
+) -> str | None:
+    """Render a dynamic entity name using bundled translations."""
+    if device_type not in _DYNAMIC_NAME_KEYS:
+        return None
+    platform, key = _DYNAMIC_NAME_KEYS[device_type]
+    translations = _load_translation(language)
+    template = (
+        translations.get("entity", {})
+        .get(platform, {})
+        .get(key, {})
+        .get("name")
+    )
+    if not isinstance(template, str):
+        return None
+    try:
+        return template.format(**placeholders)
+    except KeyError:
+        return None
 
 
 class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
@@ -52,8 +102,18 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
             return
         if placeholders := device.get("translation_placeholders"):
             self._attr_translation_placeholders = placeholders
+            if name := _localized_entity_name(
+                self.coordinator.hass.config.language,
+                device.get("device_type"),
+                placeholders,
+            ):
+                self._attr_name = name
+            elif hasattr(self, "_attr_name"):
+                del self._attr_name
         elif hasattr(self, "_attr_translation_placeholders"):
             del self._attr_translation_placeholders
+            if hasattr(self, "_attr_name"):
+                del self._attr_name
 
     def _descriptor_field(self, field: str | None = None) -> Any:
         """Return one field from the entity descriptor."""

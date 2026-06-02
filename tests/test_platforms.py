@@ -243,6 +243,7 @@ async def test_entity_coordinator_update_refreshes_placeholders(
     coordinator: SolemCoordinator,
 ) -> None:
     """Coordinator updates refresh translation placeholders on entities."""
+    hass.config.language = "it"
     device = next(
         item
         for item in coordinator.data
@@ -264,7 +265,7 @@ async def test_entity_coordinator_update_refreshes_placeholders(
     entity._handle_coordinator_update()
     assert entity._attr_translation_placeholders == {"station_name": "Lawn"}
     assert entity._attr_translation_key == "station_status"
-    assert not hasattr(entity, "_attr_name")
+    assert entity._attr_name == "Stato Lawn"
 
 
 @pytest.mark.asyncio
@@ -283,9 +284,11 @@ async def test_static_entity_name_uses_translations(
 
 @pytest.mark.asyncio
 async def test_dynamic_button_name_uses_translations(
+    hass: HomeAssistant,
     coordinator: SolemCoordinator,
 ) -> None:
     """Station action buttons keep translation metadata with live placeholders."""
+    hass.config.language = "it"
     device = next(
         item for item in coordinator.data if item["device_type"] == "SPRINKLE_BUTTON"
     )
@@ -293,7 +296,7 @@ async def test_dynamic_button_name_uses_translations(
         coordinator, device, BUTTON_DESCRIPTIONS["SPRINKLE_BUTTON"]
     )
 
-    assert not hasattr(entity, "_attr_name")
+    assert entity._attr_name == "Irriga Station 1"
     assert entity.entity_description.translation_key == "sprinkle_station"
     assert entity._attr_translation_placeholders == {"station_name": "Station 1"}
 

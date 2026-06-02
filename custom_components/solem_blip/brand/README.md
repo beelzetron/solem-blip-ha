@@ -2,9 +2,11 @@
 
 The icon in this directory is **not** the official SOLEM company logo.
 
-It uses the Material Design Icons **sprinkler** glyph ([Pictogrammers / MDI](https://pictogrammers.com/library/mdi/icon/sprinkler/), [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)) on a green background, rendered for Home Assistant device branding.
+It is original vector artwork for Home Assistant device branding, combining a water drop, leaf shape, and small Bluetooth signal motif.
 
-Official SOLEM trademarks and logotypes (for example assets on [solem-irrigation.com](https://solem-irrigation.com/)) remain the property of SOLEM. This project does not redistribute them. If you are SOLEM or have written permission to use official brand assets, you may replace `icon.png` here.
+Official SOLEM trademarks and logotypes (for example assets on [solem-irrigation.com](https://solem-irrigation.com/)) remain the property of SOLEM. This project does not redistribute them. If you are SOLEM or have written permission to use official brand assets, you may replace the files here.
+
+The Bluetooth-related motif is a small compatibility cue, not the official Bluetooth logo.
 
 Source SVG used for rendering: `icon.svg` in this directory.
 
