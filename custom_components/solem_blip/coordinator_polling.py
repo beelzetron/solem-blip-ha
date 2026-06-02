@@ -146,6 +146,12 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
 
 async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
     """Read firmware and station names without failing status polling."""
+    async with coordinator._heavy_read_lock:
+        await _fetch_device_metadata_locked(coordinator)
+
+
+async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
+    """Read firmware and station names while holding the heavy-read lock."""
     now = asyncio.get_running_loop().time()
     if coordinator.firmware_version is None and now >= coordinator._firmware_retry_after:
         try:
@@ -233,6 +239,12 @@ def _heavy_reads_ready(coordinator: SolemCoordinator) -> bool:
 
 async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
     """Read on-device irrigation programs without failing status polling."""
+    async with coordinator._heavy_read_lock:
+        await _fetch_irrigation_config_locked(coordinator)
+
+
+async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None:
+    """Read irrigation programs while holding the heavy-read lock."""
     if coordinator._irrigation_active:
         return
 

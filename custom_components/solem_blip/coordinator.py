@@ -135,6 +135,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_successful_poll_at: float | None = None
         self._is_watering = False
         self._metadata_task: asyncio.Task[None] | None = None
+        self._heavy_read_lock = asyncio.Lock()
         self._first_successful_status_at: float | None = None
         self._metadata_ready_after = float("inf")
         self._schedule_ready_after = float("inf")
@@ -327,6 +328,7 @@ class SolemScheduleCoordinator(DataUpdateCoordinator[dict[int, IrrigationProgram
             "%s - Schedule coordinator starting first refresh",
             coordinator.controller_mac_address,
         )
+        await coordinator._fetch_device_metadata()
         await self.async_refresh()
 
     async def async_update_data(self) -> dict[int, IrrigationProgram]:

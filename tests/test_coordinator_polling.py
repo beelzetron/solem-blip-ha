@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -520,3 +520,47 @@ async def test_schedule_first_refresh_waits_for_heavy_read_gate(
         await hass.async_block_till_done()
 
     mock_solem_client.get_irrigation_config.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_schedule_first_refresh_reads_metadata_before_config(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Bootstrap metadata completes before the first schedule read starts."""
+    calls: list[str] = []
+
+    async def get_firmware_version() -> dict[str, object]:
+        calls.append("firmware")
+        return {"major": 5, "minor": 1, "patch": 7, "raw_hex": "5.1.7"}
+
+    async def get_station_names() -> dict[int, str]:
+        calls.append("station_names")
+        return {1: "Zone 1", 2: "Zone 2"}
+
+    async def get_irrigation_config() -> dict[int, object]:
+        calls.append("irrigation_config")
+        return {}
+
+    mock_solem_client.get_firmware_version = AsyncMock(side_effect=get_firmware_version)
+    mock_solem_client.get_station_names = AsyncMock(side_effect=get_station_names)
+    mock_solem_client.get_irrigation_config = AsyncMock(
+        side_effect=get_irrigation_config
+    )
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        coordinator._first_successful_status_at = 1.0
+        coordinator._schedule_ready_after = 0.0
+        coordinator.schedule_coordinator.async_start_first_refresh()
+        await hass.async_block_till_done()
+
+    assert calls == ["firmware", "station_names", "irrigation_config"]
