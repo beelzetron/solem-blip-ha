@@ -35,6 +35,16 @@ Runs on push/PR to `main`:
 3. **Python sanity** — compileall + JSON validation
 4. **pytest** — full test suite
 
+## Branching and releases
+
+Use the lightweight Git Flow policy in `docs/branching_and_release.md`.
+
+- Do not commit directly to `main` for normal work.
+- Start changes from `feature/<topic>`, `fix/<topic>`, or `hotfix/<topic>`.
+- Merge to `main` through a pull request after CI passes.
+- Cut GitHub releases only from merged `main`.
+- Keep release commits scoped to the HA integration; do not combine BLE library changes.
+
 ## Key directories
 
 | Path | Purpose |
