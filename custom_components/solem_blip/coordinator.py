@@ -88,6 +88,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
         self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
         self.config_entry = config_entry
+        self.entity_translations: dict[str, Any] = {}
 
         self.controller = IrrigationController(
             device_id=f"{self.controller_mac_address}_irrigation_controller_status",

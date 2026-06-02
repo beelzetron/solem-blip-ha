@@ -9,6 +9,7 @@ from homeassistant.helpers import device_registry as dr
 from .config_entry import MyConfigEntry, RuntimeData
 from .const import CONTROLLER_MAC_ADDRESS, DOMAIN
 from .coordinator import SolemCoordinator
+from .entity import load_entity_translations
 from .migrate import async_migrate_unique_ids, async_remove_program_name_entities
 from .bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
 
@@ -41,6 +42,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
     await async_remove_program_name_entities(hass, config_entry)
 
     coordinator = SolemCoordinator(hass, config_entry)
+    coordinator.entity_translations = await hass.async_add_executor_job(
+        load_entity_translations,
+        hass.config.language,
+    )
 
     await coordinator.async_init()
 

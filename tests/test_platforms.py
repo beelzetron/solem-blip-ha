@@ -24,6 +24,7 @@ from custom_components.solem_blip.entity_descriptions import (
     NUMBER_DESCRIPTIONS,
     SENSOR_DESCRIPTIONS,
 )
+from custom_components.solem_blip.entity import load_entity_translations
 from custom_components.solem_blip.number import (
     IrrigationManualDuration,
     async_setup_entry as setup_number,
@@ -244,6 +245,7 @@ async def test_entity_coordinator_update_refreshes_placeholders(
 ) -> None:
     """Coordinator updates refresh translation placeholders on entities."""
     hass.config.language = "it"
+    coordinator.entity_translations = load_entity_translations("it")
     device = next(
         item
         for item in coordinator.data
@@ -289,6 +291,7 @@ async def test_dynamic_button_name_uses_translations(
 ) -> None:
     """Station action buttons keep translation metadata with live placeholders."""
     hass.config.language = "it"
+    coordinator.entity_translations = load_entity_translations("it")
     device = next(
         item for item in coordinator.data if item["device_type"] == "SPRINKLE_BUTTON"
     )

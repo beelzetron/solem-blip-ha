@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,8 +28,7 @@ _DYNAMIC_NAME_KEYS: dict[str, tuple[str, str]] = {
 }
 
 
-@lru_cache
-def _load_translation(language: str) -> dict[str, Any]:
+def load_entity_translations(language: str) -> dict[str, Any]:
     """Load bundled translations for one Home Assistant language."""
     language = language.replace("_", "-").split("-", 1)[0]
     translations = Path(__file__).with_name("translations")
@@ -44,7 +42,7 @@ def _load_translation(language: str) -> dict[str, Any]:
 
 
 def _localized_entity_name(
-    language: str,
+    translations: dict[str, Any],
     device_type: str | None,
     placeholders: dict[str, str],
 ) -> str | None:
@@ -52,7 +50,6 @@ def _localized_entity_name(
     if device_type not in _DYNAMIC_NAME_KEYS:
         return None
     platform, key = _DYNAMIC_NAME_KEYS[device_type]
-    translations = _load_translation(language)
     template = (
         translations.get("entity", {})
         .get(platform, {})
@@ -103,7 +100,7 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
         if placeholders := device.get("translation_placeholders"):
             self._attr_translation_placeholders = placeholders
             if name := _localized_entity_name(
-                self.coordinator.hass.config.language,
+                self.coordinator.entity_translations,
                 device.get("device_type"),
                 placeholders,
             ):
