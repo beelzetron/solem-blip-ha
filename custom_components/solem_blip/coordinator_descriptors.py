@@ -166,7 +166,7 @@ def build_control_descriptors(
     counter: int,
     buttons_counter: int = 901,
 ) -> list[dict[str, Any]]:
-    """Build manual duration, sprinkle buttons, and controller on/off descriptors."""
+    """Build manual duration, sprinkle buttons, and controller control descriptors."""
     data: list[dict[str, Any]] = []
 
     data.append(
@@ -181,6 +181,20 @@ def build_control_descriptors(
         }
     )
     counter += 1
+
+    data.append(
+        {
+            "device_id": f"{coordinator.controller_mac_address}_controller_off_days",
+            "device_type": "CONTROLLER_OFF_DAYS_NUMBER",
+            "device_name": "Controller off days",
+            "device_uid": mac_to_uuid(
+                coordinator.controller_mac_address, counter + 3
+            ),
+            "software_version": "1.0",
+            "value": coordinator.controller_off_days,
+            "last_reboot": None,
+        }
+    )
 
     for station_id in range(1, coordinator.num_stations + 1):
         data.append(
@@ -226,6 +240,16 @@ def build_control_descriptors(
                 "device_name": "Turn off controller",
                 "device_uid": mac_to_uuid(
                     coordinator.controller_mac_address, counter + 2
+                ),
+                "software_version": "1.0",
+                "last_reboot": None,
+            },
+            {
+                "device_id": f"{coordinator.controller_mac_address}_irrigation_controller_off_days",
+                "device_type": "OFF_DAYS_BUTTON",
+                "device_name": "Turn off controller for selected days",
+                "device_uid": mac_to_uuid(
+                    coordinator.controller_mac_address, counter + 4
                 ),
                 "software_version": "1.0",
                 "last_reboot": None,

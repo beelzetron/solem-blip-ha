@@ -146,6 +146,13 @@ def iter_entity_identities(mac: str, num_stations: int) -> Iterator[EntityIdenti
     )
     counter += 1
 
+    yield _yield_identity(
+        mac,
+        f"{mac}_controller_off_days",
+        "CONTROLLER_OFF_DAYS_NUMBER",
+        mac_to_uuid(mac, counter + 3),
+    )
+
     buttons_counter = 901
     for station_id in range(1, num_stations + 1):
         yield _yield_identity(
@@ -168,6 +175,13 @@ def iter_entity_identities(mac: str, num_stations: int) -> Iterator[EntityIdenti
             mac_to_uuid(mac, counter),
         )
         counter += 1
+
+    yield _yield_identity(
+        mac,
+        f"{mac}_irrigation_controller_off_days",
+        "OFF_DAYS_BUTTON",
+        mac_to_uuid(mac, counter + 1),
+    )
 
     program_counter = 1001
     for label in PROGRAM_LABELS:

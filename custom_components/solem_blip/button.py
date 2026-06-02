@@ -118,9 +118,20 @@ class ControllerOffButton(SolemButtonEntity):
         )
 
 
+class ControllerOffDaysButton(SolemButtonEntity):
+    """Turn the irrigation controller off for the configured number of days."""
+
+    async def async_press(self) -> None:
+        await self._press(
+            "controller_off_days_failed",
+            self.coordinator.turn_controller_off_for_days(),
+        )
+
+
 BUTTON_ENTITY_CLASSES: dict[str, type[SolemButtonEntity]] = {
     "SPRINKLE_BUTTON": IrrigationStartButton,
     "STOP_BUTTON": IrrigationStopButton,
     "ON_BUTTON": ControllerOnButton,
     "OFF_BUTTON": ControllerOffButton,
+    "OFF_DAYS_BUTTON": ControllerOffDaysButton,
 }

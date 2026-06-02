@@ -18,6 +18,8 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, UnitOfTime
 from homeassistant.helpers.entity import EntityCategory
 
+from .const import MAX_CONTROLLER_OFF_DAYS
+
 
 @dataclass(frozen=True, kw_only=True)
 class SolemSensorEntityDescription(SensorEntityDescription):
@@ -157,6 +159,13 @@ BUTTON_DESCRIPTIONS: dict[str, SolemButtonEntityDescription] = {
         entity_category=EntityCategory.CONFIG,
         has_entity_name=True,
     ),
+    "OFF_DAYS_BUTTON": SolemButtonEntityDescription(
+        key="controller_off_days",
+        device_type="OFF_DAYS_BUTTON",
+        translation_key="controller_off_days",
+        entity_category=EntityCategory.CONFIG,
+        has_entity_name=True,
+    ),
 }
 
 NUMBER_DESCRIPTIONS: dict[str, SolemNumberEntityDescription] = {
@@ -167,6 +176,16 @@ NUMBER_DESCRIPTIONS: dict[str, SolemNumberEntityDescription] = {
         entity_category=EntityCategory.CONFIG,
         native_min_value=1,
         native_max_value=60,
+        native_step=1,
+        has_entity_name=True,
+    ),
+    "CONTROLLER_OFF_DAYS_NUMBER": SolemNumberEntityDescription(
+        key="controller_off_days",
+        device_type="CONTROLLER_OFF_DAYS_NUMBER",
+        translation_key="controller_off_days",
+        entity_category=EntityCategory.CONFIG,
+        native_min_value=0,
+        native_max_value=MAX_CONTROLLER_OFF_DAYS,
         native_step=1,
         has_entity_name=True,
     ),

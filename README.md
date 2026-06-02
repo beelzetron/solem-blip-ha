@@ -17,6 +17,7 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Per-station remaining sprinkle time (seconds from BLE while watering)
 - Battery percentage, voltage (diagnostic), and low-battery alert
 - Manual sprinkle per station, stop, controller on/off
+- Temporary controller off for a selected number of days
 - Configurable manual duration (minutes)
 - Read-only on-device program schedule sensors (next start, schedule summary, names)
 - Program run detection (`0x44` status) with per-program running binary sensors
@@ -63,14 +64,16 @@ Home Assistant installs `solem-blip-ble==0.1.24` from PyPI automatically. Protoc
 | Station status | `sprinkling` / `stopped`, using the controller-provided station name |
 | Station remaining time | Seconds left while sprinkling (`0` when idle) |
 | Irrigation manual duration | Minutes for sprinkle buttons |
+| Controller off days | Number of days for temporary controller off |
 | Sprinkle station N | Start manual watering |
 | Stop sprinkle | Stop active watering |
-| Turn on / off controller | Enable or disable controller |
+| Turn on / off controller | Enable or disable controller permanently |
+| Turn off controller for selected days | Disable controller temporarily using the selected off-days value |
 | Program next start | Per on-device program (e.g. `Siepe next start`); timestamp + schedule context attributes |
 | Program schedule | Enabled start slots, cycle, period length, synchro day, station durations |
 | Program running | `on` while that program is executing on the controller |
 
-Roughly **31 entities** for a 6-station controller (6 program-related entities: next start, schedule, and running per program).
+Roughly **38 entities** for a 6-station controller (9 program-related entities: next start, schedule, and running per program).
 
 ### Monitor a scheduled program run
 

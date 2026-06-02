@@ -268,3 +268,31 @@ async def turn_controller_off(coordinator: SolemCoordinator) -> None:
         "%s - Irrigation controller turned off.",
         coordinator.controller_mac_address,
     )
+
+
+async def turn_controller_off_for_days(coordinator: SolemCoordinator) -> None:
+    """Turn the irrigation controller off for the configured number of days."""
+    days = coordinator.controller_off_days
+    _LOGGER.info(
+        "%s - Turning irrigation controller off for %s day(s)...",
+        coordinator.controller_mac_address,
+        days,
+    )
+    try:
+        await coordinator.api.turn_off_x_days(days)
+    except APIConnectionError as ex:
+        _LOGGER.error(
+            "%s - Failed to turn controller off for %s day(s) due to connection error.",
+            coordinator.controller_mac_address,
+            days,
+        )
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="controller_off_days_failed",
+        ) from ex
+    coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
+    _LOGGER.info(
+        "%s - Irrigation controller turned off for %s day(s).",
+        coordinator.controller_mac_address,
+        days,
+    )
