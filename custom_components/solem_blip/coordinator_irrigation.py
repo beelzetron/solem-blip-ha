@@ -28,7 +28,7 @@ def clear_irrigation_idle_state(coordinator: SolemCoordinator) -> None:
     coordinator.active_program_num = None
     coordinator.watering_origin = None
     for station in coordinator.stations:
-        station.state = "stopped"
+        station.state = "inactive"
 
 
 def clear_monitor_task_ref(
@@ -148,7 +148,7 @@ async def start_irrigation(
     coordinator._irrigation_active = True
     coordinator._is_watering = True
     coordinator.active_station_num = station
-    coordinator.stations[station - 1].state = "sprinkling"
+    coordinator.stations[station - 1].state = "active"
     coordinator.async_set_updated_data(
         await coordinator.async_update_all_sensors(fetch_status=False)
     )

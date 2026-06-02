@@ -72,9 +72,9 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
         if 1 <= active_station_num <= coordinator.num_stations:
             for index, station in enumerate(coordinator.stations):
                 station.state = (
-                    "sprinkling"
+                    "active"
                     if index + 1 == active_station_num
-                    else "stopped"
+                    else "inactive"
                 )
         else:
             _LOGGER.warning(
@@ -89,7 +89,7 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
         if coordinator.active_program_num is None:
             coordinator.watering_origin = None
         for station in coordinator.stations:
-            station.state = "stopped"
+            station.state = "inactive"
     else:
         _LOGGER.warning(
             "%s - Watering active but no station in status; keeping existing states",

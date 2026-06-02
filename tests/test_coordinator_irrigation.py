@@ -287,11 +287,11 @@ class TestIrrigationMonitorLifecycle:
             await coordinator.async_init()
 
             for station in coordinator.stations:
-                station.state = "stopped"
+                station.state = "inactive"
 
             start_task = asyncio.create_task(coordinator.start_irrigation(1, 1))
             await asyncio.sleep(0.01)
 
-            assert coordinator.stations[0].state == "sprinkling"
+            assert coordinator.stations[0].state == "active"
 
             await start_task

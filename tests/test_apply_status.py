@@ -15,7 +15,7 @@ def coordinator() -> MagicMock:
     coord = MagicMock()
     coord.controller_mac_address = "AA:BB:CC:DD:EE:FF"
     coord.num_stations = 2
-    coord.stations = [MagicMock(state="stopped"), MagicMock(state="stopped")]
+    coord.stations = [MagicMock(state="inactive"), MagicMock(state="inactive")]
     coord.controller.state = None
     coord.battery_voltage = None
     coord.battery_level = None
@@ -47,7 +47,7 @@ def test_apply_status_program_run_sets_program_origin(coordinator: MagicMock) ->
     )
     assert coordinator.active_program_num == 1
     assert coordinator.watering_origin == "program"
-    assert coordinator.stations[0].state == "sprinkling"
+    assert coordinator.stations[0].state == "active"
 
 
 def test_apply_status_clears_program_when_idle(coordinator: MagicMock) -> None:
@@ -110,7 +110,8 @@ def test_apply_status_keeps_program_during_inter_station_idle(
     )
     assert coordinator.active_program_num == 1
     assert coordinator.watering_origin == "program"
-    assert coordinator.stations[0].state == "stopped"
+    assert coordinator.stations[0].state == "inactive"
+    assert coordinator.stations[1].state == "inactive"
 
 
 def test_apply_status_preserves_program_during_watering_without_byte_8(
@@ -135,5 +136,5 @@ def test_apply_status_preserves_program_during_watering_without_byte_8(
     )
     assert coordinator.active_program_num == 2
     assert coordinator.watering_origin == "program"
-    assert coordinator.stations[0].state == "sprinkling"
-    assert coordinator.stations[1].state == "stopped"
+    assert coordinator.stations[0].state == "active"
+    assert coordinator.stations[1].state == "inactive"
