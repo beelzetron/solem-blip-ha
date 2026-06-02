@@ -70,8 +70,8 @@
       "station_status": {
         "default": "mdi:help-circle",
         "state": {
-          "sprinkling": "mdi:sprinkler-variant",
-          "stopped": "mdi:sprinkler",
+          "active": "mdi:sprinkler-variant",
+          "inactive": "mdi:sprinkler",
           "unknown": "mdi:help-circle"
         }
       }

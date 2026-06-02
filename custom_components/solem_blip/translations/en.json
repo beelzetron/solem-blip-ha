@@ -82,8 +82,8 @@
       "station_status": {
         "name": "{station_name} status",
         "state": {
-          "sprinkling": "Sprinkling",
-          "stopped": "Stopped",
+          "active": "Active",
+          "inactive": "Inactive",
           "unknown": "Unknown"
         }
       }

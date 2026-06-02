@@ -62,7 +62,7 @@ def test_english_and_italian_entity_translations_are_present() -> None:
     assert english["entity"]["sensor"]["station_status"]["name"] == "{station_name} status"
     assert italian["entity"]["sensor"]["station_status"]["name"] == "Stato {station_name}"
     assert italian["entity"]["sensor"]["station_status"]["state"] == {
-        "sprinkling": "In irrigazione",
-        "stopped": "Inattiva",
+        "active": "Attiva",
+        "inactive": "Inattiva",
         "unknown": "Sconosciuto",
     }

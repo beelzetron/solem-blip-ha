@@ -51,7 +51,7 @@ def _seed_coordinator_state(coordinator: SolemCoordinator) -> None:
     coordinator.battery_level = 5
     coordinator.battery_voltage = 90
     coordinator.controller.state = "on"
-    coordinator.stations[0].state = "stopped"
+    coordinator.stations[0].state = "inactive"
     coordinator._has_status = True
     coordinator.controller_off_mode = "on"
     coordinator.controller_off_days_remaining = 0
