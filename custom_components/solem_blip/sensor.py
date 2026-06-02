@@ -153,8 +153,8 @@ class ProgramScheduleSensor(ProgramSensor):
     """On-device program schedule summary sensor."""
 
     @property
-    def native_value(self) -> int | None:
-        return cast(int | None, self._descriptor_field())
+    def native_value(self) -> str | None:
+        return cast(str | None, self._descriptor_field())
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:

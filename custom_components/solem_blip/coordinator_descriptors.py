@@ -10,8 +10,8 @@ from .const import PROGRAM_LABELS
 from .coordinator_polling import remaining_seconds_for_station
 from .schedule import (
     build_schedule_attributes,
-    enabled_start_count,
     next_start_datetime,
+    schedule_summary,
     schedule_context_attributes,
 )
 from .util import mac_to_uuid
@@ -302,7 +302,11 @@ def build_program_descriptors(
                 "device_name": f"{display_name} schedule",
                 "device_uid": mac_to_uuid(mac, program_counter),
                 "software_version": "1.0",
-                "state": enabled_start_count(program["start_times"]) if program else None,
+                "state": (
+                    schedule_summary(program, coordinator.station_names)
+                    if program
+                    else None
+                ),
                 "attributes": (
                     build_schedule_attributes(program, coordinator.station_names)
                     if program

@@ -135,8 +135,10 @@ async def test_sensor_values_and_attributes(
         "state",
         SENSOR_DESCRIPTIONS["PROGRAM_SCHEDULE_SENSOR"],
     )
-    assert schedule.native_value is not None
+    assert schedule.native_value == "17:40 · Station 1 20 min, Station 5 30 min"
     assert schedule.extra_state_attributes
+    assert schedule.extra_state_attributes["enabled_start_count"] == 1
+    assert schedule.extra_state_attributes["total_duration_minutes"] == 50
 
 
 @pytest.mark.asyncio

@@ -138,6 +138,10 @@ class TestEntitySetup:
             assert next_starts[0]["translation_placeholders"] == {
                 "program_name": "Programma A"
             }
+            assert schedules[0]["state"] == (
+                "17:40 · Station 1 20 min, Station 5 30 min"
+            )
+            assert schedules[0]["attributes"]["enabled_start_count"] == 1
             assert coordinator.irrigation_programs[0]["name"] == "Programma A"
 
     async def test_last_time_sync_sensor_is_present(
