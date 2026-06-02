@@ -23,24 +23,21 @@ async def async_setup_entry(
 ) -> None:
     """Set up Solem BL-IP numbers."""
     coordinator = config_entry.runtime_data.coordinator
-    numbers: list[IrrigationManualDuration] = []
+    numbers: list[SolemNumberEntity] = []
 
     for device in coordinator.data:
         device_type = device.get("device_type")
         if not device_type or device_type not in NUMBER_DESCRIPTIONS:
             continue
         description = NUMBER_DESCRIPTIONS[device_type]
-        numbers.append(
-            IrrigationManualDuration(
-                coordinator, device, description.state_field, description
-            )
-        )
+        entity_class = NUMBER_ENTITY_CLASSES[device_type]
+        numbers.append(entity_class(coordinator, device, description))
 
     async_add_entities(numbers)
 
 
-class IrrigationManualDuration(SolemBaseEntity, NumberEntity):
-    """Manual irrigation duration number entity."""
+class SolemNumberEntity(SolemBaseEntity, NumberEntity):
+    """Base number entity for Solem BL-IP."""
 
     entity_description: SolemNumberEntityDescription
 
@@ -48,11 +45,14 @@ class IrrigationManualDuration(SolemBaseEntity, NumberEntity):
         self,
         coordinator: SolemCoordinator,
         device: dict[str, Any],
-        parameter: str,
         description: SolemNumberEntityDescription,
     ) -> None:
         """Initialise number entity."""
-        super().__init__(coordinator, device, parameter, description)
+        super().__init__(coordinator, device, description.state_field, description)
+
+
+class IrrigationManualDuration(SolemNumberEntity):
+    """Manual irrigation duration number entity."""
 
     @property
     def native_value(self) -> float | None:
@@ -61,3 +61,21 @@ class IrrigationManualDuration(SolemBaseEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         self.coordinator.irrigation_manual_duration = int(value)
         self.async_write_ha_state()
+
+
+class ControllerOffDays(SolemNumberEntity):
+    """Number of days for temporary controller off command."""
+
+    @property
+    def native_value(self) -> float | None:
+        return float(self.coordinator.controller_off_days)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self.coordinator.controller_off_days = int(value)
+        self.async_write_ha_state()
+
+
+NUMBER_ENTITY_CLASSES: dict[str, type[SolemNumberEntity]] = {
+    "IRRIGATION_DURATION_NUMBER": IrrigationManualDuration,
+    "CONTROLLER_OFF_DAYS_NUMBER": ControllerOffDays,
+}

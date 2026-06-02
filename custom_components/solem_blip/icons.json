@@ -9,6 +9,9 @@
       "controller_off": {
         "default": "mdi:power-off"
       },
+      "controller_off_days": {
+        "default": "mdi:calendar-remove"
+      },
       "controller_on": {
         "default": "mdi:power-on"
       },
@@ -20,6 +23,9 @@
       }
     },
     "number": {
+      "controller_off_days": {
+        "default": "mdi:calendar-range"
+      },
       "irrigation_manual_duration": {
         "default": "mdi:clock-time-five-outline"
       }

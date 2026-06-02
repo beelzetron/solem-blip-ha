@@ -19,6 +19,7 @@ from .const import (
     BLUETOOTH_DEFAULT_TIMEOUT,
     BLUETOOTH_TIMEOUT,
     CONTROLLER_MAC_ADDRESS,
+    DEFAULT_CONTROLLER_OFF_DAYS,
     DEFAULT_MANUAL_DURATION,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -36,6 +37,7 @@ from .coordinator_irrigation import (
     start_irrigation as irrigation_start,
     stop_irrigation as irrigation_stop,
     turn_controller_off as irrigation_turn_off,
+    turn_controller_off_for_days as irrigation_turn_off_for_days,
     turn_controller_on as irrigation_turn_on,
 )
 from .coordinator_polling import (
@@ -121,6 +123,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.battery_low: bool | None = None
         self._has_status = False
         self.irrigation_manual_duration = DEFAULT_MANUAL_DURATION
+        self.controller_off_days = DEFAULT_CONTROLLER_OFF_DAYS
         self.remaining_seconds: int | None = None
         self.active_station_num: int | None = None
         self.active_program_num: int | None = None
@@ -266,6 +269,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     async def turn_controller_off(self) -> None:
         """Turn the irrigation controller off permanently."""
         await irrigation_turn_off(self)
+
+    async def turn_controller_off_for_days(self) -> None:
+        """Turn the irrigation controller off for the configured number of days."""
+        await irrigation_turn_off_for_days(self)
 
     def get_device(self, device_id: str) -> dict[str, Any] | None:
         """Return one entity descriptor from coordinator data."""

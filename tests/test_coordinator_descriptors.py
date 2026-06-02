@@ -77,13 +77,13 @@ class TestEntitySetup:
             assert len(voltage) == 1
             assert len(low) == 1
 
-    async def test_control_buttons_are_present(
+    async def test_control_entities_are_present(
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
         mock_solem_client: MagicMock,
     ) -> None:
-        """Stop, on, and off buttons are present."""
+        """Controller buttons and number controls are present."""
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",
             return_value=mock_solem_client,
@@ -98,10 +98,19 @@ class TestEntitySetup:
             stop = [d for d in data if d["device_type"] == "STOP_BUTTON"]
             on = [d for d in data if d["device_type"] == "ON_BUTTON"]
             off = [d for d in data if d["device_type"] == "OFF_BUTTON"]
+            off_days_button = [
+                d for d in data if d["device_type"] == "OFF_DAYS_BUTTON"
+            ]
+            off_days_number = [
+                d for d in data if d["device_type"] == "CONTROLLER_OFF_DAYS_NUMBER"
+            ]
 
             assert len(stop) == 1
             assert len(on) == 1
             assert len(off) == 1
+            assert len(off_days_button) == 1
+            assert len(off_days_number) == 1
+            assert off_days_number[0]["value"] == 1
 
     async def test_irrigation_programs_are_surfaced(
         self,

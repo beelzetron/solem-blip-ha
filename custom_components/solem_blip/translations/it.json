@@ -54,11 +54,13 @@
     },
     "button": {
       "controller_off": { "name": "Spegni controller" },
+      "controller_off_days": { "name": "Spegni controller per i giorni selezionati" },
       "controller_on": { "name": "Accendi controller" },
       "sprinkle_station": { "name": "Irriga {station_name}" },
       "stop_sprinkle": { "name": "Interrompi irrigazione" }
     },
     "number": {
+      "controller_off_days": { "name": "Giorni di spegnimento controller" },
       "irrigation_manual_duration": { "name": "Durata irrigazione manuale" }
     },
     "sensor": {
@@ -101,6 +103,9 @@
     },
     "controller_off_failed": {
       "message": "Spegnimento controller non riuscito."
+    },
+    "controller_off_days_failed": {
+      "message": "Spegnimento temporaneo del controller non riuscito."
     }
   },
   "issues": {

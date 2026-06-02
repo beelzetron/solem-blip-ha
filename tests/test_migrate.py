@@ -35,6 +35,22 @@ def test_legacy_map_maps_program_b_next_start() -> None:
     assert program_b.unique_id.endswith("-program_b_next_start")
 
 
+def test_legacy_map_preserves_existing_control_counter_slots() -> None:
+    """Adding off-days controls does not shift legacy stop/on/off buttons."""
+    identities = {
+        identity.device_type: identity for identity in iter_entity_identities(MAC, 2)
+    }
+
+    assert identities["STOP_BUTTON"].device_uid == "AABB-CCDD-EEFF-007"
+    assert identities["ON_BUTTON"].device_uid == "AABB-CCDD-EEFF-008"
+    assert identities["OFF_BUTTON"].device_uid == "AABB-CCDD-EEFF-009"
+    assert (
+        identities["CONTROLLER_OFF_DAYS_NUMBER"].device_uid
+        == "AABB-CCDD-EEFF-010"
+    )
+    assert identities["OFF_DAYS_BUTTON"].device_uid == "AABB-CCDD-EEFF-011"
+
+
 def test_is_legacy_unique_id_distinguishes_formats() -> None:
     """Legacy detector matches counter IDs only."""
     program_b = next(

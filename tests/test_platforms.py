@@ -13,6 +13,7 @@ from custom_components.solem_blip import RuntimeData
 from custom_components.solem_blip.api import APIConnectionError
 from custom_components.solem_blip.binary_sensor import async_setup_entry as setup_binary
 from custom_components.solem_blip.button import (
+    ControllerOffDaysButton,
     ControllerOffButton,
     ControllerOnButton,
     IrrigationStartButton,
@@ -26,6 +27,7 @@ from custom_components.solem_blip.entity_descriptions import (
 )
 from custom_components.solem_blip.entity import load_entity_translations
 from custom_components.solem_blip.number import (
+    ControllerOffDays,
     IrrigationManualDuration,
     async_setup_entry as setup_number,
 )
@@ -190,16 +192,27 @@ async def test_binary_sensor_platform(
 async def test_number_platform_set_value(
     hass: HomeAssistant, coordinator: SolemCoordinator, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Number platform updates manual irrigation duration."""
+    """Number platform updates manual duration and controller off days."""
     entities = await _setup_platform(hass, coordinator, mock_config_entry, setup_number)
-    assert len(entities) == 1
-    number = entities[0]
+    assert len(entities) == 2
+    number = next(
+        entity for entity in entities if isinstance(entity, IrrigationManualDuration)
+    )
     assert isinstance(number, IrrigationManualDuration)
     assert number.native_value == 10.0
     number.hass = hass
     number.async_write_ha_state = MagicMock()
     await number.async_set_native_value(15.0)
     assert coordinator.irrigation_manual_duration == 15
+
+    off_days = next(
+        entity for entity in entities if isinstance(entity, ControllerOffDays)
+    )
+    assert off_days.native_value == 1.0
+    off_days.hass = hass
+    off_days.async_write_ha_state = MagicMock()
+    await off_days.async_set_native_value(3.0)
+    assert coordinator.controller_off_days == 3
 
 
 @pytest.mark.asyncio
@@ -216,6 +229,7 @@ async def test_button_platform_and_press_actions(
     assert IrrigationStopButton in by_type
     assert ControllerOnButton in by_type
     assert ControllerOffButton in by_type
+    assert ControllerOffDaysButton in by_type
 
     stop_button = next(entity for entity in entities if isinstance(entity, IrrigationStopButton))
     await stop_button.async_press()
@@ -228,6 +242,13 @@ async def test_button_platform_and_press_actions(
     off_button = next(entity for entity in entities if isinstance(entity, ControllerOffButton))
     await off_button.async_press()
     mock_solem_client.turn_off_permanent.assert_awaited()
+
+    coordinator.controller_off_days = 3
+    off_days_button = next(
+        entity for entity in entities if isinstance(entity, ControllerOffDaysButton)
+    )
+    await off_days_button.async_press()
+    mock_solem_client.turn_off_x_days.assert_awaited_with(3)
 
     start_button = next(
         entity for entity in entities if isinstance(entity, IrrigationStartButton)
