@@ -59,6 +59,7 @@ def test_remaining_time_sensor_uses_minutes() -> None:
     """Station remaining-time sensors expose minutes to Home Assistant."""
     description = SENSOR_DESCRIPTIONS["REMAINING_SPRINKLE_SENSOR"]
     assert description.native_unit_of_measurement == UnitOfTime.MINUTES
+    assert description.suggested_unit_of_measurement == UnitOfTime.MINUTES
 
 
 @pytest.mark.asyncio
