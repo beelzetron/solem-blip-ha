@@ -58,6 +58,7 @@ async def test_sensor_native_values_after_refresh(coordinator) -> None:
 def test_remaining_time_sensor_uses_minutes() -> None:
     """Station remaining-time sensors expose minutes to Home Assistant."""
     description = SENSOR_DESCRIPTIONS["REMAINING_SPRINKLE_SENSOR"]
+    assert description.device_class is None
     assert description.native_unit_of_measurement == UnitOfTime.MINUTES
     assert description.suggested_unit_of_measurement == UnitOfTime.MINUTES
 
