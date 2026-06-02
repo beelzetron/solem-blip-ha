@@ -263,6 +263,7 @@ async def test_entity_coordinator_update_refreshes_placeholders(
     ]
     entity._handle_coordinator_update()
     assert entity._attr_translation_placeholders == {"station_name": "Lawn"}
+    assert entity._attr_name == "Lawn Status"
     assert entity.name == "Lawn Status"
 
 
@@ -276,7 +277,8 @@ async def test_static_entity_name_uses_translations(
         coordinator, device, "state", SENSOR_DESCRIPTIONS["BATTERY_SENSOR"]
     )
 
-    assert entity.name is None
+    assert entity._attr_name is None
+    assert entity.entity_description.translation_key == "battery"
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
@@ -44,16 +44,20 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
                 if "_station_" in self.device_id
                 else "controller_status"
             )
-        self._apply_translation_placeholders(device)
+        self._apply_descriptor_metadata(device)
 
-    def _apply_translation_placeholders(self, device: dict[str, Any] | None) -> None:
-        """Apply or clear translation placeholders from a device descriptor."""
+    def _apply_descriptor_metadata(self, device: dict[str, Any] | None) -> None:
+        """Apply dynamic descriptor metadata from coordinator descriptors."""
         if device is None:
             return
         if placeholders := device.get("translation_placeholders"):
             self._attr_translation_placeholders = placeholders
+            self._attr_name = str(device.get("device_name") or "")
         elif hasattr(self, "_attr_translation_placeholders"):
             del self._attr_translation_placeholders
+            self._attr_name = None
+        else:
+            self._attr_name = None
 
     def _descriptor_field(self, field: str | None = None) -> Any:
         """Return one field from the entity descriptor."""
@@ -62,22 +66,12 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
             return None
         return self.coordinator.get_device_parameter(self.device_id, key)
 
-    @property
-    def name(self) -> str | None:
-        """Return dynamic descriptor names for metadata-backed entities."""
-        if self.device.get("translation_placeholders"):
-            return cast(
-                str | None,
-                self.coordinator.get_device_parameter(self.device_id, "device_name"),
-            )
-        return None
-
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update entity with latest coordinator data."""
         self.device = self.coordinator.get_device(self.device_id) or self.device
         if self.device is not None:
-            self._apply_translation_placeholders(self.device)
+            self._apply_descriptor_metadata(self.device)
         _LOGGER.debug(
             "Updating device: %s, %s",
             self.device_id,
