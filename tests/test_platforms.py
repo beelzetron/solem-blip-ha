@@ -263,8 +263,8 @@ async def test_entity_coordinator_update_refreshes_placeholders(
     ]
     entity._handle_coordinator_update()
     assert entity._attr_translation_placeholders == {"station_name": "Lawn"}
-    assert entity._attr_name == "Lawn Status"
-    assert entity.name == "Lawn Status"
+    assert entity._attr_translation_key == "station_status"
+    assert not hasattr(entity, "_attr_name")
 
 
 @pytest.mark.asyncio
@@ -277,8 +277,25 @@ async def test_static_entity_name_uses_translations(
         coordinator, device, "state", SENSOR_DESCRIPTIONS["BATTERY_SENSOR"]
     )
 
-    assert entity._attr_name is None
+    assert not hasattr(entity, "_attr_name")
     assert entity.entity_description.translation_key == "battery"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_button_name_uses_translations(
+    coordinator: SolemCoordinator,
+) -> None:
+    """Station action buttons keep translation metadata with live placeholders."""
+    device = next(
+        item for item in coordinator.data if item["device_type"] == "SPRINKLE_BUTTON"
+    )
+    entity = IrrigationStartButton(
+        coordinator, device, BUTTON_DESCRIPTIONS["SPRINKLE_BUTTON"]
+    )
+
+    assert not hasattr(entity, "_attr_name")
+    assert entity.entity_description.translation_key == "sprinkle_station"
+    assert entity._attr_translation_placeholders == {"station_name": "Station 1"}
 
 
 @pytest.mark.asyncio

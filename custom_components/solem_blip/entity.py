@@ -52,12 +52,8 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
             return
         if placeholders := device.get("translation_placeholders"):
             self._attr_translation_placeholders = placeholders
-            self._attr_name = str(device.get("device_name") or "")
         elif hasattr(self, "_attr_translation_placeholders"):
             del self._attr_translation_placeholders
-            self._attr_name = None
-        else:
-            self._attr_name = None
 
     def _descriptor_field(self, field: str | None = None) -> Any:
         """Return one field from the entity descriptor."""
