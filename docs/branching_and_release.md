@@ -30,6 +30,28 @@ features that need integration before release.
 4. Merge the release commit to `main`.
 5. Create a GitHub release tag such as `v1.2.21`.
 
+## Pre-release Flow
+
+Use pre-releases when a change needs live Home Assistant validation before it is
+declared stable.
+
+1. Merge the candidate change to `main` after CI passes.
+2. Create an immutable GitHub pre-release tag from `main`, such as
+   `v1.2.22-rc.1` or `v1.2.22-beta.1`.
+3. Install the pre-release on live Home Assistant through HACS or manual update.
+4. Run the live validation checklist against real BL-IP devices.
+5. If validation passes, create the stable release tag, such as `v1.2.22`, from
+   the same commit.
+6. If validation fails, fix through a new branch and pull request, then cut the
+   next pre-release tag, such as `v1.2.22-rc.2`.
+
+Use `beta.N` when behavior may still change after live testing. Use `rc.N` when
+the candidate is intended to become the final stable build unless validation
+finds a blocker.
+
+Do not retag or mutate an existing pre-release to promote it. Leave the
+pre-release tag intact and create the stable tag from the validated commit.
+
 ## Hotfix Flow
 
 1. Create `hotfix/<topic>` from `main`.
