@@ -66,6 +66,7 @@
     "sensor": {
       "battery": { "name": "Battery" },
       "battery_voltage": { "name": "Battery voltage" },
+      "controller_off_days_remaining": { "name": "Controller off days remaining" },
       "controller_status": {
         "name": "Controller status",
         "state": {

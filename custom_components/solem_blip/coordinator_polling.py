@@ -47,6 +47,10 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     coordinator.battery_voltage = status.get("battery_voltage")
     coordinator.battery_level = status.get("battery_level")
     coordinator.battery_low = bool(status.get("battery_low", False))
+    coordinator.controller_off_mode = status.get("controller_off_mode", "unknown")
+    coordinator.controller_off_days_remaining = status.get(
+        "controller_off_days_remaining"
+    )
     coordinator._has_status = True
     coordinator._is_watering = bool(status.get("is_watering"))
     active_program = status.get("active_program")

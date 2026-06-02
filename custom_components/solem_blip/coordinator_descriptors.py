@@ -100,6 +100,17 @@ def build_controller_and_battery_descriptors(
         }
     )
     counter += 1
+    data.append(
+        {
+            "device_id": f"{coordinator.controller_mac_address}_controller_off_days_remaining",
+            "device_type": "CONTROLLER_OFF_DAYS_REMAINING_SENSOR",
+            "device_name": "Controller off days remaining",
+            "device_uid": mac_to_uuid(coordinator.controller_mac_address, 501),
+            "software_version": "1.0",
+            "state": coordinator.controller_off_days_remaining,
+            "last_reboot": None,
+        }
+    )
     return data, counter
 
 

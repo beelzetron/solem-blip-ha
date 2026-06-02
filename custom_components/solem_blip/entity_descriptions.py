@@ -79,6 +79,14 @@ SENSOR_DESCRIPTIONS: dict[str, SolemSensorEntityDescription] = {
         entity_registry_enabled_default=False,
         has_entity_name=True,
     ),
+    "CONTROLLER_OFF_DAYS_REMAINING_SENSOR": SolemSensorEntityDescription(
+        key="controller_off_days_remaining",
+        device_type="CONTROLLER_OFF_DAYS_REMAINING_SENSOR",
+        translation_key="controller_off_days_remaining",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        has_entity_name=True,
+    ),
     "REMAINING_SPRINKLE_SENSOR": SolemSensorEntityDescription(
         key="station_remaining_time",
         device_type="REMAINING_SPRINKLE_SENSOR",

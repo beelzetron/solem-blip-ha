@@ -24,6 +24,8 @@ def coordinator() -> MagicMock:
     coord.watering_origin = None
     coord.active_station_num = None
     coord.remaining_seconds = None
+    coord.controller_off_mode = "unknown"
+    coord.controller_off_days_remaining = None
     return coord
 
 
@@ -65,6 +67,27 @@ def test_apply_status_clears_program_when_idle(coordinator: MagicMock) -> None:
     )
     assert coordinator.active_program_num is None
     assert coordinator.watering_origin is None
+
+
+def test_apply_status_stores_controller_off_days(coordinator: MagicMock) -> None:
+    apply_status(
+        coordinator,
+        {
+            "controller_state": "Off",
+            "controller_off_mode": "temporary",
+            "controller_off_days_remaining": 3,
+            "is_watering": False,
+            "station_num": None,
+            "remaining_seconds": None,
+            "battery_voltage": 79,
+            "battery_level": 4,
+            "battery_low": False,
+            "active_program": None,
+            "watering_origin": None,
+        },
+    )
+    assert coordinator.controller_off_mode == "temporary"
+    assert coordinator.controller_off_days_remaining == 3
 
 
 def test_apply_status_keeps_program_during_inter_station_idle(

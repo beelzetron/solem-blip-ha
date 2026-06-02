@@ -72,10 +72,17 @@ class TestEntitySetup:
                 d for d in data if d["device_type"] == "BATTERY_VOLTAGE_SENSOR"
             ]
             low = [d for d in data if d["device_type"] == "BATTERY_LOW_SENSOR"]
+            off_days_remaining = [
+                d
+                for d in data
+                if d["device_type"] == "CONTROLLER_OFF_DAYS_REMAINING_SENSOR"
+            ]
 
             assert len(battery) == 1
             assert len(voltage) == 1
             assert len(low) == 1
+            assert len(off_days_remaining) == 1
+            assert off_days_remaining[0]["state"] == 0
 
     async def test_control_entities_are_present(
         self,
