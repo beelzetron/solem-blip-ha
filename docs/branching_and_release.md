@@ -41,6 +41,11 @@ Do not open a pull request for a version-only release bump. The release bump
 does not need to rerun the full CI suite when the candidate code already passed
 CI before merge.
 
+CI detects version-only release bumps on pushes to `main`: when only
+`custom_components/solem_blip/manifest.json` and `pyproject.toml` changed, and
+the only changed lines are version fields, full validation jobs are skipped.
+Only the lightweight Python/JSON sanity job runs.
+
 If the release commit includes anything beyond version metadata, treat it as a
 normal change: branch, test, open a pull request, and merge only after CI passes.
 

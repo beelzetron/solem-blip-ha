@@ -13,9 +13,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-scope:
+    name: Detect release-only bump
+    runs-on: ubuntu-latest
+    outputs:
+      release_only: ${{ steps.classify.outputs.release_only }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_only=false
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            before="${{ github.event.before }}"
+            after="${{ github.sha }}"
+            if [[ ! "$before" =~ ^0+$ ]]; then
+              mapfile -t files < <(git diff --name-only "$before" "$after" | sort)
+              expected=(
+                "custom_components/solem_blip/manifest.json"
+                "pyproject.toml"
+              )
+
+              if [[ ${#files[@]} -eq ${#expected[@]} ]]; then
+                matches=true
+                for index in "${!expected[@]}"; do
+                  if [[ "${files[$index]}" != "${expected[$index]}" ]]; then
+                    matches=false
+                  fi
+                done
+
+                if [[ "$matches" == "true" ]] && git diff -U0 "$before" "$after" -- "${expected[@]}" | awk '
+                  /^diff --git / || /^index / || /^--- / || /^\+\+\+ / || /^@@ / { next }
+                  /^[+-]/ {
+                    if ($0 ~ /^[+-][[:space:]]*"version": "[^"]+",?[[:space:]]*$/) next
+                    if ($0 ~ /^[+-]version = "[^"]+"[[:space:]]*$/) next
+                    bad=1
+                  }
+                  END { exit bad }
+                '; then
+                  release_only=true
+                fi
+              fi
+            fi
+          fi
+
+          echo "release_only=$release_only" >> "$GITHUB_OUTPUT"
+
   hassfest:
     name: Validate with hassfest
     runs-on: ubuntu-latest
+    needs: release-scope
+    if: needs.release-scope.outputs.release_only != 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: home-assistant/actions/hassfest@868e6cb4607727d764341a158d98872cd63fa658 # master
@@ -23,6 +77,8 @@ jobs:
   hacs:
     name: Validate with HACS
     runs-on: ubuntu-latest
+    needs: release-scope
+    if: needs.release-scope.outputs.release_only != 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: hacs/action@dcb30e72781db3f207d5236b861172774ab0b485 # main
@@ -32,6 +88,7 @@ jobs:
   python-sanity:
     name: Python and JSON sanity
     runs-on: ubuntu-latest
+    needs: release-scope
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -59,6 +116,8 @@ jobs:
   pytest:
     name: Run pytest
     runs-on: ubuntu-latest
+    needs: release-scope
+    if: needs.release-scope.outputs.release_only != 'true'
     permissions:
       contents: write
     steps:
@@ -94,6 +153,8 @@ jobs:
   mypy:
     name: Run mypy
     runs-on: ubuntu-latest
+    needs: release-scope
+    if: needs.release-scope.outputs.release_only != 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
