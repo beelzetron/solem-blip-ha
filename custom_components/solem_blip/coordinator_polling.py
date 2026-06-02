@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -311,17 +312,17 @@ async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     return status
 
 
-def remaining_seconds_for_station(
+def remaining_minutes_for_station(
     coordinator: SolemCoordinator, station_id: int
 ) -> int | None:
-    """Return remaining sprinkle seconds for a station (0 when idle/inactive)."""
+    """Return remaining sprinkle minutes for a station (0 when idle/inactive)."""
     if not coordinator._has_status:
         return None
     if (
         coordinator.active_station_num == station_id
         and coordinator.remaining_seconds is not None
     ):
-        return coordinator.remaining_seconds
+        return math.ceil(coordinator.remaining_seconds / 60)
     if (
         coordinator.active_station_num == station_id
         and coordinator.remaining_seconds is None

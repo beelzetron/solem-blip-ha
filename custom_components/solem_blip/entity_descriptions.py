@@ -85,7 +85,7 @@ SENSOR_DESCRIPTIONS: dict[str, SolemSensorEntityDescription] = {
         translation_key="station_remaining_time",
         device_class=SensorDeviceClass.DURATION,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
         has_entity_name=True,
     ),
     "LAST_TIME_SYNC_SENSOR": SolemSensorEntityDescription(

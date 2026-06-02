@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from homeassistant.const import UnitOfTime
 
 from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
 from custom_components.solem_blip.sensor import (
@@ -52,6 +53,12 @@ async def test_sensor_native_values_after_refresh(coordinator) -> None:
             "LAST_TIME_SYNC_SENSOR",
             "PROGRAM_NEXT_START_SENSOR",
         }
+
+
+def test_remaining_time_sensor_uses_minutes() -> None:
+    """Station remaining-time sensors expose minutes to Home Assistant."""
+    description = SENSOR_DESCRIPTIONS["REMAINING_SPRINKLE_SENSOR"]
+    assert description.native_unit_of_measurement == UnitOfTime.MINUTES
 
 
 @pytest.mark.asyncio
