@@ -10,6 +10,7 @@ from homeassistant.const import UnitOfTime
 from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
 from custom_components.solem_blip.sensor import (
     BatteryVoltageSensor,
+    ControllerOffDaysRemainingSensor,
     LastTimeSyncSensor,
     ProgramNextStartSensor,
     ProgramScheduleSensor,
@@ -26,6 +27,8 @@ def _seed_coordinator_state(coordinator) -> None:
     coordinator.controller.state = "on"
     coordinator.stations[0].state = "stopped"
     coordinator._has_status = True
+    coordinator.controller_off_mode = "on"
+    coordinator.controller_off_days_remaining = 0
     coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
 
 
@@ -38,6 +41,7 @@ async def test_sensor_native_values_after_refresh(coordinator) -> None:
     samples = {
         "STATE_SENSOR": StateSensor,
         "BATTERY_VOLTAGE_SENSOR": BatteryVoltageSensor,
+        "CONTROLLER_OFF_DAYS_REMAINING_SENSOR": ControllerOffDaysRemainingSensor,
         "REMAINING_SPRINKLE_SENSOR": RemainingSprinkleSensor,
         "LAST_TIME_SYNC_SENSOR": LastTimeSyncSensor,
         "PROGRAM_NEXT_START_SENSOR": ProgramNextStartSensor,
@@ -63,6 +67,13 @@ def test_remaining_time_sensor_uses_minutes() -> None:
     assert description.suggested_unit_of_measurement == UnitOfTime.MINUTES
 
 
+def test_controller_off_days_remaining_sensor_uses_days() -> None:
+    """Controller off-days read-back sensor exposes day counts."""
+    description = SENSOR_DESCRIPTIONS["CONTROLLER_OFF_DAYS_REMAINING_SENSOR"]
+    assert description.device_class is None
+    assert description.native_unit_of_measurement == UnitOfTime.DAYS
+
+
 @pytest.mark.asyncio
 async def test_controller_status_sensor_exposes_program_attributes(
     coordinator,
@@ -74,6 +85,8 @@ async def test_controller_status_sensor_exposes_program_attributes(
     coordinator._is_watering = True
     coordinator.active_station_num = 5
     coordinator.remaining_seconds = 900
+    coordinator.controller_off_mode = "temporary"
+    coordinator.controller_off_days_remaining = 3
     coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
 
     device = next(
@@ -91,6 +104,8 @@ async def test_controller_status_sensor_exposes_program_attributes(
         "active_program": 3,
         "active_program_name": "Programma C",
         "watering_origin": "program",
+        "controller_off_mode": "temporary",
+        "controller_off_days_remaining": 3,
     }
 
 

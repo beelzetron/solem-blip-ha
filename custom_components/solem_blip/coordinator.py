@@ -124,6 +124,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._has_status = False
         self.irrigation_manual_duration = DEFAULT_MANUAL_DURATION
         self.controller_off_days = DEFAULT_CONTROLLER_OFF_DAYS
+        self.controller_off_mode = "unknown"
+        self.controller_off_days_remaining: int | None = None
         self.remaining_seconds: int | None = None
         self.active_station_num: int | None = None
         self.active_program_num: int | None = None

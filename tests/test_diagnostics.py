@@ -31,6 +31,8 @@ async def test_diagnostics_redact_mac_and_include_runtime_state(
     coordinator.active_program_num = 3
     coordinator.watering_origin = "schedule"
     coordinator.remaining_seconds = 90
+    coordinator.controller_off_mode = "temporary"
+    coordinator.controller_off_days_remaining = 3
     coordinator.station_names = {1: "Zone 1", 2: "Zone 2"}
     coordinator._firmware_retry_after = 1.0
     coordinator._station_names_retry_after = 2.0
@@ -60,6 +62,8 @@ async def test_diagnostics_redact_mac_and_include_runtime_state(
     assert result["irrigation"]["active_program"] == 3
     assert result["irrigation"]["active_program_name"] == "Programma C"
     assert result["irrigation"]["watering_origin"] == "schedule"
+    assert result["irrigation"]["controller_off_mode"] == "temporary"
+    assert result["irrigation"]["controller_off_days_remaining"] == 3
     assert result["metadata_retry_after"]["station_names"] == 2.0
     assert result["metadata_task"] == {"active": True, "finished": False}
     assert result["schedule_read"]["program_count"] == 2

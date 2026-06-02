@@ -34,6 +34,7 @@ from custom_components.solem_blip.number import (
 from custom_components.solem_blip.sensor import (
     BatterySensor,
     BatteryVoltageSensor,
+    ControllerOffDaysRemainingSensor,
     LastTimeSyncSensor,
     ProgramNextStartSensor,
     ProgramScheduleSensor,
@@ -52,6 +53,8 @@ def _seed_coordinator_state(coordinator: SolemCoordinator) -> None:
     coordinator.controller.state = "on"
     coordinator.stations[0].state = "stopped"
     coordinator._has_status = True
+    coordinator.controller_off_mode = "on"
+    coordinator.controller_off_days_remaining = 0
     coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
 
 
@@ -76,6 +79,9 @@ async def test_sensor_platform_creates_entities(
     assert any(isinstance(entity, StateSensor) for entity in entities)
     assert any(isinstance(entity, BatterySensor) for entity in entities)
     assert any(isinstance(entity, BatteryVoltageSensor) for entity in entities)
+    assert any(
+        isinstance(entity, ControllerOffDaysRemainingSensor) for entity in entities
+    )
     assert any(isinstance(entity, RemainingSprinkleSensor) for entity in entities)
     assert any(isinstance(entity, LastTimeSyncSensor) for entity in entities)
     assert any(isinstance(entity, ProgramNextStartSensor) for entity in entities)
@@ -115,6 +121,19 @@ async def test_sensor_values_and_attributes(
     )
     assert battery.native_value == 100
     assert battery.extra_state_attributes["battery_level"] == 5
+
+    off_days_device = next(
+        item
+        for item in coordinator.data
+        if item["device_type"] == "CONTROLLER_OFF_DAYS_REMAINING_SENSOR"
+    )
+    off_days_remaining = ControllerOffDaysRemainingSensor(
+        coordinator,
+        off_days_device,
+        "state",
+        SENSOR_DESCRIPTIONS["CONTROLLER_OFF_DAYS_REMAINING_SENSOR"],
+    )
+    assert off_days_remaining.native_value == 0
 
     program_device = next(
         item for item in coordinator.data if item["device_type"] == "PROGRAM_NEXT_START_SENSOR"

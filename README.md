@@ -181,7 +181,8 @@ From the integration **Configure** menu:
 The integration polls BLE status every 60 seconds by default and refreshes the
 schedule stored on the controller separately every hour. Failed schedule reads
 retry every 15 minutes without delaying status updates. Schedule changes remain
-the responsibility of the Solem app or Home Assistant automations.
+outside this integration and should be handled by Home Assistant automations or
+another scheduler.
 
 ## Upgrading to 1.2.3+
 

@@ -66,7 +66,7 @@ class StateSensor(SolemSensorEntity):
         )
 
     @property
-    def extra_state_attributes(self) -> dict[str, int | str | None]:
+    def extra_state_attributes(self) -> dict[str, int | str | bool | None]:
         if "_irrigation_controller_" not in self.device_id:
             return {}
         attributes: dict[str, int | str | bool | None] = {}
@@ -81,6 +81,11 @@ class StateSensor(SolemSensorEntity):
             attributes["active_program_name"] = active_program_name(self.coordinator)
         if self.coordinator.watering_origin is not None:
             attributes["watering_origin"] = self.coordinator.watering_origin
+        attributes["controller_off_mode"] = self.coordinator.controller_off_mode
+        if self.coordinator.controller_off_days_remaining is not None:
+            attributes["controller_off_days_remaining"] = (
+                self.coordinator.controller_off_days_remaining
+            )
         return attributes
 
 
@@ -105,6 +110,14 @@ class BatteryVoltageSensor(SolemSensorEntity):
     @property
     def native_value(self) -> float | None:
         return cast(float | None, self._descriptor_field())
+
+
+class ControllerOffDaysRemainingSensor(SolemSensorEntity):
+    """Read-back temporary controller off-days sensor."""
+
+    @property
+    def native_value(self) -> int | None:
+        return cast(int | None, self._descriptor_field())
 
 
 class RemainingSprinkleSensor(SolemSensorEntity):
@@ -166,6 +179,7 @@ SENSOR_ENTITY_CLASSES: dict[str, type[SolemSensorEntity]] = {
     "STATE_SENSOR": StateSensor,
     "BATTERY_SENSOR": BatterySensor,
     "BATTERY_VOLTAGE_SENSOR": BatteryVoltageSensor,
+    "CONTROLLER_OFF_DAYS_REMAINING_SENSOR": ControllerOffDaysRemainingSensor,
     "REMAINING_SPRINKLE_SENSOR": RemainingSprinkleSensor,
     "LAST_TIME_SYNC_SENSOR": LastTimeSyncSensor,
     "PROGRAM_NEXT_START_SENSOR": ProgramNextStartSensor,

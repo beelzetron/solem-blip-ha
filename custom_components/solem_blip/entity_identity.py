@@ -118,6 +118,13 @@ def iter_entity_identities(mac: str, num_stations: int) -> Iterator[EntityIdenti
     )
     counter += 1
 
+    yield _yield_identity(
+        mac,
+        f"{mac}_controller_off_days_remaining",
+        "CONTROLLER_OFF_DAYS_REMAINING_SENSOR",
+        mac_to_uuid(mac, 501),
+    )
+
     stations_counter = 801
     for station_id in range(1, num_stations + 1):
         yield _yield_identity(

@@ -65,6 +65,8 @@ async def async_get_config_entry_diagnostics(
             "active_program_name": active_program_name(coordinator),
             "watering_origin": coordinator.watering_origin,
             "remaining_seconds": coordinator.remaining_seconds,
+            "controller_off_mode": coordinator.controller_off_mode,
+            "controller_off_days_remaining": coordinator.controller_off_days_remaining,
         },
         "metadata_retry_after": {
             "firmware": coordinator._firmware_retry_after,

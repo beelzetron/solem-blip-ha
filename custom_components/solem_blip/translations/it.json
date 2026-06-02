@@ -66,6 +66,7 @@
     "sensor": {
       "battery": { "name": "Batteria" },
       "battery_voltage": { "name": "Tensione batteria" },
+      "controller_off_days_remaining": { "name": "Giorni di spegnimento rimanenti" },
       "controller_status": {
         "name": "Stato controller",
         "state": {
