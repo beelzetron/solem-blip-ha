@@ -255,6 +255,7 @@ async def test_entity_coordinator_update_refreshes_placeholders(
     entity.async_write_ha_state = MagicMock()
     coordinator.station_names[1] = "Lawn"
     updated_device = dict(device)
+    updated_device["device_name"] = "Lawn Status"
     updated_device["translation_placeholders"] = {"station_name": "Lawn"}
     coordinator.data = [
         updated_device if item["device_id"] == device["device_id"] else item
@@ -262,6 +263,20 @@ async def test_entity_coordinator_update_refreshes_placeholders(
     ]
     entity._handle_coordinator_update()
     assert entity._attr_translation_placeholders == {"station_name": "Lawn"}
+    assert entity.name == "Lawn Status"
+
+
+@pytest.mark.asyncio
+async def test_static_entity_name_uses_translations(
+    coordinator: SolemCoordinator,
+) -> None:
+    """Static entities continue to use HA translations for their names."""
+    device = next(item for item in coordinator.data if item["device_type"] == "BATTERY_SENSOR")
+    entity = BatterySensor(
+        coordinator, device, "state", SENSOR_DESCRIPTIONS["BATTERY_SENSOR"]
+    )
+
+    assert entity.name is None
 
 
 @pytest.mark.asyncio

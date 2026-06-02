@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
@@ -61,6 +61,16 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
         if key is None:
             return None
         return self.coordinator.get_device_parameter(self.device_id, key)
+
+    @property
+    def name(self) -> str | None:
+        """Return dynamic descriptor names for metadata-backed entities."""
+        if self.device.get("translation_placeholders"):
+            return cast(
+                str | None,
+                self.coordinator.get_device_parameter(self.device_id, "device_name"),
+            )
+        return None
 
     @callback
     def _handle_coordinator_update(self) -> None:
