@@ -44,6 +44,7 @@ Use the lightweight Git Flow policy in `docs/branching_and_release.md`.
 - Merge to `main` through a pull request after CI passes.
 - Cut GitHub releases only from merged `main`.
 - Use immutable `-beta.N` or `-rc.N` pre-releases for changes that need live HA validation before stable release.
+- Commit version-only release bumps directly to `main` after candidate PR CI is green; do not open release-bump PRs.
 - Keep release commits scoped to the HA integration; do not combine BLE library changes.
 
 ## Key directories
