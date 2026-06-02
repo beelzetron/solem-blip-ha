@@ -46,7 +46,40 @@ async def test_async_init_does_not_block_on_ble_io(
     assert coordinator.controller.state is None
     assert all(station.state is None for station in coordinator.stations)
     assert coordinator.battery_low is None
-    assert coordinator._remaining_seconds_for_station(1) is None
+    assert coordinator._remaining_minutes_for_station(1) is None
+
+
+@pytest.mark.asyncio
+async def test_remaining_time_sensor_reports_minutes(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Remaining-time descriptors expose rounded-up minutes, not raw seconds."""
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        coordinator._has_status = True
+        coordinator.active_station_num = 1
+        coordinator.remaining_seconds = 61
+
+        data = await coordinator.async_update_all_sensors(fetch_status=False)
+
+    station_1_remaining = next(
+        descriptor
+        for descriptor in data
+        if descriptor["device_id"].endswith("_remaining_sprinkle_station_1")
+    )
+    station_2_remaining = next(
+        descriptor
+        for descriptor in data
+        if descriptor["device_id"].endswith("_remaining_sprinkle_station_2")
+    )
+    assert station_1_remaining["state"] == 2
+    assert station_2_remaining["state"] == 0
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .const import PROGRAM_LABELS
-from .coordinator_polling import remaining_seconds_for_station
+from .coordinator_polling import remaining_minutes_for_station
 from .schedule import (
     build_schedule_attributes,
     next_start_datetime,
@@ -149,7 +149,7 @@ def build_remaining_time_descriptors(
                     coordinator.controller_mac_address, remaining_counter
                 ),
                 "software_version": "1.0",
-                "state": remaining_seconds_for_station(coordinator, station_id),
+                "state": remaining_minutes_for_station(coordinator, station_id),
                 "last_reboot": None,
                 "translation_placeholders": {
                     "station_name": coordinator._station_name(station_id)

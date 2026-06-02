@@ -62,7 +62,7 @@ Home Assistant installs `solem-blip-ble==0.1.24` from PyPI automatically. Protoc
 | Battery voltage | Diagnostic (disabled by default) |
 | Battery low | Binary alert |
 | Station status | `sprinkling` / `stopped`, using the controller-provided station name |
-| Station remaining time | Seconds left while sprinkling (`0` when idle) |
+| Station remaining time | Minutes left while sprinkling (`0` when idle) |
 | Irrigation manual duration | Minutes for sprinkle buttons |
 | Controller off days | Number of days for temporary controller off |
 | Sprinkle station N | Start manual watering |

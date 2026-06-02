@@ -45,7 +45,7 @@ from .coordinator_polling import (
     fetch_device_metadata,
     fetch_device_status,
     fetch_irrigation_config,
-    remaining_seconds_for_station,
+    remaining_minutes_for_station,
 )
 from .coordinator_publish import publish_descriptor_update
 from .bluetooth import async_get_connectable_device
@@ -218,9 +218,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Wait for the background irrigation monitor to finish."""
         await await_irrigation_monitor_task(self)
 
-    def _remaining_seconds_for_station(self, station_id: int) -> int | None:
-        """Return remaining sprinkle seconds for a station (0 when idle/inactive)."""
-        return remaining_seconds_for_station(self, station_id)
+    def _remaining_minutes_for_station(self, station_id: int) -> int | None:
+        """Return remaining sprinkle minutes for a station (0 when idle/inactive)."""
+        return remaining_minutes_for_station(self, station_id)
 
     async def async_update_all_sensors(
         self, *, fetch_status: bool = True
