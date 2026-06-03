@@ -65,10 +65,12 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
         watering_origin = "program"
     coordinator.watering_origin = watering_origin
 
-    if status.get("is_watering") and status.get("station_num"):
+    if status.get("station_num"):
         active_station_num = status["station_num"]
         coordinator.active_station_num = active_station_num
-        coordinator.remaining_seconds = status.get("remaining_seconds")
+        coordinator.remaining_seconds = (
+            status.get("remaining_seconds") if status.get("is_watering") else None
+        )
         if 1 <= active_station_num <= coordinator.num_stations:
             for index, station in enumerate(coordinator.stations):
                 station.state = (
