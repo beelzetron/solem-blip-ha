@@ -109,6 +109,7 @@ def create_mock_solem_client(station_num: int = 2) -> MagicMock:
     client.get_irrigation_config = AsyncMock(return_value=MOCK_IRRIGATION_PROGRAMS)
     client.set_time = AsyncMock()
     client.sprinkle_station_x_for_y_minutes = AsyncMock()
+    client.run_program_x = AsyncMock()
     client.stop_manual_sprinkle = AsyncMock()
     client.turn_on = AsyncMock()
     client.turn_off_permanent = AsyncMock()

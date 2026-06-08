@@ -27,6 +27,7 @@ def coordinator() -> MagicMock:
     coord.remaining_seconds = None
     coord.controller_off_mode = "unknown"
     coord.controller_off_days_remaining = None
+    coord._irrigation_active = False
     return coord
 
 
@@ -52,6 +53,7 @@ def test_apply_status_program_run_sets_program_origin(coordinator: MagicMock) ->
 
 
 def test_apply_status_clears_program_when_idle(coordinator: MagicMock) -> None:
+    coordinator._irrigation_active = True
     apply_status(
         coordinator,
         {
@@ -66,6 +68,7 @@ def test_apply_status_clears_program_when_idle(coordinator: MagicMock) -> None:
             "watering_origin": None,
         },
     )
+    assert coordinator._irrigation_active is False
     assert coordinator.active_program_num is None
     assert coordinator.watering_origin is None
 

@@ -35,6 +35,7 @@ from .coordinator_irrigation import (
     clear_monitor_task_ref,
     run_irrigation_monitor,
     start_irrigation as irrigation_start,
+    start_program as irrigation_start_program,
     stop_irrigation as irrigation_stop,
     turn_controller_off as irrigation_turn_off,
     turn_controller_off_for_days as irrigation_turn_off_for_days,
@@ -255,6 +256,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     ) -> None:
         """Send a start command, then monitor watering in the background."""
         await irrigation_start(self, station, minutes)
+
+    async def start_program(self, program_num: int) -> None:
+        """Start one on-device irrigation program."""
+        await irrigation_start_program(self, program_num)
 
     async def _run_irrigation_monitor(self, station: int, duration: int) -> None:
         """Monitor active watering until completion, stop, or safety timeout."""

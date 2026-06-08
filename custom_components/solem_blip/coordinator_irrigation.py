@@ -144,35 +144,27 @@ async def start_irrigation(
         duration,
     )
 
-    coordinator.irrigation_stop_event.clear()
-    coordinator._irrigation_active = True
-    coordinator._is_watering = True
-    coordinator.active_station_num = station
-    coordinator.stations[station - 1].state = "active"
-    coordinator.async_set_updated_data(
-        await coordinator.async_update_all_sensors(fetch_status=False)
-    )
-
-    coordinator._irrigation_monitor_task = coordinator.hass.async_create_task(
-        coordinator._run_irrigation_monitor(station, duration),
-        name=f"{DOMAIN} irrigation station {station}",
-    )
-    coordinator._irrigation_monitor_task.add_done_callback(
-        lambda task: clear_monitor_task_ref(coordinator, task)
-    )
-
     try:
         await coordinator.api.sprinkle_station_x_for_y_minutes(station, duration)
+        coordinator.irrigation_stop_event.clear()
+        coordinator._irrigation_active = True
+        coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
+        if not coordinator._is_watering:
+            coordinator._irrigation_active = False
+            return
+        coordinator._irrigation_monitor_task = coordinator.hass.async_create_task(
+            coordinator._run_irrigation_monitor(station, duration),
+            name=f"{DOMAIN} irrigation station {station}",
+        )
+        coordinator._irrigation_monitor_task.add_done_callback(
+            lambda task: clear_monitor_task_ref(coordinator, task)
+        )
     except APIConnectionError as ex:
         _LOGGER.error(
             "%s - Failed to start irrigation due to connection error.",
             coordinator.controller_mac_address,
             exc_info=True,
         )
-        task = coordinator._irrigation_monitor_task
-        if task is not None and not task.done():
-            task.cancel()
-        await await_irrigation_monitor_task(coordinator)
         clear_irrigation_idle_state(coordinator)
         raise HomeAssistantError(
             translation_domain=DOMAIN,
@@ -186,12 +178,38 @@ async def start_irrigation(
             ex,
             exc_info=True,
         )
-        task = coordinator._irrigation_monitor_task
-        if task is not None and not task.done():
-            task.cancel()
-        await await_irrigation_monitor_task(coordinator)
         clear_irrigation_idle_state(coordinator)
         raise
+
+
+async def start_program(coordinator: SolemCoordinator, program_num: int) -> None:
+    """Start one on-device irrigation program."""
+    if coordinator._irrigation_active:
+        raise APIConnectionError("Irrigation is already in progress")
+
+    program_name = coordinator._program_display_name(program_num - 1)
+    _LOGGER.info(
+        "%s - Starting irrigation program %s (%s)...",
+        coordinator.controller_mac_address,
+        program_num,
+        program_name,
+    )
+
+    try:
+        await coordinator.api.run_program_x(program_num)
+    except APIConnectionError as ex:
+        _LOGGER.error(
+            "%s - Failed to start program %s due to connection error.",
+            coordinator.controller_mac_address,
+            program_num,
+            exc_info=True,
+        )
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="start_program_failed",
+            translation_placeholders={"program_name": program_name},
+        ) from ex
+    coordinator.async_set_updated_data(await coordinator.async_update_all_sensors())
 
 
 async def stop_irrigation(coordinator: SolemCoordinator) -> None:

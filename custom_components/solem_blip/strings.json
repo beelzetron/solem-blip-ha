@@ -56,6 +56,7 @@
       "controller_off": { "name": "Turn off controller" },
       "controller_off_days": { "name": "Turn off controller for selected days" },
       "controller_on": { "name": "Turn on controller" },
+      "start_program": { "name": "Start {program_name}" },
       "sprinkle_station": { "name": "Sprinkle {station_name}" },
       "stop_sprinkle": { "name": "Stop sprinkle" }
     },
@@ -95,6 +96,9 @@
     },
     "start_irrigation_failed": {
       "message": "Failed to start irrigation on station {station}."
+    },
+    "start_program_failed": {
+      "message": "Failed to start program {program_name}."
     },
     "stop_irrigation_failed": {
       "message": "Failed to stop irrigation."

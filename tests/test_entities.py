@@ -61,6 +61,8 @@ def test_english_and_italian_entity_translations_are_present() -> None:
 
     assert english["entity"]["sensor"]["station_status"]["name"] == "{station_name} status"
     assert italian["entity"]["sensor"]["station_status"]["name"] == "Stato {station_name}"
+    assert english["entity"]["button"]["start_program"]["name"] == "Start {program_name}"
+    assert italian["entity"]["button"]["start_program"]["name"] == "Avvia {program_name}"
     assert italian["entity"]["sensor"]["station_status"]["state"] == {
         "active": "Attiva",
         "inactive": "Inattiva",

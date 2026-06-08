@@ -51,6 +51,26 @@ def test_legacy_map_preserves_existing_control_counter_slots() -> None:
     assert identities["OFF_DAYS_BUTTON"].device_uid == "AABB-CCDD-EEFF-011"
 
 
+def test_program_start_buttons_use_separate_legacy_counter_slots() -> None:
+    """Program start buttons do not shift existing program sensor slots."""
+    identities = list(iter_entity_identities(MAC, 2))
+    program_a_next = next(
+        identity
+        for identity in identities
+        if identity.device_id.endswith("_program_a_next_start")
+    )
+    program_a_start = next(
+        identity
+        for identity in identities
+        if identity.device_id.endswith("_program_a_start")
+    )
+
+    assert program_a_next.device_uid == "AABB-CCDD-EEFF-1002"
+    assert program_a_start.device_type == "PROGRAM_START_BUTTON"
+    assert program_a_start.platform == "button"
+    assert program_a_start.device_uid == "AABB-CCDD-EEFF-1101"
+
+
 def test_is_legacy_unique_id_distinguishes_formats() -> None:
     """Legacy detector matches counter IDs only."""
     program_b = next(

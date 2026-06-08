@@ -86,6 +86,7 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
                 coordinator.num_stations,
             )
     elif not status.get("is_watering"):
+        coordinator._irrigation_active = False
         coordinator.active_station_num = None
         coordinator.remaining_seconds = None
         if coordinator.active_program_num is None:

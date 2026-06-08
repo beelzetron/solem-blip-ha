@@ -207,6 +207,17 @@ def iter_entity_identities(mac: str, num_stations: int) -> Iterator[EntityIdenti
             )
             program_counter += 1
 
+    program_button_counter = 1101
+    for label in PROGRAM_LABELS:
+        label_lower = label.lower()
+        yield _yield_identity(
+            mac,
+            f"{mac}_program_{label_lower}_start",
+            "PROGRAM_START_BUTTON",
+            mac_to_uuid(mac, program_button_counter),
+        )
+        program_button_counter += 1
+
 
 def build_legacy_unique_id_map(mac: str, num_stations: int) -> dict[str, str]:
     """Map legacy unique_id values to stable unique_id values."""

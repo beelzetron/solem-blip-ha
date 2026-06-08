@@ -274,6 +274,7 @@ def build_program_descriptors(
     coordinator: SolemCoordinator,
     *,
     program_counter: int = 1001,
+    program_button_counter: int = 1101,
 ) -> list[dict[str, Any]]:
     """Build read-only program schedule entity descriptors."""
     data: list[dict[str, Any]] = []
@@ -352,6 +353,20 @@ def build_program_descriptors(
             }
         )
         program_counter += 1
+
+        data.append(
+            {
+                "device_id": f"{mac}_program_{label_lower}_start",
+                "device_type": "PROGRAM_START_BUTTON",
+                "device_name": f"Start {display_name}",
+                "device_uid": mac_to_uuid(mac, program_button_counter),
+                "software_version": "1.0",
+                "program_num": program_index + 1,
+                "last_reboot": None,
+                "translation_placeholders": {"program_name": display_name},
+            }
+        )
+        program_button_counter += 1
 
     return data
 

@@ -88,6 +88,21 @@ class IrrigationStartButton(SolemButtonEntity):
         )
 
 
+class ProgramStartButton(SolemButtonEntity):
+    """Start one on-device irrigation program."""
+
+    async def async_press(self) -> None:
+        program_num = int(self.device["program_num"])
+        program_name = self.device.get("translation_placeholders", {}).get(
+            "program_name", str(program_num)
+        )
+        await self._press(
+            "start_program_failed",
+            self.coordinator.start_program(program_num),
+            translation_placeholders={"program_name": program_name},
+        )
+
+
 class IrrigationStopButton(SolemButtonEntity):
     """Stop active manual irrigation."""
 
@@ -130,6 +145,7 @@ class ControllerOffDaysButton(SolemButtonEntity):
 
 BUTTON_ENTITY_CLASSES: dict[str, type[SolemButtonEntity]] = {
     "SPRINKLE_BUTTON": IrrigationStartButton,
+    "PROGRAM_START_BUTTON": ProgramStartButton,
     "STOP_BUTTON": IrrigationStopButton,
     "ON_BUTTON": ControllerOnButton,
     "OFF_BUTTON": ControllerOffButton,

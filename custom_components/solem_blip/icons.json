@@ -15,6 +15,9 @@
       "controller_on": {
         "default": "mdi:power-on"
       },
+      "start_program": {
+        "default": "mdi:play-circle"
+      },
       "sprinkle_station": {
         "default": "mdi:sprinkler"
       },

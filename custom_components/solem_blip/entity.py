@@ -25,6 +25,7 @@ _DYNAMIC_NAME_KEYS: dict[str, tuple[str, str]] = {
     "PROGRAM_SCHEDULE_SENSOR": ("sensor", "program_schedule"),
     "PROGRAM_RUNNING_SENSOR": ("binary_sensor", "program_running"),
     "SPRINKLE_BUTTON": ("button", "sprinkle_station"),
+    "PROGRAM_START_BUTTON": ("button", "start_program"),
 }
 
 

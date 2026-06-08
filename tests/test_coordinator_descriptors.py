@@ -147,10 +147,18 @@ class TestEntitySetup:
             running = [
                 d for d in data if d["device_type"] == "PROGRAM_RUNNING_SENSOR"
             ]
+            start_buttons = [
+                d for d in data if d["device_type"] == "PROGRAM_START_BUTTON"
+            ]
 
             assert len(next_starts) == 3
             assert len(schedules) == 3
             assert len(running) == 3
+            assert len(start_buttons) == 3
+            assert start_buttons[1]["program_num"] == 2
+            assert start_buttons[1]["translation_placeholders"] == {
+                "program_name": "Programma B"
+            }
             assert next_starts[0]["translation_placeholders"] == {
                 "program_name": "Programma A"
             }

@@ -18,6 +18,7 @@ from custom_components.solem_blip.button import (
     ControllerOnButton,
     IrrigationStartButton,
     IrrigationStopButton,
+    ProgramStartButton,
     async_setup_entry as setup_button,
 )
 from custom_components.solem_blip.entity_descriptions import (
@@ -249,6 +250,7 @@ async def test_button_platform_and_press_actions(
     assert ControllerOnButton in by_type
     assert ControllerOffButton in by_type
     assert ControllerOffDaysButton in by_type
+    assert ProgramStartButton in by_type
 
     stop_button = next(entity for entity in entities if isinstance(entity, IrrigationStopButton))
     await stop_button.async_press()
@@ -268,6 +270,17 @@ async def test_button_platform_and_press_actions(
     )
     await off_days_button.async_press()
     mock_solem_client.turn_off_x_days.assert_awaited_with(3)
+
+    program_button = next(entity for entity in entities if isinstance(entity, ProgramStartButton))
+    await program_button.async_press()
+    mock_solem_client.run_program_x.assert_awaited_with(1)
+
+    mock_solem_client.run_program_x = AsyncMock(
+        side_effect=APIConnectionError("fail")
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await program_button.async_press()
+    assert exc_info.value.translation_key == "start_program_failed"
 
     start_button = next(
         entity for entity in entities if isinstance(entity, IrrigationStartButton)
@@ -334,6 +347,8 @@ async def test_dynamic_button_name_uses_translations(
     """Station action buttons keep translation metadata with live placeholders."""
     hass.config.language = "it"
     coordinator.entity_translations = load_entity_translations("it")
+    _seed_coordinator_state(coordinator)
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
     device = next(
         item for item in coordinator.data if item["device_type"] == "SPRINKLE_BUTTON"
     )
@@ -344,6 +359,22 @@ async def test_dynamic_button_name_uses_translations(
     assert entity._attr_name == "Irriga Station 1"
     assert entity.entity_description.translation_key == "sprinkle_station"
     assert entity._attr_translation_placeholders == {"station_name": "Station 1"}
+
+    program_device = next(
+        item
+        for item in coordinator.data
+        if item["device_type"] == "PROGRAM_START_BUTTON"
+        and item.get("program_num") == 3
+    )
+    program_entity = ProgramStartButton(
+        coordinator, program_device, BUTTON_DESCRIPTIONS["PROGRAM_START_BUTTON"]
+    )
+
+    assert program_entity._attr_name == "Avvia Programma C"
+    assert program_entity.entity_description.translation_key == "start_program"
+    assert program_entity._attr_translation_placeholders == {
+        "program_name": "Programma C"
+    }
 
 
 @pytest.mark.asyncio

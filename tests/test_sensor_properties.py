@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 from homeassistant.const import UnitOfTime
@@ -115,7 +116,7 @@ async def test_controller_status_sensor_shows_manual_watering_on_start(
     mock_config_entry,
     mock_solem_client,
 ) -> None:
-    """Manual irrigation start exposes controller watering attributes immediately."""
+    """Manual irrigation start exposes controller watering attributes from status."""
     from unittest.mock import patch
 
     from custom_components.solem_blip.coordinator import SolemCoordinator
@@ -127,6 +128,19 @@ async def test_controller_status_sensor_shows_manual_watering_on_start(
 
     release_sprinkle = asyncio.Event()
     mock_solem_client.sprinkle_station_x_for_y_minutes = block_sprinkle
+    mock_solem_client.get_status.return_value = {
+        "controller_state": "On",
+        "controller_off_mode": "on",
+        "controller_off_days_remaining": 0,
+        "is_watering": True,
+        "battery_voltage": 90,
+        "battery_level": 5,
+        "battery_low": False,
+        "station_num": 1,
+        "remaining_seconds": 60,
+        "active_program": None,
+        "watering_origin": "manual",
+    }
 
     with patch(
         "custom_components.solem_blip.coordinator.SolemClient",
@@ -147,15 +161,19 @@ async def test_controller_status_sensor_shows_manual_watering_on_start(
         entity = StateSensor(
             coordinator, device, "state", SENSOR_DESCRIPTIONS["STATE_SENSOR"]
         )
-        assert entity.extra_state_attributes["is_watering"] is True
-        assert entity.extra_state_attributes["active_station"] == 1
+        try:
+            assert "is_watering" not in entity.extra_state_attributes
 
-        coordinator.irrigation_stop_event.set()
-        release_sprinkle.set()
-        task = coordinator._irrigation_monitor_task
-        if task is not None and not task.done():
-            task.cancel()
-        await start_task
+            release_sprinkle.set()
+            await start_task
+            assert entity.extra_state_attributes["is_watering"] is True
+            assert entity.extra_state_attributes["active_station"] == 1
+        finally:
+            release_sprinkle.set()
+            if not start_task.done():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await start_task
+            await coordinator.async_shutdown()
 
 
 @pytest.mark.asyncio

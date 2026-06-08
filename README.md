@@ -20,6 +20,7 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Temporary controller off for a selected number of days
 - Configurable manual duration (minutes)
 - Read-only on-device program schedule sensors (next start, schedule summary, names)
+- Manual start buttons for on-device programs
 - Program run detection (`0x44` status) with per-program running binary sensors
 - Controller status attributes: active program, program name, watering origin
 - Daily controller RTC synchronization after a successful BLE poll
@@ -69,11 +70,12 @@ Home Assistant installs `solem-blip-ble==0.1.24` from PyPI automatically. Protoc
 | Stop sprinkle | Stop active watering |
 | Turn on / off controller | Enable or disable controller permanently |
 | Turn off controller for selected days | Disable controller temporarily using the selected off-days value |
+| Start program | Manually start one on-device program (A/B/C) |
 | Program next start | Per on-device program (e.g. `Siepe next start`); timestamp + schedule context attributes |
 | Program schedule | Enabled start slots, cycle, period length, synchro day, station durations |
 | Program running | `on` while that program is executing on the controller |
 
-Roughly **38 entities** for a 6-station controller (9 program-related entities: next start, schedule, and running per program).
+Roughly **41 entities** for a 6-station controller (12 program-related entities: start, next start, schedule, and running per program).
 
 ### Monitor a scheduled program run
 

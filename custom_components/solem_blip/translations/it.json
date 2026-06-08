@@ -56,6 +56,7 @@
       "controller_off": { "name": "Spegni controller" },
       "controller_off_days": { "name": "Spegni controller per i giorni selezionati" },
       "controller_on": { "name": "Accendi controller" },
+      "start_program": { "name": "Avvia {program_name}" },
       "sprinkle_station": { "name": "Irriga {station_name}" },
       "stop_sprinkle": { "name": "Interrompi irrigazione" }
     },
@@ -95,6 +96,9 @@
     },
     "start_irrigation_failed": {
       "message": "Avvio irrigazione sulla stazione {station} non riuscito."
+    },
+    "start_program_failed": {
+      "message": "Avvio programma {program_name} non riuscito."
     },
     "stop_irrigation_failed": {
       "message": "Arresto irrigazione non riuscito."

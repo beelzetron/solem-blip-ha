@@ -146,6 +146,13 @@ BUTTON_DESCRIPTIONS: dict[str, SolemButtonEntityDescription] = {
         entity_category=EntityCategory.CONFIG,
         has_entity_name=True,
     ),
+    "PROGRAM_START_BUTTON": SolemButtonEntityDescription(
+        key="start_program",
+        device_type="PROGRAM_START_BUTTON",
+        translation_key="start_program",
+        entity_category=EntityCategory.CONFIG,
+        has_entity_name=True,
+    ),
     "STOP_BUTTON": SolemButtonEntityDescription(
         key="stop_sprinkle",
         device_type="STOP_BUTTON",
