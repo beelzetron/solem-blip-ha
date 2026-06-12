@@ -45,10 +45,13 @@ class TestEntitySetup:
             remaining = [
                 d for d in data if d["device_type"] == "REMAINING_SPRINKLE_SENSOR"
             ]
+            valves = [d for d in data if d["device_type"] == "STATION_VALVE"]
 
             assert len(state_sensors) == 3
             assert len(sprinkles) == 2
             assert len(remaining) == 2
+            assert len(valves) == 2
+            assert valves[1]["station_num"] == 2
 
     async def test_battery_entities_are_present(
         self,

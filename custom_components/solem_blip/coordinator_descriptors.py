@@ -171,6 +171,33 @@ def build_remaining_time_descriptors(
     return data
 
 
+def build_station_valve_descriptors(
+    coordinator: SolemCoordinator,
+    *,
+    valve_counter: int = 1201,
+) -> list[dict[str, Any]]:
+    """Build per-station valve control descriptors."""
+    data: list[dict[str, Any]] = []
+    for station_id in range(1, coordinator.num_stations + 1):
+        station_name = coordinator._station_name(station_id)
+        data.append(
+            {
+                "device_id": f"{coordinator.controller_mac_address}_irrigation_station_{station_id}_valve",
+                "device_type": "STATION_VALVE",
+                "device_name": station_name,
+                "device_uid": mac_to_uuid(
+                    coordinator.controller_mac_address, valve_counter
+                ),
+                "software_version": "1.0",
+                "station_num": station_id,
+                "last_reboot": None,
+                "translation_placeholders": {"station_name": station_name},
+            }
+        )
+        valve_counter += 1
+    return data
+
+
 def build_control_descriptors(
     coordinator: SolemCoordinator,
     *,
@@ -376,6 +403,7 @@ def build_all_descriptors(coordinator: SolemCoordinator) -> list[dict[str, Any]]
     data, counter = build_controller_and_battery_descriptors(coordinator)
     data.extend(build_station_descriptors(coordinator))
     data.extend(build_remaining_time_descriptors(coordinator))
+    data.extend(build_station_valve_descriptors(coordinator))
     data.extend(build_control_descriptors(coordinator, counter=counter))
     data.extend(build_program_descriptors(coordinator))
     _LOGGER.debug("%s - Updated sensors.", coordinator.controller_mac_address)

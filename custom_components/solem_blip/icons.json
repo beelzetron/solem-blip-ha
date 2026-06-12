@@ -78,6 +78,11 @@
           "unknown": "mdi:help-circle"
         }
       }
+    },
+    "valve": {
+      "station_valve": {
+        "default": "mdi:valve"
+      }
     }
   }
 }

@@ -88,6 +88,9 @@
           "unknown": "Sconosciuto"
         }
       }
+    },
+    "valve": {
+      "station_valve": { "name": "{station_name}" }
     }
   },
   "exceptions": {

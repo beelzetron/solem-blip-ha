@@ -15,6 +15,10 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
+from homeassistant.components.valve import (
+    ValveDeviceClass,
+    ValveEntityDescription,
+)
 from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, UnitOfTime
 from homeassistant.helpers.entity import EntityCategory
 
@@ -50,6 +54,13 @@ class SolemNumberEntityDescription(NumberEntityDescription):
 
     device_type: str
     state_field: str = "value"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SolemValveEntityDescription(ValveEntityDescription):
+    """Valve entity description with coordinator device type mapping."""
+
+    device_type: str
 
 
 SENSOR_DESCRIPTIONS: dict[str, SolemSensorEntityDescription] = {
@@ -202,6 +213,16 @@ NUMBER_DESCRIPTIONS: dict[str, SolemNumberEntityDescription] = {
         native_min_value=0,
         native_max_value=MAX_CONTROLLER_OFF_DAYS,
         native_step=1,
+        has_entity_name=True,
+    ),
+}
+
+VALVE_DESCRIPTIONS: dict[str, SolemValveEntityDescription] = {
+    "STATION_VALVE": SolemValveEntityDescription(
+        key="station_valve",
+        device_type="STATION_VALVE",
+        translation_key="station_valve",
+        device_class=ValveDeviceClass.WATER,
         has_entity_name=True,
     ),
 }

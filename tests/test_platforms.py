@@ -25,6 +25,7 @@ from custom_components.solem_blip.entity_descriptions import (
     BUTTON_DESCRIPTIONS,
     NUMBER_DESCRIPTIONS,
     SENSOR_DESCRIPTIONS,
+    VALVE_DESCRIPTIONS,
 )
 from custom_components.solem_blip.entity import load_entity_translations
 from custom_components.solem_blip.number import (
@@ -42,6 +43,10 @@ from custom_components.solem_blip.sensor import (
     RemainingSprinkleSensor,
     StateSensor,
     async_setup_entry as setup_sensor,
+)
+from custom_components.solem_blip.valve import (
+    StationValve,
+    async_setup_entry as setup_valve,
 )
 from custom_components.solem_blip.coordinator import SolemCoordinator
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
@@ -100,8 +105,9 @@ async def test_platform_entities_have_unique_ids_per_platform(
     )
     buttons = await _setup_platform(hass, coordinator, mock_config_entry, setup_button)
     numbers = await _setup_platform(hass, coordinator, mock_config_entry, setup_number)
+    valves = await _setup_platform(hass, coordinator, mock_config_entry, setup_valve)
 
-    for entities in (sensors, binaries, buttons, numbers):
+    for entities in (sensors, binaries, buttons, numbers, valves):
         unique_ids = [entity.unique_id for entity in entities]
         assert len(unique_ids) == len(set(unique_ids))
 
@@ -291,6 +297,84 @@ async def test_button_platform_and_press_actions(
     with pytest.raises(HomeAssistantError) as exc_info:
         await start_button.async_press()
     assert exc_info.value.translation_key == "start_irrigation_failed"
+
+
+@pytest.mark.asyncio
+async def test_valve_platform_and_station_state(
+    hass: HomeAssistant,
+    coordinator: SolemCoordinator,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Station valves expose the active watering station."""
+    entities = await _setup_platform(hass, coordinator, mock_config_entry, setup_valve)
+    assert len(entities) == coordinator.num_stations
+    assert all(isinstance(entity, StationValve) for entity in entities)
+
+    coordinator._is_watering = False
+    coordinator.active_station_num = None
+    assert all(entity.is_closed is True for entity in entities)
+
+    coordinator._is_watering = True
+    coordinator.active_station_num = 2
+    station_1 = next(entity for entity in entities if entity.station_num == 1)
+    station_2 = next(entity for entity in entities if entity.station_num == 2)
+    assert station_1.is_closed is True
+    assert station_2.is_closed is False
+
+
+@pytest.mark.asyncio
+async def test_valve_platform_actions(
+    hass: HomeAssistant,
+    coordinator: SolemCoordinator,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client,
+) -> None:
+    """Station valves start their station and stop irrigation globally."""
+    entities = await _setup_platform(hass, coordinator, mock_config_entry, setup_valve)
+    station_2 = next(entity for entity in entities if entity.station_num == 2)
+
+    await station_2.async_open_valve()
+    mock_solem_client.sprinkle_station_x_for_y_minutes.assert_awaited_with(2, 10)
+
+    await station_2.async_close_valve()
+    mock_solem_client.stop_manual_sprinkle.assert_awaited()
+
+    await station_2.async_stop_valve()
+    assert mock_solem_client.stop_manual_sprinkle.await_count == 2
+
+    mock_solem_client.sprinkle_station_x_for_y_minutes = AsyncMock(
+        side_effect=APIConnectionError("fail")
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await station_2.async_open_valve()
+    assert exc_info.value.translation_key == "start_irrigation_failed"
+
+    mock_solem_client.stop_manual_sprinkle = AsyncMock(
+        side_effect=APIConnectionError("fail")
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await station_2.async_close_valve()
+    assert exc_info.value.translation_key == "stop_irrigation_failed"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_valve_name_uses_translations(
+    hass: HomeAssistant,
+    coordinator: SolemCoordinator,
+) -> None:
+    """Station valves keep translation metadata with live placeholders."""
+    hass.config.language = "it"
+    coordinator.entity_translations = load_entity_translations("it")
+    device = next(
+        item for item in coordinator.data if item["device_type"] == "STATION_VALVE"
+    )
+    entity = StationValve(
+        coordinator, device, VALVE_DESCRIPTIONS["STATION_VALVE"]
+    )
+
+    assert entity._attr_name == "Station 1"
+    assert entity.entity_description.translation_key == "station_valve"
+    assert entity._attr_translation_placeholders == {"station_name": "Station 1"}
 
 
 @pytest.mark.asyncio
