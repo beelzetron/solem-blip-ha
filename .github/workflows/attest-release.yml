@@ -1,0 +1,65 @@
+name: Attest release artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref, tag, or SHA to build and attest
+        required: true
+        default: v1.2.25
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  attest-release:
+    name: Build and attest release artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Build HACS artifact
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path(".")
+          dist = root / "dist"
+          output = dist / "solem-blip-ha.zip"
+          component = root / "custom_components" / "solem_blip"
+          excluded_names = {".DS_Store", ".coverage"}
+          excluded_suffixes = {".pyc"}
+          top_level_files = ["hacs.json", "README.md", "LICENSE"]
+
+          dist.mkdir(exist_ok=True)
+          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+              for file_path in sorted(component.rglob("*")):
+                  if not file_path.is_file():
+                      continue
+                  if "__pycache__" in file_path.parts:
+                      continue
+                  if file_path.name in excluded_names or file_path.suffix in excluded_suffixes:
+                      continue
+                  archive.write(file_path, file_path.relative_to(root))
+
+              for name in top_level_files:
+                  archive.write(root / name, name)
+          PY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: solem-blip-ha
+          path: dist/solem-blip-ha.zip
+          if-no-files-found: error
+
+      - name: Generate artifact attestation
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: dist/solem-blip-ha.zip
