@@ -13,10 +13,10 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 
 ## Features
 
-- Controller and per-station status (`on` / `off` / `sprinkling` / `stopped`; translated in the UI)
+- Controller status (`on` / `off` / `unknown`) and per-station status (`active` / `inactive`; translated in the UI)
 - Per-station remaining sprinkle time (seconds from BLE while watering)
 - Battery percentage, voltage (diagnostic), and low-battery alert
-- Manual sprinkle per station, stop, controller on/off
+- Manual sprinkle per station, station water valves, stop, controller on/off
 - Temporary controller off for a selected number of days
 - Configurable manual duration (minutes)
 - Read-only on-device program schedule sensors (next start, schedule summary, names)
@@ -29,6 +29,9 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 
 This integration supports the original Solem BL-IP controller running firmware 5.x.
 BL-IP V2 controllers running firmware 6.x are not supported.
+
+Firmware 5.x behavior is validated against physical BL-IP hardware and
+capture-backed protocol fixtures in the BLE library.
 
 ## Installation
 
@@ -51,7 +54,7 @@ Setup asks only for the **Bluetooth controller** and **number of stations**.
 
 ### BLE dependency
 
-Home Assistant installs `solem-blip-ble==0.1.24` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
+Home Assistant installs `solem-blip-ble==0.1.34` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
 
 ## Entities (example: 6 stations)
 
@@ -62,9 +65,10 @@ Home Assistant installs `solem-blip-ble==0.1.24` from PyPI automatically. Protoc
 | Battery | 0–100% (from 9V battery level 0–5) |
 | Battery voltage | Diagnostic (disabled by default) |
 | Battery low | Binary alert |
-| Station status | `sprinkling` / `stopped`, using the controller-provided station name |
-| Station remaining time | Minutes left while sprinkling (`0` when idle) |
-| Irrigation manual duration | Minutes for sprinkle buttons |
+| Station status | `active` / `inactive`, using the controller-provided station name |
+| Station remaining time | Minutes left while active (`0` when idle) |
+| Station valve | Open starts manual watering; close/stop sends the controller-wide stop command |
+| Irrigation manual duration | Minutes for station valves and sprinkle buttons |
 | Controller off days | Number of days for temporary controller off |
 | Sprinkle station N | Start manual watering |
 | Stop sprinkle | Stop active watering |
@@ -75,7 +79,7 @@ Home Assistant installs `solem-blip-ble==0.1.24` from PyPI automatically. Protoc
 | Program schedule | Enabled start slots, cycle, period length, synchro day, station durations |
 | Program running | `on` while that program is executing on the controller |
 
-Roughly **41 entities** for a 6-station controller (12 program-related entities: start, next start, schedule, and running per program).
+Roughly **47 entities** for a 6-station controller (12 program-related entities: start, next start, schedule, and running per program).
 
 ### Monitor a scheduled program run
 
@@ -113,14 +117,14 @@ trigger:
 condition:
   - condition: state
     entity_id: sensor.solem_blip_aabbccddeeff_station_1_status
-    state: "stopped"
+    state: "inactive"
 action:
   - action: button.press
     target:
       entity_id: button.solem_blip_aabbccddeeff_sprinkle_station_1
 ```
 
-Set **Irrigation manual duration** (`number.*_irrigation_manual_duration`) to control how long each sprinkle runs.
+Set **Irrigation manual duration** (`number.*_irrigation_manual_duration`) to control how long each station valve or sprinkle button runs.
 
 ### Skip when rain is forecast
 

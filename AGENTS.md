@@ -75,6 +75,6 @@ Enable **Mock Solem API** option in integration config to test without hardware.
 
 ## Entity layout
 
-- ~25 entities for 6-station controller
-- Station entities use names from controller BLE data
+- ~47 entities for 6-station controller
+- Station sensors, buttons, and valves use names from controller BLE data
 - Battery voltage sensor disabled by default (diagnostic)
