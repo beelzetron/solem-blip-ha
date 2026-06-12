@@ -170,3 +170,82 @@ jobs:
 
       - name: Run mypy
         run: mypy custom_components/solem_blip
+
+  build:
+    name: Build integration artifact
+    runs-on: ubuntu-latest
+    needs: [release-scope, hassfest, hacs, python-sanity, pytest, mypy]
+    if: >
+      always() &&
+      needs.release-scope.result == 'success' &&
+      needs.python-sanity.result == 'success' &&
+      (
+        needs.release-scope.outputs.release_only == 'true' ||
+        (
+          needs.hassfest.result == 'success' &&
+          needs.hacs.result == 'success' &&
+          needs.pytest.result == 'success' &&
+          needs.mypy.result == 'success'
+        )
+      )
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Build HACS artifact
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path(".")
+          dist = root / "dist"
+          output = dist / "solem-blip-ha.zip"
+          component = root / "custom_components" / "solem_blip"
+          excluded_names = {".DS_Store", ".coverage"}
+          excluded_suffixes = {".pyc"}
+          top_level_files = ["hacs.json", "README.md", "LICENSE"]
+
+          dist.mkdir(exist_ok=True)
+          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+              for file_path in sorted(component.rglob("*")):
+                  if not file_path.is_file():
+                      continue
+                  if "__pycache__" in file_path.parts:
+                      continue
+                  if file_path.name in excluded_names or file_path.suffix in excluded_suffixes:
+                      continue
+                  archive.write(file_path, file_path.relative_to(root))
+
+              for name in top_level_files:
+                  archive.write(root / name, name)
+          PY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: solem-blip-ha
+          path: dist/solem-blip-ha.zip
+          if-no-files-found: error
+
+  attest-build:
+    name: Attest integration artifact
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: solem-blip-ha
+          path: dist/
+
+      - name: Generate artifact attestation
+        uses: actions/attest@c32b4b8b198b65d0bd9d63490e847ff7b53989d4 # v4.0.0
+        with:
+          subject-path: dist/solem-blip-ha.zip
