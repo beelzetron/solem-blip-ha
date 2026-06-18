@@ -20,7 +20,8 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Temporary controller off for a selected number of days
 - Configurable manual duration (minutes)
 - On-device program schedule sensors (next start, schedule summary, names)
-- Configure-menu editor for on-device program start times and station durations
+- Configure-menu editor for on-device program start times and station durations,
+  using loaded program and station names when available
 - Manual start buttons for on-device programs
 - Program run detection (`0x44` status) with per-program running binary sensors
 - Controller status attributes: active program, program name, watering origin
@@ -185,7 +186,8 @@ From the integration **Configure** menu:
 - **Bluetooth timeout** — connection timeout (seconds)
 - **Mock Solem API** — debug without hardware
 - **Edit on-device program** — update one controller program (A/B/C), including
-  start times and station durations in minutes
+  start times and station durations in minutes. Loaded program names appear in
+  the selector, and loaded station names appear in duration field labels.
 
 The integration polls BLE status every 60 seconds by default and refreshes the
 schedule stored on the controller separately every hour. Failed schedule reads
