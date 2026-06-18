@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+import homeassistant.helpers.config_validation as cv
 
 from .config_entry import MyConfigEntry, RuntimeData
 from .const import CONTROLLER_MAC_ADDRESS, DOMAIN
@@ -15,8 +16,16 @@ from .bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
 from .services import async_setup_services, async_unload_services
 
 CONFIG_VERSION = 2
+CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 
-__all__ = ["DOMAIN", "MyConfigEntry", "RuntimeData", "PLATFORMS", "CONFIG_VERSION"]
+__all__ = [
+    "DOMAIN",
+    "MyConfigEntry",
+    "RuntimeData",
+    "PLATFORMS",
+    "CONFIG_VERSION",
+    "CONFIG_SCHEMA",
+]
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
