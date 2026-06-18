@@ -61,6 +61,7 @@ ATTR_WATER_BUDGET = "water_budget"
 ATTR_WEEK_DAYS = "week_days"
 MAX_PROGRAM_DURATION_SECONDS = 0xFFFFFF
 SECONDS_PER_MINUTE = 60
+MAX_PROGRAM_DURATION_MINUTES = MAX_PROGRAM_DURATION_SECONDS / SECONDS_PER_MINUTE
 
 MENU_SETTINGS = "settings"
 MENU_EDIT_PROGRAM = "program_select"
@@ -524,7 +525,7 @@ class SolemOptionsFlowHandler(OptionsFlow):
             key = self._station_key(station)
             fields[vol.Required(key, default=defaults[key])] = vol.All(
                 vol.Coerce(float),
-                self._validate_station_duration_minutes,
+                vol.Range(min=0, max=MAX_PROGRAM_DURATION_MINUTES),
             )
         return vol.Schema(fields)
 
@@ -612,11 +613,6 @@ class SolemOptionsFlowHandler(OptionsFlow):
                 "station duration must be between 0 and 279620.25 minutes"
             )
         return seconds
-
-    @staticmethod
-    def _validate_station_duration_minutes(minutes: float) -> float:
-        SolemOptionsFlowHandler._duration_seconds(minutes)
-        return minutes
 
     @staticmethod
     def _format_minutes(minutes: int | None) -> str:

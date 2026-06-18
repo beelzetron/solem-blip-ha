@@ -9,8 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
+import voluptuous_serialize
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_SCAN_INTERVAL
+import homeassistant.helpers.config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.config_flow import (
@@ -598,6 +600,26 @@ def test_options_flow_program_edit_defaults_show_duration_minutes() -> None:
     assert defaults["station_2_duration"] == 25
     assert defaults["station_3_duration"] == 25
     assert defaults["station_4_duration"] == 0
+
+
+def test_options_flow_program_edit_schema_serializes(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Program editor schema is serializable by Home Assistant."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = voluptuous_serialize.convert(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    assert any(field["name"] == "station_2_duration" for field in serialized)
 
 
 @pytest.mark.asyncio
