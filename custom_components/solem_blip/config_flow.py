@@ -402,11 +402,9 @@ class SolemOptionsFlowHandler(OptionsFlow):
                     vol.Required(ATTR_PROGRAM, default=1): selector(
                         {
                             "select": {
-                                "options": [
-                                    {"value": "1", "label": "Program A"},
-                                    {"value": "2", "label": "Program B"},
-                                    {"value": "3", "label": "Program C"},
-                                ],
+                                "options": self._program_select_options(
+                                    self._coordinator
+                                ),
                                 "mode": "dropdown",
                             }
                         }
@@ -437,6 +435,7 @@ class SolemOptionsFlowHandler(OptionsFlow):
                     program = self._program_from_options_input(
                         user_input,
                         num_stations=coordinator.num_stations,
+                        station_names=self._station_names(coordinator),
                     )
                     await coordinator.set_irrigation_program(program_index, program)
                 except vol.Invalid:
@@ -456,10 +455,13 @@ class SolemOptionsFlowHandler(OptionsFlow):
         current_program = coordinator.irrigation_programs.get(program_index)
         return self.async_show_form(
             step_id="program_edit",
-            data_schema=self._program_schema(current_program),
+            data_schema=self._program_schema(
+                current_program,
+                station_names=self._station_names(coordinator),
+            ),
             errors=errors,
             description_placeholders={
-                "program": f"Program {PROGRAM_LABELS[program_index]}",
+                "program": self._program_option_label(coordinator, program_index),
             },
         )
 
@@ -471,7 +473,12 @@ class SolemOptionsFlowHandler(OptionsFlow):
             return None
         return runtime_data.coordinator
 
-    def _program_schema(self, program: IrrigationProgram | None) -> vol.Schema:
+    def _program_schema(
+        self,
+        program: IrrigationProgram | None,
+        *,
+        station_names: dict[int, str] | None = None,
+    ) -> vol.Schema:
         num_stations = int(self.config_entry.data.get(NUM_STATIONS, MIN_NUM_STATIONS))
         defaults = self._program_defaults(program, num_stations=num_stations)
         fields: dict[Any, Any] = {
@@ -522,8 +529,9 @@ class SolemOptionsFlowHandler(OptionsFlow):
             key = self._start_key(slot)
             fields[vol.Optional(key, default=defaults[key])] = str
         for station in range(1, num_stations + 1):
-            key = self._station_key(station)
-            fields[vol.Required(key, default=defaults[key])] = vol.All(
+            default_key = self._station_key(station)
+            key = self._station_duration_key(station, station_names=station_names)
+            fields[vol.Required(key, default=defaults[default_key])] = vol.All(
                 vol.Coerce(float),
                 vol.Range(min=0, max=MAX_PROGRAM_DURATION_MINUTES),
             )
@@ -566,6 +574,7 @@ class SolemOptionsFlowHandler(OptionsFlow):
         data: dict[str, Any],
         *,
         num_stations: int,
+        station_names: dict[int, str] | None = None,
     ) -> IrrigationProgram:
         start_times = [
             self._parse_optional_time(data.get(self._start_key(slot), ""))
@@ -585,7 +594,13 @@ class SolemOptionsFlowHandler(OptionsFlow):
             "period_start_date": period_start_date,
             "start_times": start_times,
             "station_durations": [
-                self._duration_seconds(data[self._station_key(station)])
+                self._duration_seconds(
+                    self._station_duration_value(
+                        data,
+                        station,
+                        station_names=station_names,
+                    )
+                )
                 for station in range(1, num_stations + 1)
             ],
         }
@@ -597,6 +612,60 @@ class SolemOptionsFlowHandler(OptionsFlow):
     @staticmethod
     def _station_key(station: int) -> str:
         return f"station_{station}_duration"
+
+    @staticmethod
+    def _station_duration_key(
+        station: int,
+        *,
+        station_names: dict[int, str] | None = None,
+    ) -> str:
+        name = (station_names or {}).get(station)
+        if not name:
+            return SolemOptionsFlowHandler._station_key(station)
+        return f"{name} (station {station}) duration (minutes)"
+
+    @staticmethod
+    def _station_duration_value(
+        data: dict[str, Any],
+        station: int,
+        *,
+        station_names: dict[int, str] | None = None,
+    ) -> Any:
+        key = SolemOptionsFlowHandler._station_duration_key(
+            station,
+            station_names=station_names,
+        )
+        if key in data:
+            return data[key]
+        return data[SolemOptionsFlowHandler._station_key(station)]
+
+    @staticmethod
+    def _station_names(coordinator: Any | None) -> dict[int, str]:
+        station_names = getattr(coordinator, "station_names", None)
+        return station_names if isinstance(station_names, dict) else {}
+
+    def _program_select_options(self, coordinator: Any | None) -> list[dict[str, str]]:
+        return [
+            {
+                "value": str(index + 1),
+                "label": self._program_option_label(coordinator, index),
+            }
+            for index in range(len(PROGRAM_LABELS))
+        ]
+
+    @staticmethod
+    def _program_option_label(coordinator: Any | None, program_index: int) -> str:
+        slot_name = f"Program {PROGRAM_LABELS[program_index]}"
+        programs = getattr(coordinator, "irrigation_programs", None)
+        if not isinstance(programs, dict):
+            return slot_name
+        program = programs.get(program_index)
+        if not isinstance(program, dict):
+            return slot_name
+        name = str(program.get("name") or "").strip()
+        if not name or name == slot_name:
+            return slot_name
+        return f"{slot_name} - {name}"
 
     @staticmethod
     def _duration_minutes(seconds: int) -> int | float:

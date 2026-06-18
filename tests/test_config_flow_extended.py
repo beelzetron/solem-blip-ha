@@ -505,6 +505,19 @@ async def test_options_flow_program_select_shows_form(
     assert result["step_id"] == "program_select"
 
 
+def test_options_flow_program_select_uses_program_names() -> None:
+    """Program selector labels include loaded on-device names."""
+    coordinator = MagicMock()
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    handler = SolemOptionsFlowHandler()
+
+    assert handler._program_select_options(coordinator) == [
+        {"value": "1", "label": "Program A - Programma A"},
+        {"value": "2", "label": "Program B - Programma B"},
+        {"value": "3", "label": "Program C - Programma C"},
+    ]
+
+
 @pytest.mark.asyncio
 async def test_options_flow_program_select_continues_to_editor(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
@@ -587,6 +600,40 @@ async def test_options_flow_program_edit_writes_program(
     assert program["station_durations"] == [0, 120]
 
 
+@pytest.mark.asyncio
+async def test_options_flow_program_edit_writes_named_station_fields(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Program editor accepts dynamic duration fields named after stations."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = {1: "Front lawn", 2: "Herbs"}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    user_input = _program_editor_input()
+    del user_input["station_1_duration"]
+    del user_input["station_2_duration"]
+    user_input["Front lawn (station 1) duration (minutes)"] = 0
+    user_input["Herbs (station 2) duration (minutes)"] = 2
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["station_durations"] == [0, 120]
+
+
 def test_options_flow_program_edit_defaults_show_duration_minutes() -> None:
     """Program editor exposes station durations in minutes."""
     handler = SolemOptionsFlowHandler()
@@ -620,6 +667,31 @@ def test_options_flow_program_edit_schema_serializes(
         )
 
     assert any(field["name"] == "station_2_duration" for field in serialized)
+
+
+def test_options_flow_program_edit_schema_uses_station_names(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Program editor schema exposes loaded station names in duration labels."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = voluptuous_serialize.convert(
+            handler._program_schema(
+                MOCK_IRRIGATION_PROGRAMS[2],
+                station_names={1: "Front lawn", 2: "Herbs"},
+            ),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    field_names = {field["name"] for field in serialized}
+    assert "Front lawn (station 1) duration (minutes)" in field_names
+    assert "Herbs (station 2) duration (minutes)" in field_names
 
 
 @pytest.mark.asyncio
