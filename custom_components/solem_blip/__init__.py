@@ -12,6 +12,7 @@ from .coordinator import SolemCoordinator
 from .entity import load_entity_translations
 from .migrate import async_migrate_unique_ids, async_remove_program_name_entities
 from .bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
+from .services import async_setup_services, async_unload_services
 
 CONFIG_VERSION = 2
 
@@ -24,6 +25,12 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.VALVE,
 ]
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up Solem BL-IP services."""
+    await async_setup_services(hass)
+    return True
 
 
 async def async_migrate_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -> bool:
@@ -40,6 +47,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: MyConfigEntry) 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -> bool:
     """Set up Solem BL-IP from a config entry."""
+    await async_setup_services(hass)
     await async_remove_program_name_entities(hass, config_entry)
 
     coordinator = SolemCoordinator(hass, config_entry)
@@ -77,6 +85,12 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -
 
     await config_entry.runtime_data.coordinator.async_shutdown()
     config_entry.runtime_data = None  # type: ignore[assignment]
+    if not any(
+        entry.runtime_data is not None
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.entry_id != config_entry.entry_id
+    ):
+        async_unload_services(hass)
     return True
 
 

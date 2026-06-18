@@ -114,6 +114,15 @@
     },
     "controller_off_days_failed": {
       "message": "Failed to turn the controller off for the selected number of days."
+    },
+    "set_program_failed": {
+      "message": "Failed to update {program_name} on the controller."
+    },
+    "set_program_while_watering": {
+      "message": "Program schedules cannot be changed while watering is active."
+    },
+    "service_device_not_found": {
+      "message": "Could not find the selected Solem BL-IP controller."
     }
   },
   "issues": {

@@ -1,0 +1,96 @@
+set_program:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: solem_blip
+    program:
+      required: true
+      selector:
+        select:
+          options:
+            - "1"
+            - "2"
+            - "3"
+    name:
+      required: true
+      selector:
+        text:
+    cycle:
+      default: custom
+      selector:
+        select:
+          options:
+            - custom
+            - even
+            - odd
+            - odd_31
+            - periodic
+    week_days:
+      default:
+        - monday
+        - tuesday
+        - wednesday
+        - thursday
+        - friday
+        - saturday
+        - sunday
+      selector:
+        select:
+          multiple: true
+          options:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+    period_length:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    synchro_day:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    period_start_date:
+      selector:
+        date:
+    start_times:
+      required: true
+      selector:
+        object:
+    station_durations:
+      required: true
+      selector:
+        object:
+    inter_station_delay:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    water_budget:
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+
+refresh_programs:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: solem_blip

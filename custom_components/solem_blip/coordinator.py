@@ -269,6 +269,20 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Stop active manual watering."""
         await irrigation_stop(self)
 
+    async def set_irrigation_program(
+        self,
+        program_index: int,
+        program: IrrigationProgram,
+    ) -> None:
+        """Write one on-device irrigation program and refresh schedule data."""
+        self.irrigation_programs = await self.api.set_irrigation_program(
+            program_index,
+            program,
+        )
+        self.request_schedule_refresh()
+        self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))
+        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+
     async def turn_controller_on(self) -> None:
         """Turn the irrigation controller on."""
         await irrigation_turn_on(self)

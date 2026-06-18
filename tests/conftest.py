@@ -107,6 +107,7 @@ def create_mock_solem_client(station_num: int = 2) -> MagicMock:
         station: f"Zone {station}" for station in range(1, station_num + 1)
     })
     client.get_irrigation_config = AsyncMock(return_value=MOCK_IRRIGATION_PROGRAMS)
+    client.set_irrigation_program = AsyncMock(return_value=MOCK_IRRIGATION_PROGRAMS)
     client.set_time = AsyncMock()
     client.sprinkle_station_x_for_y_minutes = AsyncMock()
     client.run_program_x = AsyncMock()
