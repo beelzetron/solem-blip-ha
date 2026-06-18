@@ -53,6 +53,7 @@ _LOGGER = logging.getLogger(__name__)
 ATTR_CYCLE = "cycle"
 ATTR_INTER_STATION_DELAY = "inter_station_delay"
 ATTR_NAME = "name"
+ATTR_OPTIONS_ACTION = "options_action"
 ATTR_PERIOD_LENGTH = "period_length"
 ATTR_PERIOD_START_DATE = "period_start_date"
 ATTR_PROGRAM = "program"
@@ -326,18 +327,44 @@ class SolemOptionsFlowHandler(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Show the options menu.
+        """Show the labeled options entry form.
 
         ``user_input`` support is kept for older tests/direct callers that submit
         the original settings form directly to the init step.
         """
         if user_input is not None:
+            action = user_input.get(ATTR_OPTIONS_ACTION)
+            if action == MENU_SETTINGS:
+                return await self.async_step_settings()
+            if action == MENU_EDIT_PROGRAM:
+                return await self.async_step_program_select()
+
             options = self.config_entry.options | user_input
             return self.async_create_entry(title="", data=options)
 
-        return self.async_show_menu(
+        return self.async_show_form(
             step_id="init",
-            menu_options=[MENU_SETTINGS, MENU_EDIT_PROGRAM],
+            data_schema=vol.Schema(
+                {
+                    vol.Required(ATTR_OPTIONS_ACTION, default=MENU_SETTINGS): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    {
+                                        "value": MENU_SETTINGS,
+                                        "label": "Integration options",
+                                    },
+                                    {
+                                        "value": MENU_EDIT_PROGRAM,
+                                        "label": "Edit on-device program",
+                                    },
+                                ],
+                                "mode": "dropdown",
+                            }
+                        }
+                    )
+                }
+            ),
         )
 
     async def async_step_settings(
