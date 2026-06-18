@@ -35,8 +35,22 @@
     }
   },
   "options": {
+    "error": {
+      "invalid_program": "Controlla i valori della programmazione e riprova.",
+      "not_loaded": "L'integrazione non è ancora caricata.",
+      "set_program_failed": "Aggiornamento del programma selezionato non riuscito.",
+      "set_program_while_watering": "Non è possibile modificare le programmazioni mentre l'irrigazione è attiva."
+    },
     "step": {
       "init": {
+        "menu_options": {
+          "settings": "Opzioni integrazione",
+          "program_select": "Modifica programma sul dispositivo"
+        },
+        "description": "Modifica polling e opzioni BLE.",
+        "title": "Opzioni Solem BL-IP"
+      },
+      "settings": {
         "data": {
           "scan_interval": "Intervallo di scansione (secondi)",
           "bluetooth_timeout": "Timeout Bluetooth (secondi)",
@@ -44,6 +58,43 @@
         },
         "description": "Modifica polling e opzioni BLE.",
         "title": "Opzioni Solem BL-IP"
+      },
+      "program_select": {
+        "data": {
+          "program": "Programma"
+        },
+        "description": "Scegli il programma sul dispositivo da modificare.",
+        "title": "Modifica programmazione sul dispositivo"
+      },
+      "program_edit": {
+        "data": {
+          "name": "Nome",
+          "cycle": "Ciclo",
+          "week_days": "Giorni della settimana",
+          "period_start_date": "Data inizio periodo",
+          "period_length": "Durata periodo",
+          "synchro_day": "Giorno di sincronizzazione",
+          "water_budget": "Budget acqua (%)",
+          "inter_station_delay": "Ritardo tra stazioni (secondi)",
+          "start_time_1": "Ora di avvio 1",
+          "start_time_2": "Ora di avvio 2",
+          "start_time_3": "Ora di avvio 3",
+          "start_time_4": "Ora di avvio 4",
+          "start_time_5": "Ora di avvio 5",
+          "start_time_6": "Ora di avvio 6",
+          "start_time_7": "Ora di avvio 7",
+          "start_time_8": "Ora di avvio 8",
+          "station_1_duration": "Durata stazione 1 (secondi)",
+          "station_2_duration": "Durata stazione 2 (secondi)",
+          "station_3_duration": "Durata stazione 3 (secondi)",
+          "station_4_duration": "Durata stazione 4 (secondi)",
+          "station_5_duration": "Durata stazione 5 (secondi)",
+          "station_6_duration": "Durata stazione 6 (secondi)",
+          "station_7_duration": "Durata stazione 7 (secondi)",
+          "station_8_duration": "Durata stazione 8 (secondi)"
+        },
+        "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.",
+        "title": "Modifica programmazione sul dispositivo"
       }
     }
   },
@@ -114,6 +165,15 @@
     },
     "controller_off_days_failed": {
       "message": "Spegnimento temporaneo del controller non riuscito."
+    },
+    "set_program_failed": {
+      "message": "Aggiornamento di {program_name} sul controller non riuscito."
+    },
+    "set_program_while_watering": {
+      "message": "Non è possibile modificare le programmazioni mentre l'irrigazione è attiva."
+    },
+    "service_device_not_found": {
+      "message": "Impossibile trovare il controller Solem BL-IP selezionato."
     }
   },
   "issues": {
@@ -127,6 +187,26 @@
       "options": {
         "true": "Sì",
         "false": "No"
+      }
+    },
+    "cycle_selector": {
+      "options": {
+        "custom": "Giorni personalizzati",
+        "even": "Giorni pari",
+        "odd": "Giorni dispari",
+        "odd_31": "Giorni dispari incluso il 31",
+        "periodic": "Periodico"
+      }
+    },
+    "weekday_selector": {
+      "options": {
+        "monday": "Lunedì",
+        "tuesday": "Martedì",
+        "wednesday": "Mercoledì",
+        "thursday": "Giovedì",
+        "friday": "Venerdì",
+        "saturday": "Sabato",
+        "sunday": "Domenica"
       }
     }
   }

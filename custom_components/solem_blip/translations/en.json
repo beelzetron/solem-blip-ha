@@ -43,11 +43,9 @@
     },
     "step": {
       "init": {
-        "data": {
-          "options_action": "What do you want to edit?",
-          "scan_interval": "Scan interval (seconds)",
-          "bluetooth_timeout": "Bluetooth timeout (seconds)",
-          "solem_api_mock": "Mock Solem API for debug"
+        "menu_options": {
+          "settings": "Integration options",
+          "program_select": "Edit on-device program"
         },
         "description": "Adjust polling and BLE options.",
         "title": "Solem BL-IP options"
