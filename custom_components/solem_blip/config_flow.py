@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date
 from typing import Any
 
 import voluptuous as vol
@@ -19,7 +20,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import selector
 
-from solem_blip_ble import SolemClient, SolemConnectionError
+from solem_blip_ble import IrrigationProgram, SolemClient, SolemConnectionError
 
 from .bluetooth import (
     async_get_connectable_device,
@@ -42,10 +43,43 @@ from .const import (
     MIN_NUM_STATIONS,
     MIN_SCAN_INTERVAL,
     NUM_STATIONS,
+    PROGRAM_LABELS,
     SOLEM_API_MOCK,
 )
+from .config_entry import MyConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+ATTR_CYCLE = "cycle"
+ATTR_INTER_STATION_DELAY = "inter_station_delay"
+ATTR_NAME = "name"
+ATTR_PERIOD_LENGTH = "period_length"
+ATTR_PERIOD_START_DATE = "period_start_date"
+ATTR_PROGRAM = "program"
+ATTR_SYNCHRO_DAY = "synchro_day"
+ATTR_WATER_BUDGET = "water_budget"
+ATTR_WEEK_DAYS = "week_days"
+
+MENU_SETTINGS = "settings"
+MENU_EDIT_PROGRAM = "program_select"
+
+_CYCLES = {
+    "custom": 0,
+    "even": 1,
+    "odd": 2,
+    "odd_31": 3,
+    "periodic": 4,
+}
+_CYCLE_NAMES = {value: key for key, value in _CYCLES.items()}
+_WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -287,9 +321,29 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
 class SolemOptionsFlowHandler(OptionsFlow):
     """Handle integration options."""
 
+    _selected_program_index: int = 0
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Show the options menu.
+
+        ``user_input`` support is kept for older tests/direct callers that submit
+        the original settings form directly to the init step.
+        """
+        if user_input is not None:
+            options = self.config_entry.options | user_input
+            return self.async_create_entry(title="", data=options)
+
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=[MENU_SETTINGS, MENU_EDIT_PROGRAM],
+        )
+
+    async def async_step_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit integration polling and BLE options."""
         if user_input is not None:
             options = self.config_entry.options | user_input
             return self.async_create_entry(title="", data=options)
@@ -328,7 +382,249 @@ class SolemOptionsFlowHandler(OptionsFlow):
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=data_schema)
+        return self.async_show_form(step_id="settings", data_schema=data_schema)
+
+    async def async_step_program_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose which on-device program to edit."""
+        if user_input is not None:
+            self._selected_program_index = int(user_input[ATTR_PROGRAM]) - 1
+            return await self.async_step_program_edit()
+
+        return self.async_show_form(
+            step_id="program_select",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(ATTR_PROGRAM, default=1): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "1", "label": "Program A"},
+                                    {"value": "2", "label": "Program B"},
+                                    {"value": "3", "label": "Program C"},
+                                ],
+                                "mode": "dropdown",
+                            }
+                        }
+                    )
+                }
+            ),
+        )
+
+    async def async_step_program_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit and write one persisted on-device irrigation program."""
+        errors: dict[str, str] = {}
+        coordinator = self._coordinator
+        if coordinator is None:
+            return self.async_show_form(
+                step_id="program_edit",
+                data_schema=self._program_schema(None),
+                errors={"base": "not_loaded"},
+            )
+
+        program_index = self._selected_program_index
+        if user_input is not None:
+            if coordinator._irrigation_active or coordinator._is_watering:
+                errors["base"] = "set_program_while_watering"
+            else:
+                try:
+                    program = self._program_from_options_input(
+                        user_input,
+                        num_stations=coordinator.num_stations,
+                    )
+                    await coordinator.set_irrigation_program(program_index, program)
+                except vol.Invalid:
+                    errors["base"] = "invalid_program"
+                except Exception:
+                    _LOGGER.exception(
+                        "Failed to update Program %s from options flow",
+                        PROGRAM_LABELS[program_index],
+                    )
+                    errors["base"] = "set_program_failed"
+                else:
+                    return self.async_create_entry(
+                        title="",
+                        data=dict(self.config_entry.options),
+                    )
+
+        current_program = coordinator.irrigation_programs.get(program_index)
+        return self.async_show_form(
+            step_id="program_edit",
+            data_schema=self._program_schema(current_program),
+            errors=errors,
+            description_placeholders={
+                "program": f"Program {PROGRAM_LABELS[program_index]}",
+            },
+        )
+
+    @property
+    def _coordinator(self) -> Any | None:
+        config_entry = self.config_entry
+        runtime_data = getattr(config_entry, "runtime_data", None)
+        if runtime_data is None:
+            return None
+        return runtime_data.coordinator
+
+    def _program_schema(self, program: IrrigationProgram | None) -> vol.Schema:
+        num_stations = int(self.config_entry.data.get(NUM_STATIONS, MIN_NUM_STATIONS))
+        defaults = self._program_defaults(program, num_stations=num_stations)
+        fields: dict[Any, Any] = {
+            vol.Required(ATTR_NAME, default=defaults[ATTR_NAME]): str,
+            vol.Required(ATTR_CYCLE, default=defaults[ATTR_CYCLE]): selector(
+                {
+                    "select": {
+                        "options": list(_CYCLES),
+                        "mode": "dropdown",
+                        "translation_key": "cycle_selector",
+                    }
+                }
+            ),
+            vol.Required(
+                ATTR_WEEK_DAYS,
+                default=defaults[ATTR_WEEK_DAYS],
+            ): selector(
+                {
+                    "select": {
+                        "multiple": True,
+                        "options": list(_WEEKDAYS),
+                        "translation_key": "weekday_selector",
+                    }
+                }
+            ),
+            vol.Required(
+                ATTR_PERIOD_START_DATE,
+                default=defaults[ATTR_PERIOD_START_DATE],
+            ): selector({"date": {}}),
+            vol.Required(
+                ATTR_PERIOD_LENGTH,
+                default=defaults[ATTR_PERIOD_LENGTH],
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+            vol.Required(
+                ATTR_SYNCHRO_DAY,
+                default=defaults[ATTR_SYNCHRO_DAY],
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+            vol.Required(
+                ATTR_WATER_BUDGET,
+                default=defaults[ATTR_WATER_BUDGET],
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
+            vol.Required(
+                ATTR_INTER_STATION_DELAY,
+                default=defaults[ATTR_INTER_STATION_DELAY],
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
+        }
+        for slot in range(8):
+            key = self._start_key(slot)
+            fields[vol.Optional(key, default=defaults[key])] = str
+        for station in range(1, num_stations + 1):
+            key = self._station_key(station)
+            fields[vol.Required(key, default=defaults[key])] = vol.All(
+                vol.Coerce(int),
+                vol.Range(min=0, max=0xFFFFFF),
+            )
+        return vol.Schema(fields)
+
+    def _program_defaults(
+        self,
+        program: IrrigationProgram | None,
+        *,
+        num_stations: int,
+    ) -> dict[str, Any]:
+        program_data: dict[str, Any] = dict(program) if program is not None else {}
+        station_durations = list(program_data.get("station_durations", []))
+        station_durations.extend([0] * (num_stations - len(station_durations)))
+        period_start_date = program_data.get("period_start_date")
+        defaults: dict[str, Any] = {
+            ATTR_NAME: program_data.get("name", ""),
+            ATTR_CYCLE: _CYCLE_NAMES.get(int(program_data.get("cycle", 0)), "custom"),
+            ATTR_WEEK_DAYS: self._weekdays_from_mask(
+                int(program_data.get("week_days", 0x7F))
+            ),
+            ATTR_PERIOD_START_DATE: period_start_date or date.today(),
+            ATTR_PERIOD_LENGTH: int(program_data.get("period_length", 1)),
+            ATTR_SYNCHRO_DAY: int(program_data.get("synchro_day", 0)),
+            ATTR_WATER_BUDGET: int(program_data.get("water_budget", 100)),
+            ATTR_INTER_STATION_DELAY: int(program_data.get("inter_station_delay", 0)),
+        }
+        start_times = list(program_data.get("start_times", []))
+        start_times.extend([None] * (8 - len(start_times)))
+        for slot, minutes in enumerate(start_times[:8]):
+            defaults[self._start_key(slot)] = self._format_minutes(minutes)
+        for station in range(1, num_stations + 1):
+            defaults[self._station_key(station)] = station_durations[station - 1]
+        return defaults
+
+    def _program_from_options_input(
+        self,
+        data: dict[str, Any],
+        *,
+        num_stations: int,
+    ) -> IrrigationProgram:
+        start_times = [
+            self._parse_optional_time(data.get(self._start_key(slot), ""))
+            for slot in range(8)
+        ]
+        period_start_date = data[ATTR_PERIOD_START_DATE]
+        if isinstance(period_start_date, str):
+            period_start_date = date.fromisoformat(period_start_date)
+        return {
+            "name": str(data[ATTR_NAME]),
+            "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
+            "water_budget": int(data[ATTR_WATER_BUDGET]),
+            "cycle": _CYCLES[str(data[ATTR_CYCLE])],
+            "week_days": self._weekdays_mask(list(data[ATTR_WEEK_DAYS])),
+            "period_length": int(data[ATTR_PERIOD_LENGTH]),
+            "synchro_day": int(data[ATTR_SYNCHRO_DAY]),
+            "period_start_date": period_start_date,
+            "start_times": start_times,
+            "station_durations": [
+                int(data[self._station_key(station)])
+                for station in range(1, num_stations + 1)
+            ],
+        }
+
+    @staticmethod
+    def _start_key(slot: int) -> str:
+        return f"start_time_{slot + 1}"
+
+    @staticmethod
+    def _station_key(station: int) -> str:
+        return f"station_{station}_duration"
+
+    @staticmethod
+    def _format_minutes(minutes: int | None) -> str:
+        if minutes is None:
+            return ""
+        hours, minute = divmod(minutes, 60)
+        return f"{hours:02d}:{minute:02d}"
+
+    @staticmethod
+    def _parse_optional_time(value: Any) -> int | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            hours_text, minutes_text = text.split(":", 1)
+            hours = int(hours_text)
+            minutes = int(minutes_text)
+        except ValueError as exc:
+            raise vol.Invalid("start times must use HH:MM") from exc
+        if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+            raise vol.Invalid("start times must use HH:MM between 00:00 and 23:59")
+        return hours * 60 + minutes
+
+    @staticmethod
+    def _weekdays_from_mask(mask: int) -> list[str]:
+        return [day for day, index in _WEEKDAYS.items() if mask & (1 << index)]
+
+    @staticmethod
+    def _weekdays_mask(days: list[Any]) -> int:
+        mask = 0
+        for day in days:
+            mask |= 1 << _WEEKDAYS[str(day)]
+        return mask
 
 
 class CannotConnect(HomeAssistantError):

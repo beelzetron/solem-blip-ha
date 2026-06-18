@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -12,11 +13,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.config_flow import (
     CannotConnect,
+    MENU_EDIT_PROGRAM,
+    MENU_SETTINGS,
     CannotConnectSlots,
     SolemConfigFlow,
     SolemOptionsFlowHandler,
     validate_input,
 )
+from custom_components.solem_blip.config_entry import RuntimeData
 from custom_components.solem_blip.const import (
     BLUETOOTH_TIMEOUT,
     CONTROLLER_MAC_ADDRESS,
@@ -26,6 +30,32 @@ from custom_components.solem_blip.const import (
     SOLEM_API_MOCK,
 )
 from solem_blip_ble import SolemConnectionError
+from tests.conftest import MOCK_IRRIGATION_PROGRAMS
+
+
+def _program_editor_input(**overrides: object) -> dict[str, object]:
+    data: dict[str, object] = {
+        "name": "Vasi",
+        "cycle": "periodic",
+        "week_days": ["monday", "wednesday"],
+        "period_start_date": date(2026, 6, 18),
+        "period_length": 1,
+        "synchro_day": 0,
+        "water_budget": 100,
+        "inter_station_delay": 0,
+        "start_time_1": "06:30",
+        "start_time_2": "",
+        "start_time_3": "",
+        "start_time_4": "",
+        "start_time_5": "",
+        "start_time_6": "",
+        "start_time_7": "",
+        "start_time_8": "",
+        "station_1_duration": 0,
+        "station_2_duration": 120,
+    }
+    data.update(overrides)
+    return data
 
 
 @pytest.mark.asyncio
@@ -370,10 +400,10 @@ async def test_options_flow_updates_settings(
 
 
 @pytest.mark.asyncio
-async def test_options_flow_shows_form(
+async def test_options_flow_shows_menu(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Options flow shows the init form when no input is provided."""
+    """Options flow shows the top-level options menu."""
     mock_config_entry.add_to_hass(hass)
     handler = SolemOptionsFlowHandler()
     with patch.object(
@@ -384,8 +414,237 @@ async def test_options_flow_shows_form(
     ):
         result = await handler.async_step_init()
 
-    assert result["type"] == "form"
+    assert result["type"] == "menu"
     assert result["step_id"] == "init"
+    assert result["menu_options"] == [MENU_SETTINGS, MENU_EDIT_PROGRAM]
+
+
+@pytest.mark.asyncio
+async def test_options_flow_settings_shows_form(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Options flow settings path shows the polling/BLE form."""
+    mock_config_entry.add_to_hass(hass)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_settings()
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "settings"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_settings_updates_settings(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Options flow settings path stores updated polling and BLE settings."""
+    mock_config_entry.add_to_hass(hass)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_settings(
+            {
+                CONF_SCAN_INTERVAL: 90,
+                BLUETOOTH_TIMEOUT: 35,
+                SOLEM_API_MOCK: "false",
+            }
+        )
+
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_SCAN_INTERVAL] == 90
+
+
+@pytest.mark.asyncio
+async def test_options_flow_program_select_shows_form(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Options flow can choose the on-device program to edit."""
+    mock_config_entry.add_to_hass(hass)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_select()
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_select"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_program_select_continues_to_editor(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Selecting a program opens the editor form."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_select({"program": "3"})
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert handler._selected_program_index == 2
+
+
+@pytest.mark.asyncio
+async def test_options_flow_program_edit_requires_loaded_entry(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Program editor reports unloaded entries."""
+    mock_config_entry.add_to_hass(hass)
+    mock_config_entry.runtime_data = None
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit()
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "not_loaded"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_program_edit_writes_program(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Program editor writes through the coordinator."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_program_editor_input())
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    program_index, program = coordinator.set_irrigation_program.await_args.args
+    assert program_index == 1
+    assert program["name"] == "Vasi"
+    assert program["cycle"] == 4
+    assert program["week_days"] == 0x05
+    assert program["period_start_date"] == date(2026, 6, 18)
+    assert program["start_times"] == [390, None, None, None, None, None, None, None]
+    assert program["station_durations"] == [0, 120]
+
+
+@pytest.mark.asyncio
+async def test_options_flow_program_edit_rejects_active_watering(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Program editor blocks writes while watering is active."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = True
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_program_editor_input())
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "set_program_while_watering"
+    coordinator.set_irrigation_program.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_options_flow_program_edit_rejects_invalid_time(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Program editor maps malformed start times to form errors."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(
+            _program_editor_input(start_time_1="25:00")
+        )
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_program"
+    coordinator.set_irrigation_program.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_options_flow_program_edit_reports_write_failure(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Program editor reports coordinator write failures."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_program_editor_input())
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "set_program_failed"
 
 
 @pytest.mark.asyncio
