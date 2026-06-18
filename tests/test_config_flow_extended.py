@@ -12,10 +12,11 @@ from homeassistant.const import CONF_SCAN_INTERVAL
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.config_flow import (
+    ATTR_OPTIONS_ACTION,
     CannotConnect,
+    CannotConnectSlots,
     MENU_EDIT_PROGRAM,
     MENU_SETTINGS,
-    CannotConnectSlots,
     SolemConfigFlow,
     SolemOptionsFlowHandler,
     validate_input,
@@ -400,10 +401,10 @@ async def test_options_flow_updates_settings(
 
 
 @pytest.mark.asyncio
-async def test_options_flow_shows_menu(
+async def test_options_flow_shows_labeled_chooser(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Options flow shows the top-level options menu."""
+    """Options flow shows a labeled top-level chooser."""
     mock_config_entry.add_to_hass(hass)
     handler = SolemOptionsFlowHandler()
     with patch.object(
@@ -414,9 +415,48 @@ async def test_options_flow_shows_menu(
     ):
         result = await handler.async_step_init()
 
-    assert result["type"] == "menu"
+    assert result["type"] == "form"
     assert result["step_id"] == "init"
-    assert result["menu_options"] == [MENU_SETTINGS, MENU_EDIT_PROGRAM]
+
+
+@pytest.mark.asyncio
+async def test_options_flow_chooser_routes_to_settings(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Options flow chooser opens the integration settings form."""
+    mock_config_entry.add_to_hass(hass)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_init({ATTR_OPTIONS_ACTION: MENU_SETTINGS})
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "settings"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_chooser_routes_to_program_select(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Options flow chooser opens the on-device program selector."""
+    mock_config_entry.add_to_hass(hass)
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_init(
+            {ATTR_OPTIONS_ACTION: MENU_EDIT_PROGRAM}
+        )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_select"
 
 
 @pytest.mark.asyncio
