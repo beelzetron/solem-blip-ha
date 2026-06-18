@@ -47,7 +47,7 @@
           "settings": "Integration options",
           "program_select": "Edit on-device program"
         },
-        "description": "Adjust polling and BLE options.",
+        "description": "Adjust polling, BLE options, and on-device programs.",
         "title": "Solem BL-IP options"
       },
       "settings": {
@@ -84,14 +84,14 @@
           "start_time_6": "Start time 6",
           "start_time_7": "Start time 7",
           "start_time_8": "Start time 8",
-          "station_1_duration": "Station 1 duration (seconds)",
-          "station_2_duration": "Station 2 duration (seconds)",
-          "station_3_duration": "Station 3 duration (seconds)",
-          "station_4_duration": "Station 4 duration (seconds)",
-          "station_5_duration": "Station 5 duration (seconds)",
-          "station_6_duration": "Station 6 duration (seconds)",
-          "station_7_duration": "Station 7 duration (seconds)",
-          "station_8_duration": "Station 8 duration (seconds)"
+          "station_1_duration": "Station 1 duration (minutes)",
+          "station_2_duration": "Station 2 duration (minutes)",
+          "station_3_duration": "Station 3 duration (minutes)",
+          "station_4_duration": "Station 4 duration (minutes)",
+          "station_5_duration": "Station 5 duration (minutes)",
+          "station_6_duration": "Station 6 duration (minutes)",
+          "station_7_duration": "Station 7 duration (minutes)",
+          "station_8_duration": "Station 8 duration (minutes)"
         },
         "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.",
         "title": "Edit on-device schedule"

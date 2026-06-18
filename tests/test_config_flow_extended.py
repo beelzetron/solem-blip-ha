@@ -54,7 +54,7 @@ def _program_editor_input(**overrides: object) -> dict[str, object]:
         "start_time_7": "",
         "start_time_8": "",
         "station_1_duration": 0,
-        "station_2_duration": 120,
+        "station_2_duration": 2,
     }
     data.update(overrides)
     return data
@@ -583,6 +583,21 @@ async def test_options_flow_program_edit_writes_program(
     assert program["period_start_date"] == date(2026, 6, 18)
     assert program["start_times"] == [390, None, None, None, None, None, None, None]
     assert program["station_durations"] == [0, 120]
+
+
+def test_options_flow_program_edit_defaults_show_duration_minutes() -> None:
+    """Program editor exposes station durations in minutes."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        MOCK_IRRIGATION_PROGRAMS[2],
+        num_stations=4,
+    )
+
+    assert defaults["station_1_duration"] == 0
+    assert defaults["station_2_duration"] == 25
+    assert defaults["station_3_duration"] == 25
+    assert defaults["station_4_duration"] == 0
 
 
 @pytest.mark.asyncio

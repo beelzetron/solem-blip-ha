@@ -47,7 +47,7 @@
           "settings": "Opzioni integrazione",
           "program_select": "Modifica programma sul dispositivo"
         },
-        "description": "Modifica polling e opzioni BLE.",
+        "description": "Modifica polling, opzioni BLE e programmi sul dispositivo.",
         "title": "Opzioni Solem BL-IP"
       },
       "settings": {
@@ -84,14 +84,14 @@
           "start_time_6": "Ora di avvio 6",
           "start_time_7": "Ora di avvio 7",
           "start_time_8": "Ora di avvio 8",
-          "station_1_duration": "Durata stazione 1 (secondi)",
-          "station_2_duration": "Durata stazione 2 (secondi)",
-          "station_3_duration": "Durata stazione 3 (secondi)",
-          "station_4_duration": "Durata stazione 4 (secondi)",
-          "station_5_duration": "Durata stazione 5 (secondi)",
-          "station_6_duration": "Durata stazione 6 (secondi)",
-          "station_7_duration": "Durata stazione 7 (secondi)",
-          "station_8_duration": "Durata stazione 8 (secondi)"
+          "station_1_duration": "Durata stazione 1 (minuti)",
+          "station_2_duration": "Durata stazione 2 (minuti)",
+          "station_3_duration": "Durata stazione 3 (minuti)",
+          "station_4_duration": "Durata stazione 4 (minuti)",
+          "station_5_duration": "Durata stazione 5 (minuti)",
+          "station_6_duration": "Durata stazione 6 (minuti)",
+          "station_7_duration": "Durata stazione 7 (minuti)",
+          "station_8_duration": "Durata stazione 8 (minuti)"
         },
         "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.",
         "title": "Modifica programmazione sul dispositivo"

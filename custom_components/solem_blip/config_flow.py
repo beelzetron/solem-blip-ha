@@ -59,6 +59,8 @@ ATTR_PROGRAM = "program"
 ATTR_SYNCHRO_DAY = "synchro_day"
 ATTR_WATER_BUDGET = "water_budget"
 ATTR_WEEK_DAYS = "week_days"
+MAX_PROGRAM_DURATION_SECONDS = 0xFFFFFF
+SECONDS_PER_MINUTE = 60
 
 MENU_SETTINGS = "settings"
 MENU_EDIT_PROGRAM = "program_select"
@@ -521,8 +523,8 @@ class SolemOptionsFlowHandler(OptionsFlow):
         for station in range(1, num_stations + 1):
             key = self._station_key(station)
             fields[vol.Required(key, default=defaults[key])] = vol.All(
-                vol.Coerce(int),
-                vol.Range(min=0, max=0xFFFFFF),
+                vol.Coerce(float),
+                self._validate_station_duration_minutes,
             )
         return vol.Schema(fields)
 
@@ -553,7 +555,9 @@ class SolemOptionsFlowHandler(OptionsFlow):
         for slot, minutes in enumerate(start_times[:8]):
             defaults[self._start_key(slot)] = self._format_minutes(minutes)
         for station in range(1, num_stations + 1):
-            defaults[self._station_key(station)] = station_durations[station - 1]
+            defaults[self._station_key(station)] = self._duration_minutes(
+                int(station_durations[station - 1])
+            )
         return defaults
 
     def _program_from_options_input(
@@ -580,7 +584,7 @@ class SolemOptionsFlowHandler(OptionsFlow):
             "period_start_date": period_start_date,
             "start_times": start_times,
             "station_durations": [
-                int(data[self._station_key(station)])
+                self._duration_seconds(data[self._station_key(station)])
                 for station in range(1, num_stations + 1)
             ],
         }
@@ -592,6 +596,27 @@ class SolemOptionsFlowHandler(OptionsFlow):
     @staticmethod
     def _station_key(station: int) -> str:
         return f"station_{station}_duration"
+
+    @staticmethod
+    def _duration_minutes(seconds: int) -> int | float:
+        minutes, remaining_seconds = divmod(seconds, SECONDS_PER_MINUTE)
+        if remaining_seconds:
+            return round(seconds / SECONDS_PER_MINUTE, 2)
+        return minutes
+
+    @staticmethod
+    def _duration_seconds(minutes: Any) -> int:
+        seconds = round(float(minutes) * SECONDS_PER_MINUTE)
+        if seconds < 0 or seconds > MAX_PROGRAM_DURATION_SECONDS:
+            raise vol.Invalid(
+                "station duration must be between 0 and 279620.25 minutes"
+            )
+        return seconds
+
+    @staticmethod
+    def _validate_station_duration_minutes(minutes: float) -> float:
+        SolemOptionsFlowHandler._duration_seconds(minutes)
+        return minutes
 
     @staticmethod
     def _format_minutes(minutes: int | None) -> str:
