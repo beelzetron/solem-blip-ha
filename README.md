@@ -7,7 +7,7 @@
 
 Minimal Home Assistant integration for the Solem **BL-IP** Bluetooth irrigation controller.
 
-This is a **separate project** focused on BLE status, battery monitoring, and manual control. Scheduling, rain math, and the Solem Schedule Card are **not** included. If you want the full scheduler integration, use [Henrique Craveiro's original project](https://github.com/hcraveiro/Home-Assistant-Solem-Bluetooth-Watering-Controller).
+This is a **separate project** focused on BLE status, battery monitoring, manual control, and editing the controller's on-device programs. Home Assistant scheduling helpers, rain math, and the Solem Schedule Card are **not** included. If you want the full scheduler integration, use [Henrique Craveiro's original project](https://github.com/hcraveiro/Home-Assistant-Solem-Bluetooth-Watering-Controller).
 
 Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release running on Python 3.14.
 
@@ -19,7 +19,8 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Manual sprinkle per station, station water valves, stop, controller on/off
 - Temporary controller off for a selected number of days
 - Configurable manual duration (minutes)
-- Read-only on-device program schedule sensors (next start, schedule summary, names)
+- On-device program schedule sensors (next start, schedule summary, names)
+- Configure-menu editor for on-device program start times and station durations
 - Manual start buttons for on-device programs
 - Program run detection (`0x44` status) with per-program running binary sensors
 - Controller status attributes: active program, program name, watering origin
@@ -183,12 +184,15 @@ From the integration **Configure** menu:
 - **Scan interval** — BLE poll interval (seconds)
 - **Bluetooth timeout** — connection timeout (seconds)
 - **Mock Solem API** — debug without hardware
+- **Edit on-device program** — update one controller program (A/B/C), including
+  start times and station durations in minutes
 
 The integration polls BLE status every 60 seconds by default and refreshes the
 schedule stored on the controller separately every hour. Failed schedule reads
-retry every 15 minutes without delaying status updates. Schedule changes remain
-outside this integration and should be handled by Home Assistant automations or
-another scheduler.
+retry every 15 minutes without delaying status updates. The Configure menu can
+write the controller's on-device programs. Home Assistant automations or another
+scheduler are still recommended for weather-aware schedules and other logic that
+does not live on the controller.
 
 ## Upgrading to 1.2.3+
 
