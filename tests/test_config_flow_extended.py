@@ -600,6 +600,41 @@ async def test_options_flow_program_edit_writes_program(
     assert program["station_durations"] == [0, 120]
 
 
+def test_options_flow_program_edit_preserves_synchro_day_when_start_date_unchanged() -> None:
+    """Program editor keeps the existing phase when the period start is unchanged."""
+    handler = SolemOptionsFlowHandler()
+
+    program = handler._program_from_options_input(
+        _program_editor_input(
+            period_start_date=date(2026, 6, 1),
+            period_length=3,
+            synchro_day=1,
+        ),
+        num_stations=2,
+        current_program=MOCK_IRRIGATION_PROGRAMS[2],
+    )
+
+    assert program["synchro_day"] == 1
+
+
+def test_options_flow_program_edit_resets_synchro_day_when_start_date_changes() -> None:
+    """Changing the period start makes that date the next periodic phase anchor."""
+    handler = SolemOptionsFlowHandler()
+
+    program = handler._program_from_options_input(
+        _program_editor_input(
+            period_start_date=date(2026, 6, 27),
+            period_length=2,
+            synchro_day=1,
+        ),
+        num_stations=2,
+        current_program=MOCK_IRRIGATION_PROGRAMS[2],
+    )
+
+    assert program["period_start_date"] == date(2026, 6, 27)
+    assert program["synchro_day"] == 0
+
+
 @pytest.mark.asyncio
 async def test_options_flow_program_edit_writes_named_station_fields(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry

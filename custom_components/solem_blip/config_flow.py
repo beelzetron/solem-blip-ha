@@ -436,6 +436,9 @@ class SolemOptionsFlowHandler(OptionsFlow):
                         user_input,
                         num_stations=coordinator.num_stations,
                         station_names=self._station_names(coordinator),
+                        current_program=coordinator.irrigation_programs.get(
+                            program_index
+                        ),
                     )
                     await coordinator.set_irrigation_program(program_index, program)
                 except vol.Invalid:
@@ -575,6 +578,7 @@ class SolemOptionsFlowHandler(OptionsFlow):
         *,
         num_stations: int,
         station_names: dict[int, str] | None = None,
+        current_program: IrrigationProgram | None = None,
     ) -> IrrigationProgram:
         start_times = [
             self._parse_optional_time(data.get(self._start_key(slot), ""))
@@ -583,6 +587,14 @@ class SolemOptionsFlowHandler(OptionsFlow):
         period_start_date = data[ATTR_PERIOD_START_DATE]
         if isinstance(period_start_date, str):
             period_start_date = date.fromisoformat(period_start_date)
+        previous_period_start_date = (
+            current_program.get("period_start_date")
+            if current_program is not None
+            else None
+        )
+        synchro_day = int(data[ATTR_SYNCHRO_DAY])
+        if period_start_date != previous_period_start_date:
+            synchro_day = 0
         return {
             "name": str(data[ATTR_NAME]),
             "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
@@ -590,7 +602,7 @@ class SolemOptionsFlowHandler(OptionsFlow):
             "cycle": _CYCLES[str(data[ATTR_CYCLE])],
             "week_days": self._weekdays_mask(list(data[ATTR_WEEK_DAYS])),
             "period_length": int(data[ATTR_PERIOD_LENGTH]),
-            "synchro_day": int(data[ATTR_SYNCHRO_DAY]),
+            "synchro_day": synchro_day,
             "period_start_date": period_start_date,
             "start_times": start_times,
             "station_durations": [
