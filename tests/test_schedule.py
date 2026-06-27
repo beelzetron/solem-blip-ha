@@ -227,6 +227,26 @@ def test_next_start_datetime_respects_cycle_phase_for_siepe_and_vasi():
     )
 
 
+def test_next_start_datetime_uses_derived_phase_from_controller_anchor():
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 6, 27, 10, 0, tzinfo=tz)
+    program = {
+        **CAPTURE_PROGRAM_C,
+        "period_length": 3,
+        "synchro_day": 1,
+        "period_start_date": date(2026, 6, 27),
+    }
+
+    assert next_start_datetime(program, now) == datetime(
+        2026,
+        6,
+        28,
+        4,
+        30,
+        tzinfo=tz,
+    )
+
+
 def test_build_schedule_attributes_maps_station_names():
     attrs = build_schedule_attributes(
         CAPTURE_PROGRAM_C,
