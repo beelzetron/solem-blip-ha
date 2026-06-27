@@ -592,16 +592,21 @@ class SolemOptionsFlowHandler(OptionsFlow):
             if current_program is not None
             else None
         )
+        period_length = int(data[ATTR_PERIOD_LENGTH])
         synchro_day = int(data[ATTR_SYNCHRO_DAY])
         if period_start_date != previous_period_start_date:
-            synchro_day = 0
+            synchro_day = (
+                (period_start_date - previous_period_start_date).days % period_length
+                if previous_period_start_date is not None
+                else 0
+            )
         return {
             "name": str(data[ATTR_NAME]),
             "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
             "water_budget": int(data[ATTR_WATER_BUDGET]),
             "cycle": _CYCLES[str(data[ATTR_CYCLE])],
             "week_days": self._weekdays_mask(list(data[ATTR_WEEK_DAYS])),
-            "period_length": int(data[ATTR_PERIOD_LENGTH]),
+            "period_length": period_length,
             "synchro_day": synchro_day,
             "period_start_date": period_start_date,
             "start_times": start_times,

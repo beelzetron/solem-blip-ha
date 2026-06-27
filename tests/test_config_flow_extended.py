@@ -617,8 +617,32 @@ def test_options_flow_program_edit_preserves_synchro_day_when_start_date_unchang
     assert program["synchro_day"] == 1
 
 
-def test_options_flow_program_edit_resets_synchro_day_when_start_date_changes() -> None:
-    """Changing the period start makes that date the next periodic phase anchor."""
+def test_options_flow_program_edit_derives_synchro_day_from_current_anchor() -> None:
+    """Changing the desired start date shifts phase from the controller anchor."""
+    handler = SolemOptionsFlowHandler()
+    current_program = {
+        **MOCK_IRRIGATION_PROGRAMS[2],
+        "period_length": 3,
+        "period_start_date": date(2026, 6, 27),
+        "synchro_day": 0,
+    }
+
+    program = handler._program_from_options_input(
+        _program_editor_input(
+            period_start_date=date(2026, 6, 28),
+            period_length=3,
+            synchro_day=0,
+        ),
+        num_stations=2,
+        current_program=current_program,
+    )
+
+    assert program["period_start_date"] == date(2026, 6, 28)
+    assert program["synchro_day"] == 1
+
+
+def test_options_flow_program_edit_resets_synchro_day_without_current_anchor() -> None:
+    """Changing the period start uses zero phase when no read-back anchor exists."""
     handler = SolemOptionsFlowHandler()
 
     program = handler._program_from_options_input(
@@ -628,10 +652,9 @@ def test_options_flow_program_edit_resets_synchro_day_when_start_date_changes() 
             synchro_day=1,
         ),
         num_stations=2,
-        current_program=MOCK_IRRIGATION_PROGRAMS[2],
+        current_program=None,
     )
 
-    assert program["period_start_date"] == date(2026, 6, 27)
     assert program["synchro_day"] == 0
 
 
