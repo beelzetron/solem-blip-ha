@@ -13,12 +13,18 @@ Single package: `custom_components/solem_blip/`.
 
 ## Developer commands
 
+Dependencies are pinned by the committed `uv.lock` (hash-locked). Use `uv` so
+installs are reproducible and verified against the lock:
+
 ```bash
-# Install dependencies
-pip install -e ".[dev]"
+# Install locked dependencies (dev extra included); fail if the lock is stale
+uv sync --frozen --extra dev
 
 # Run tests
-pytest -v
+uv run pytest -v
+
+# Run type checks
+uv run mypy custom_components/solem_blip
 
 # Sanity check (compile all Python)
 python -m compileall -q custom_components
@@ -26,6 +32,18 @@ python -m compileall -q custom_components
 # Validate JSON
 python -m json.tool custom_components/solem_blip/manifest.json
 ```
+
+## Dependency hygiene (supply chain)
+
+- `uv.lock` is committed and hash-pinned. CI uses `uv sync --frozen --extra dev` and fails if
+  the manifest and lock disagree.
+- After changing `pyproject.toml`, refresh and commit the lock in the same PR:
+  `uv lock && uv sync`. Review the lock diff.
+- Dependabot (`.github/dependabot.yml`) opens weekly PRs for pinned GitHub Actions
+  and for uv dependency updates (pyproject + uv.lock together).
+- CI runs `pip-audit` against the locked dependency set on every push/PR.
+- Keep the `solem-blip-ble` requirement exact (`==`) and bump it deliberately,
+  coordinated with a `solem-blip-ble` release.
 
 ## CI workflow
 
