@@ -136,7 +136,7 @@ jobs:
       - name: Install locked dependencies
         env:
           UV_PYTHON: "3.14"
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Run pytest
         env:
@@ -184,7 +184,7 @@ jobs:
       - name: Install locked dependencies
         env:
           UV_PYTHON: "3.14"
-        run: uv sync --frozen
+        run: uv sync --frozen --extra dev
 
       - name: Run mypy
         env:

@@ -18,7 +18,7 @@ installs are reproducible and verified against the lock:
 
 ```bash
 # Install locked dependencies (dev extra included); fail if the lock is stale
-uv sync --frozen
+uv sync --frozen --extra dev
 
 # Run tests
 uv run pytest -v
@@ -35,7 +35,7 @@ python -m json.tool custom_components/solem_blip/manifest.json
 
 ## Dependency hygiene (supply chain)
 
-- `uv.lock` is committed and hash-pinned. CI uses `uv sync --frozen` and fails if
+- `uv.lock` is committed and hash-pinned. CI uses `uv sync --frozen --extra dev` and fails if
   the manifest and lock disagree.
 - After changing `pyproject.toml`, refresh and commit the lock in the same PR:
   `uv lock && uv sync`. Review the lock diff.
