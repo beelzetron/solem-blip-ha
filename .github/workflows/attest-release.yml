@@ -19,6 +19,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate ref
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          case "$REF" in
+            main|v*)
+              echo "Ref '$REF' allowed"
+              ;;
+            *)
+              echo "::error::ref must be 'main' or a 'v*' tag (got '$REF'); refusing overwrite of release assets."
+              exit 1
+              ;;
+          esac
+
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ inputs.ref }}

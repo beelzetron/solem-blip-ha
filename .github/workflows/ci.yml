@@ -128,13 +128,20 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.8"
+
+      - name: Install locked dependencies
+        env:
+          UV_PYTHON: "3.14"
+        run: uv sync --frozen
 
       - name: Run pytest
-        run: pytest -v
+        env:
+          UV_PYTHON: "3.14"
+        run: uv run pytest -v
 
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -169,13 +176,43 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.8"
+
+      - name: Install locked dependencies
+        env:
+          UV_PYTHON: "3.14"
+        run: uv sync --frozen
 
       - name: Run mypy
-        run: mypy custom_components/solem_blip
+        env:
+          UV_PYTHON: "3.14"
+        run: uv run mypy custom_components/solem_blip
+
+  audit:
+    name: Audit dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.8"
+
+      - name: Export locked dependencies
+        run: uv export --frozen --no-emit-project -o /tmp/requirements.txt
+
+      - name: Audit locked dependencies (pip-audit)
+        run: uvx pip-audit -r /tmp/requirements.txt --require-hashes --strict --format=columns --progress-spinner off
 
   build:
     name: Build integration artifact
