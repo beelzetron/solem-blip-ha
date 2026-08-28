@@ -127,7 +127,20 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
                     continue
                 break
     finally:
-        await api.disconnect()
+        try:
+            async with asyncio.timeout(5):
+                await api.disconnect()
+        except TimeoutError:
+            _LOGGER.warning(
+                "BLE disconnect timed out after connection attempt for %s",
+                address,
+            )
+        except Exception:
+            _LOGGER.warning(
+                "Failed to disconnect BLE after connection attempt for %s",
+                address,
+                exc_info=True,
+            )
 
     if last_err is None:
         raise CannotConnect

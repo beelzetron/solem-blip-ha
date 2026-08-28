@@ -151,6 +151,30 @@ async def test_async_update_data_releases_ble_after_failed_poll(
 
 
 @pytest.mark.asyncio
+async def test_async_update_data_survives_stuck_ble_release(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A stuck BLE release after poll cannot wedge the refresh loop (#59)."""
+    config_entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        data=mock_config_entry.data,
+        options={**mock_config_entry.options, RELEASE_BLE_AFTER_POLL: True},
+        unique_id=mock_config_entry.unique_id,
+    )
+    mock_solem_client.disconnect.side_effect = TimeoutError
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        await coordinator.async_update_data()
+    mock_solem_client.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_async_update_data_keeps_ble_persistent_by_default(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
