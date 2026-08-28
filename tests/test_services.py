@@ -39,7 +39,7 @@ async def _setup_service_target(
         await coordinator.async_init()
 
     mock_config_entry.add_to_hass(hass)
-    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     device = dr.async_get(hass).async_get_or_create(
         config_entry_id=mock_config_entry.entry_id,
         identifiers={(DOMAIN, coordinator.controller_mac_address)},

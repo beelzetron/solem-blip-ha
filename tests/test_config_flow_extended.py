@@ -12,6 +12,7 @@ import pytest
 import voluptuous_serialize
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.config_entries import OptionsFlowWithReload
 import homeassistant.helpers.config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -442,6 +443,32 @@ def test_options_flow_menu_translations_exist(
     assert menu_options[MENU_EDIT_PROGRAM]
 
 
+def test_options_flow_uses_automatic_reload() -> None:
+    """Options flow relies on HA automatic reload, not a manual update listener."""
+    assert issubclass(SolemOptionsFlowHandler, OptionsFlowWithReload)
+
+
+@pytest.mark.parametrize(
+    "translation_file",
+    [
+        Path("custom_components/solem_blip/translations/en.json"),
+        Path("custom_components/solem_blip/translations/it.json"),
+    ],
+)
+def test_options_flow_settings_translations_cover_strings(
+    translation_file: Path,
+) -> None:
+    """Every options settings key in strings.json exists in en/it translations."""
+    strings = json.loads(
+        Path("custom_components/solem_blip/strings.json").read_text()
+    )
+    translations = json.loads(translation_file.read_text())
+    expected = set(strings["options"]["step"]["settings"]["data"])
+    actual = set(translations["options"]["step"]["settings"]["data"])
+
+    assert expected <= actual
+
+
 @pytest.mark.asyncio
 async def test_options_flow_settings_shows_form(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
@@ -530,7 +557,7 @@ async def test_options_flow_program_select_continues_to_editor(
     coordinator._irrigation_active = False
     coordinator._is_watering = False
     coordinator.set_irrigation_program = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     handler = SolemOptionsFlowHandler()
     with patch.object(
         SolemOptionsFlowHandler,
@@ -577,7 +604,7 @@ async def test_options_flow_program_edit_writes_program(
     coordinator._irrigation_active = False
     coordinator._is_watering = False
     coordinator.set_irrigation_program = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     handler = SolemOptionsFlowHandler()
     handler._selected_program_index = 1
     with patch.object(
@@ -671,7 +698,7 @@ async def test_options_flow_program_edit_writes_named_station_fields(
     coordinator._irrigation_active = False
     coordinator._is_watering = False
     coordinator.set_irrigation_program = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     handler = SolemOptionsFlowHandler()
     handler._selected_program_index = 1
     user_input = _program_editor_input()
@@ -764,7 +791,7 @@ async def test_options_flow_program_edit_rejects_active_watering(
     coordinator._irrigation_active = True
     coordinator._is_watering = False
     coordinator.set_irrigation_program = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     handler = SolemOptionsFlowHandler()
     handler._selected_program_index = 1
     with patch.object(
@@ -792,7 +819,7 @@ async def test_options_flow_program_edit_rejects_invalid_time(
     coordinator._irrigation_active = False
     coordinator._is_watering = False
     coordinator.set_irrigation_program = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     handler = SolemOptionsFlowHandler()
     with patch.object(
         SolemOptionsFlowHandler,
@@ -821,7 +848,7 @@ async def test_options_flow_program_edit_reports_write_failure(
     coordinator._irrigation_active = False
     coordinator._is_watering = False
     coordinator.set_irrigation_program = AsyncMock(side_effect=RuntimeError("boom"))
-    mock_config_entry.runtime_data = RuntimeData(coordinator, None)
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     handler = SolemOptionsFlowHandler()
     with patch.object(
         SolemOptionsFlowHandler,

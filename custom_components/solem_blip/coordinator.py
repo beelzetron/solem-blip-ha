@@ -189,7 +189,14 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         await self._await_irrigation_monitor_task()
         self._clear_irrigation_idle_state()
         await self.schedule_coordinator.async_shutdown()
-        await self.api.disconnect()
+        try:
+            async with asyncio.timeout(5):
+                await self.api.disconnect()
+        except TimeoutError:
+            _LOGGER.warning(
+                "%s - BLE disconnect did not complete in time during unload",
+                self.controller_mac_address,
+            )
 
     def request_schedule_refresh(self) -> None:
         """Mark schedule data due for the next slow-coordinator refresh."""

@@ -70,7 +70,7 @@ async def _setup_platform(
     mock_config_entry: MockConfigEntry,
     setup_fn,
 ) -> list:
-    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     entities: list = []
     await setup_fn(hass, mock_config_entry, entities.extend)
     return entities
