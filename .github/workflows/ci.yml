@@ -38,6 +38,7 @@ jobs:
               expected=(
                 "custom_components/solem_blip/manifest.json"
                 "pyproject.toml"
+                "uv.lock"
               )
 
               if [[ ${#files[@]} -eq ${#expected[@]} ]]; then
