@@ -14,6 +14,7 @@ from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
@@ -322,7 +323,7 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class SolemOptionsFlowHandler(OptionsFlow):
+class SolemOptionsFlowHandler(OptionsFlowWithReload):
     """Handle integration options."""
 
     _selected_program_index: int = 0

@@ -67,9 +67,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
 
     await coordinator.async_init()
 
-    listener = config_entry.add_update_listener(_async_update_listener)
-    config_entry.async_on_unload(listener)
-    config_entry.runtime_data = RuntimeData(coordinator, listener)
+    config_entry.runtime_data = RuntimeData(coordinator)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     coordinator.schedule_coordinator.async_start_first_refresh()
     config_entry.async_create_background_task(
@@ -78,13 +76,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MyConfigEntry) ->
         f"{DOMAIN} initial BLE status refresh",
     )
     return True
-
-
-async def _async_update_listener(
-    hass: HomeAssistant, config_entry: MyConfigEntry
-) -> None:
-    """Reload the integration when options change."""
-    await hass.config_entries.async_reload(config_entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -> bool:
