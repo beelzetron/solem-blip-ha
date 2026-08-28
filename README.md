@@ -184,6 +184,14 @@ From the integration **Configure** menu:
 
 - **Scan interval** — BLE poll interval (seconds)
 - **Bluetooth timeout** — connection timeout (seconds)
+- **Release BLE connection after each status poll** — when enabled, the integration
+  disconnects from the BL-IP after each periodic status poll, allowing another
+  application or BLE client to use the controller between polls. Disabled by
+  default to preserve the existing persistent connection behavior.
+
+  This applies to periodic status polling. Other BLE operations, such as
+  irrigation commands, may keep the connection active temporarily until a
+  following status update.
 - **Mock Solem API** — debug without hardware
 - **Edit on-device program** — update one controller program (A/B/C), including
   start times and station durations in minutes. Loaded program names appear in
@@ -215,7 +223,9 @@ device removal after repeated polling failures indicate that the controller is s
 
 ## Troubleshooting
 
-- Keep mobile apps disconnected while Home Assistant is connecting to the controller.
+- Avoid using mobile apps while Home Assistant is actively connected to the controller.
+  When **Release BLE connection after each status poll** is enabled, other BLE
+  clients can use the controller between Home Assistant polling connections.
 - Add a Bluetooth proxy closer to the controller if discovery is intermittent.
 - If polling fails repeatedly, open **Settings → System → Repairs** and follow the Bluetooth unavailable issue for the controller.
 - Use the integration diagnostics download to inspect availability, battery state,
