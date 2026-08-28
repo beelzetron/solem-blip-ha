@@ -44,6 +44,7 @@ from .const import (
     MIN_SCAN_INTERVAL,
     NUM_STATIONS,
     PROGRAM_LABELS,
+    RELEASE_BLE_AFTER_POLL,
     SOLEM_API_MOCK,
 )
 from .config_entry import MyConfigEntry
@@ -382,6 +383,10 @@ class SolemOptionsFlowHandler(OptionsFlow):
                         }
                     }
                 ),
+                vol.Required(
+                    RELEASE_BLE_AFTER_POLL,
+                    default=options.get(RELEASE_BLE_AFTER_POLL, False),
+                ): bool,
             }
         )
 

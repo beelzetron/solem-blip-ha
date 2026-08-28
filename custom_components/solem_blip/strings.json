@@ -54,9 +54,10 @@
         "data": {
           "scan_interval": "Scan interval (seconds)",
           "bluetooth_timeout": "Bluetooth timeout (seconds)",
-          "solem_api_mock": "Mock Solem API for debug"
+          "solem_api_mock": "Mock Solem API for debug",
+          "release_ble_after_poll": "Release BLE connection after each status poll"
         },
-        "description": "Adjust polling and BLE options.",
+        "description": "Adjust polling and BLE options. Releasing BLE after each poll lets another app use the controller between Home Assistant polls; persistent connections remain the default.",
         "title": "Solem BL-IP options"
       },
       "program_select": {

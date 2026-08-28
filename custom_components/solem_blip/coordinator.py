@@ -26,6 +26,7 @@ from .const import (
     IRRIGATION_CONFIG_UPDATE_INTERVAL,
     NUM_STATIONS,
     PROGRAM_LABELS,
+    RELEASE_BLE_AFTER_POLL,
     SOLEM_API_MOCK,
 )
 from .coordinator_descriptors import build_all_descriptors
@@ -77,6 +78,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         self.solem_api_mock = (
             config_entry.options.get(SOLEM_API_MOCK, "false") == "true"
+        )
+        self.release_ble_after_poll = bool(
+            config_entry.options.get(RELEASE_BLE_AFTER_POLL, False)
         )
 
         super().__init__(
@@ -250,6 +254,16 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         except Exception as err:
             async_manage_bluetooth_issue(self, success=False)
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
+        finally:
+            if self.release_ble_after_poll:
+                try:
+                    await self.api.disconnect()
+                except Exception:
+                    _LOGGER.warning(
+                        "%s - Failed to release BLE connection after status poll",
+                        self.controller_mac_address,
+                        exc_info=True,
+                    )
 
     async def start_irrigation(
         self, station: int, minutes: int | None = None
