@@ -264,7 +264,13 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         finally:
             if self.release_ble_after_poll:
                 try:
-                    await self.api.disconnect()
+                    async with asyncio.timeout(5):
+                        await self.api.disconnect()
+                except TimeoutError:
+                    _LOGGER.warning(
+                        "%s - BLE release after poll timed out",
+                        self.controller_mac_address,
+                    )
                 except Exception:
                     _LOGGER.warning(
                         "%s - Failed to release BLE connection after status poll",
