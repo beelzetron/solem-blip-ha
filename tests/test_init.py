@@ -11,7 +11,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip import (
     RuntimeData,
-    _async_update_listener,
     async_remove_config_entry_device,
     async_remove_entry,
     async_setup_entry,
@@ -91,7 +90,7 @@ async def test_unload_returns_false_when_platforms_fail(
 ) -> None:
     """Unload aborts when platform unloading fails."""
     coordinator = MagicMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
 
     assert await async_unload_entry(hass, mock_config_entry) is False
@@ -107,28 +106,13 @@ async def test_unload_disconnects_and_clears_runtime_reference(
     """Unload closes BLE after platforms unload and clears runtime data."""
     coordinator = MagicMock()
     coordinator.async_shutdown = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
 
     assert await async_unload_entry(hass, mock_config_entry)
 
     coordinator.async_shutdown.assert_awaited_once()
     assert mock_config_entry.runtime_data is None
-
-
-@pytest.mark.asyncio
-async def test_update_listener_reloads_entry(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    """Option changes trigger a config entry reload."""
-    mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_reload = AsyncMock()
-
-    await _async_update_listener(hass, mock_config_entry)
-
-    hass.config_entries.async_reload.assert_awaited_once_with(
-        mock_config_entry.entry_id
-    )
 
 
 @pytest.mark.asyncio
@@ -157,7 +141,7 @@ async def test_remove_config_entry_device_is_rejected_while_healthy(
     device_entry = MagicMock()
     coordinator = MagicMock()
     coordinator._consecutive_update_failures = 0
-    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
 
     assert not await async_remove_config_entry_device(
         hass, mock_config_entry, device_entry
@@ -172,6 +156,6 @@ async def test_remove_config_entry_device_is_allowed_after_repeated_failures(
     device_entry = MagicMock()
     coordinator = MagicMock()
     coordinator._consecutive_update_failures = CONSECUTIVE_FAILURES_THRESHOLD
-    mock_config_entry.runtime_data = RuntimeData(coordinator, MagicMock())
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
 
     assert await async_remove_config_entry_device(hass, mock_config_entry, device_entry)
