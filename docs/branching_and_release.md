@@ -28,8 +28,8 @@ features that need integration before release.
 
 1. Confirm `main` is clean and up to date.
 2. Confirm the candidate code was merged through a pull request with green CI.
-3. Bump `custom_components/solem_blip/manifest.json` and `pyproject.toml`
-   directly on `main`.
+3. Bump `custom_components/solem_blip/manifest.json`, `pyproject.toml`, and the
+   `solem-blip-ha` version entry in `uv.lock` directly on `main`.
 4. Run release sanity checks:
    - `git diff --check`
    - validate `custom_components/solem_blip/manifest.json` as JSON
@@ -42,8 +42,9 @@ does not need to rerun the full CI suite when the candidate code already passed
 CI before merge.
 
 CI detects version-only release bumps on pushes to `main`: when only
-`custom_components/solem_blip/manifest.json` and `pyproject.toml` changed, and
-the only changed lines are version fields, full validation jobs are skipped.
+`custom_components/solem_blip/manifest.json`, `pyproject.toml`, and `uv.lock`
+changed, and the only changed lines are version fields (including the root
+package version in `uv.lock`), full validation jobs are skipped.
 Only the lightweight Python/JSON sanity job runs.
 
 If the release commit includes anything beyond version metadata, treat it as a
