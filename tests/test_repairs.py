@@ -42,3 +42,23 @@ async def test_repair_issue_cleared_after_success(coordinator) -> None:
     delete_issue.assert_called_once()
     create_issue.assert_not_called()
     assert coordinator._consecutive_update_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_stale_proxy_session_warning_logged_once(coordinator, caplog) -> None:
+    """The stale proxy session hint is logged once per failure streak."""
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(CONSECUTIVE_FAILURES_THRESHOLD + 1):
+            async_manage_bluetooth_issue(coordinator, success=False)
+
+        warnings = [r for r in caplog.records if "stale session" in r.message]
+        assert len(warnings) == 1
+
+        async_manage_bluetooth_issue(coordinator, success=True)
+        for _ in range(CONSECUTIVE_FAILURES_THRESHOLD):
+            async_manage_bluetooth_issue(coordinator, success=False)
+
+    warnings = [r for r in caplog.records if "stale session" in r.message]
+    assert len(warnings) == 2

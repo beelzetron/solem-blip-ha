@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.helpers import issue_registry as ir
@@ -10,6 +11,8 @@ from .const import DOMAIN
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 ISSUE_BLUETOOTH_UNAVAILABLE = "bluetooth_unavailable"
 CONSECUTIVE_FAILURES_THRESHOLD = 3
@@ -57,5 +60,14 @@ def async_manage_bluetooth_issue(
     coordinator._consecutive_update_failures = (
         getattr(coordinator, "_consecutive_update_failures", 0) + 1
     )
+    if coordinator._consecutive_update_failures == CONSECUTIVE_FAILURES_THRESHOLD:
+        _LOGGER.warning(
+            "%s - BLE polling has failed %d times in a row. If this controller "
+            "is connected through an ESPHome Bluetooth proxy, the proxy may be "
+            "holding a stale session for it, for example after a Home Assistant "
+            "restart; rebooting the proxy typically resolves this.",
+            coordinator.controller_mac_address,
+            coordinator._consecutive_update_failures,
+        )
     if coordinator._consecutive_update_failures >= CONSECUTIVE_FAILURES_THRESHOLD:
         async_create_bluetooth_unavailable_issue(coordinator)

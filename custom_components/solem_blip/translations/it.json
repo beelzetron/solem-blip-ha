@@ -180,7 +180,7 @@
   "issues": {
     "bluetooth_unavailable": {
       "title": "Connessione Bluetooth non disponibile",
-      "description": "Home Assistant non riesce a interrogare il controller {mac} via Bluetooth dopo diversi tentativi. Verifica che sia acceso, nel raggio e non connesso ad altre app."
+      "description": "Home Assistant non riesce a interrogare il controller {mac} via Bluetooth dopo diversi tentativi. Verifica che sia acceso, nel raggio e non connesso ad altre app. Se il controller è connesso tramite un proxy Bluetooth ESPHome, il proxy può conservare una sessione obsoleta al suo riguardo (ad esempio dopo un riavvio di Home Assistant); riavviare il proxy di solito risolve il problema."
     }
   },
   "selector": {
