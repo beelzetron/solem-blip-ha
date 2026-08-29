@@ -150,6 +150,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._first_successful_status_at: float | None = None
         self._metadata_ready_after = float("inf")
         self._schedule_ready_after = float("inf")
+        self._schedule_gate = asyncio.Event()
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -349,6 +350,7 @@ class SolemScheduleCoordinator(DataUpdateCoordinator[dict[int, IrrigationProgram
     ) -> None:
         self.solem_coordinator = coordinator
         self._first_refresh_started = False
+        self._config_entry = config_entry
         super().__init__(
             hass,
             _LOGGER,
@@ -364,7 +366,8 @@ class SolemScheduleCoordinator(DataUpdateCoordinator[dict[int, IrrigationProgram
         if self._first_refresh_started:
             return
         self._first_refresh_started = True
-        self.hass.async_create_task(
+        self._config_entry.async_create_background_task(
+            self.hass,
             self._async_deferred_first_refresh(),
             name=f"{DOMAIN} schedule first refresh",
         )
@@ -372,14 +375,12 @@ class SolemScheduleCoordinator(DataUpdateCoordinator[dict[int, IrrigationProgram
     async def _async_deferred_first_refresh(self) -> None:
         """Wait for the heavy-read gate before the first irrigation config read."""
         coordinator = self.solem_coordinator
-        while True:
-            now = asyncio.get_running_loop().time()
-            if (
-                coordinator._first_successful_status_at is not None
-                and now >= coordinator._schedule_ready_after
-            ):
-                break
-            await asyncio.sleep(1)
+        await coordinator._schedule_gate.wait()
+        remaining = coordinator._schedule_ready_after - (
+            asyncio.get_running_loop().time()
+        )
+        if remaining > 0:
+            await asyncio.sleep(remaining)
         _LOGGER.debug(
             "%s - Schedule coordinator starting first refresh",
             coordinator.controller_mac_address,
