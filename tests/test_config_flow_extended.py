@@ -453,12 +453,13 @@ def test_options_flow_uses_automatic_reload() -> None:
     [
         Path("custom_components/solem_blip/translations/en.json"),
         Path("custom_components/solem_blip/translations/it.json"),
+        Path("custom_components/solem_blip/translations/fr.json"),
     ],
 )
 def test_options_flow_settings_translations_cover_strings(
     translation_file: Path,
 ) -> None:
-    """Every options settings key in strings.json exists in en/it translations."""
+    """Every options settings key in strings.json exists in en/it/fr translations."""
     strings = json.loads(
         Path("custom_components/solem_blip/strings.json").read_text()
     )
