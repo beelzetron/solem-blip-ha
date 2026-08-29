@@ -231,6 +231,7 @@ def _mark_first_successful_status_poll(coordinator: SolemCoordinator) -> None:
     coordinator._first_successful_status_at = now
     coordinator._metadata_ready_after = now + HEAVY_READ_DEFER_SECONDS
     coordinator._schedule_ready_after = now + HEAVY_READ_DEFER_SECONDS
+    coordinator._schedule_gate.set()
     _LOGGER.debug(
         "%s - First status poll succeeded; deferring metadata/schedule reads for %ss",
         coordinator.controller_mac_address,

@@ -637,8 +637,8 @@ async def test_schedule_first_refresh_waits_for_heavy_read_gate(
 
         mock_solem_client.get_irrigation_config.assert_not_awaited()
 
-        coordinator._first_successful_status_at = 1.0
         coordinator._schedule_ready_after = 0.0
+        coordinator._schedule_gate.set()
         await hass.async_block_till_done()
 
     mock_solem_client.get_irrigation_config.assert_awaited()
@@ -651,6 +651,8 @@ async def test_schedule_first_refresh_reads_metadata_before_config(
     mock_solem_client: MagicMock,
 ) -> None:
     """Bootstrap metadata completes before the first schedule read starts."""
+    import asyncio
+
     calls: list[str] = []
 
     async def get_firmware_version() -> dict[str, object]:
@@ -680,9 +682,66 @@ async def test_schedule_first_refresh_reads_metadata_before_config(
     ):
         coordinator = SolemCoordinator(hass, mock_config_entry)
         await coordinator.async_init()
-        coordinator._first_successful_status_at = 1.0
-        coordinator._schedule_ready_after = 0.0
+        coordinator._schedule_ready_after = (
+            asyncio.get_running_loop().time() + 0.05
+        )
+        coordinator._schedule_gate.set()
         coordinator.schedule_coordinator.async_start_first_refresh()
+        await asyncio.sleep(0.2)
         await hass.async_block_till_done()
 
     assert calls == ["firmware", "station_names", "irrigation_config"]
+
+
+@pytest.mark.asyncio
+async def test_first_status_poll_opens_schedule_gate(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A successful status poll opens the schedule gate and arms the defer."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+
+        assert coordinator._first_successful_status_at is not None
+        assert coordinator._schedule_gate.is_set()
+        assert coordinator._schedule_ready_after != float("inf")
+
+
+@pytest.mark.asyncio
+async def test_schedule_first_refresh_cancelled_on_entry_shutdown(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """The deferred first refresh is a background task cancelled on shutdown."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
+        coordinator.schedule_coordinator.async_start_first_refresh()
+        await hass.async_block_till_done()
+
+        assert mock_config_entry._background_tasks
+
+        mock_config_entry.async_shutdown()
+        await hass.async_block_till_done()
+
+    mock_solem_client.get_firmware_version.assert_not_awaited()
+    mock_solem_client.get_station_names.assert_not_awaited()
+    mock_solem_client.get_irrigation_config.assert_not_awaited()
