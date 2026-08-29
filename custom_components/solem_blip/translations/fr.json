@@ -1,0 +1,250 @@
+{
+  "title": "Solem BL-IP",
+  "config": {
+    "abort": {
+      "already_configured": "L'appareil est déjà configuré",
+      "reconfigure_successful": "Reconfiguration réussie",
+      "already_in_progress": "Une configuration est déjà en cours pour cette intégration"
+    },
+    "error": {
+      "cannot_connect": "Échec de la connexion",
+      "cannot_connect_slots": "L'adaptateur ou le proxy Bluetooth n'a aucun emplacement de connexion disponible et le programmateur n'est pas visible lors de la détection. Patientez puis réessayez, fermez les autres applications mobiles utilisant le programmateur, consultez Paramètres → Bluetooth → Moniteur de connexion, ou ajoutez un proxy Bluetooth plus proche du programmateur.",
+      "unknown": "Erreur inattendue"
+    },
+    "step": {
+      "user": {
+        "title": "Configuration du programmateur",
+        "description": "Sélectionnez votre programmateur Solem BL-IP et le nombre de stations. La programmation et la suspension en cas de pluie doivent être gérées dans les automatisations Home Assistant.",
+        "data": {
+          "controller_mac_address": "Adresse MAC du programmateur",
+          "num_stations": "Nombre de stations"
+        }
+      },
+      "reconfigure": {
+        "description": "Modifiez le nombre de stations. Pour remplacer le programmateur physique, supprimez puis ajoutez à nouveau l'intégration.",
+        "data": {
+          "num_stations": "Nombre de stations"
+        }
+      },
+      "bluetooth_confirm": {
+        "description": "Configurez {name} et choisissez le nombre de stations.",
+        "data": {
+          "num_stations": "Nombre de stations"
+        }
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "invalid_program": "Vérifiez les valeurs de la programmation et réessayez.",
+      "not_loaded": "L'intégration n'est pas encore chargée.",
+      "set_program_failed": "Échec de la mise à jour du programme sélectionné.",
+      "set_program_while_watering": "Les programmations ne peuvent pas être modifiées lorsqu'un arrosage est en cours."
+    },
+    "step": {
+      "init": {
+        "menu_options": {
+          "settings": "Options de l'intégration",
+          "program_select": "Modifier un programme sur l'appareil"
+        },
+        "description": "Réglez l'interrogation, les options Bluetooth et les programmes enregistrés sur l'appareil.",
+        "title": "Options Solem BL-IP"
+      },
+      "settings": {
+        "data": {
+          "scan_interval": "Intervalle d'interrogation (secondes)",
+          "bluetooth_timeout": "Délai d'expiration Bluetooth (secondes)",
+          "solem_api_mock": "Simuler l'API Solem pour le débogage",
+          "release_ble_after_poll": "Libérer la connexion BLE après chaque interrogation d'état"
+        },
+        "description": "Réglez l'interrogation et les options Bluetooth.",
+        "title": "Options Solem BL-IP"
+      },
+      "program_select": {
+        "data": {
+          "program": "Programme"
+        },
+        "description": "Choisissez le programme enregistré sur l'appareil à modifier.",
+        "title": "Modifier une programmation sur l'appareil"
+      },
+      "program_edit": {
+        "data": {
+          "name": "Nom",
+          "cycle": "Cycle",
+          "week_days": "Jours de la semaine",
+          "period_start_date": "Date de début de la période",
+          "period_length": "Durée de la période",
+          "synchro_day": "Jour de synchronisation",
+          "water_budget": "Budget d'arrosage (%)",
+          "inter_station_delay": "Délai entre les stations (secondes)",
+          "start_time_1": "Heure de démarrage 1",
+          "start_time_2": "Heure de démarrage 2",
+          "start_time_3": "Heure de démarrage 3",
+          "start_time_4": "Heure de démarrage 4",
+          "start_time_5": "Heure de démarrage 5",
+          "start_time_6": "Heure de démarrage 6",
+          "start_time_7": "Heure de démarrage 7",
+          "start_time_8": "Heure de démarrage 8",
+          "station_1_duration": "Durée de la station 1 (minutes)",
+          "station_2_duration": "Durée de la station 2 (minutes)",
+          "station_3_duration": "Durée de la station 3 (minutes)",
+          "station_4_duration": "Durée de la station 4 (minutes)",
+          "station_5_duration": "Durée de la station 5 (minutes)",
+          "station_6_duration": "Durée de la station 6 (minutes)",
+          "station_7_duration": "Durée de la station 7 (minutes)",
+          "station_8_duration": "Durée de la station 8 (minutes)"
+        },
+        "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.",
+        "title": "Modifier une programmation sur l'appareil"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "battery_low": {
+        "name": "Batterie faible"
+      },
+      "program_running": {
+        "name": "{program_name} en cours"
+      }
+    },
+    "button": {
+      "controller_off": {
+        "name": "Éteindre le programmateur"
+      },
+      "controller_off_days": {
+        "name": "Éteindre le programmateur pendant les jours sélectionnés"
+      },
+      "controller_on": {
+        "name": "Allumer le programmateur"
+      },
+      "start_program": {
+        "name": "Démarrer {program_name}"
+      },
+      "sprinkle_station": {
+        "name": "Arroser {station_name}"
+      },
+      "stop_sprinkle": {
+        "name": "Arrêter l'arrosage"
+      }
+    },
+    "number": {
+      "controller_off_days": {
+        "name": "Jours d'arrêt du programmateur"
+      },
+      "irrigation_manual_duration": {
+        "name": "Durée de l'arrosage manuel"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Batterie"
+      },
+      "battery_voltage": {
+        "name": "Tension de la batterie"
+      },
+      "controller_off_days_remaining": {
+        "name": "Jours d'arrêt restants"
+      },
+      "controller_status": {
+        "name": "État du programmateur",
+        "state": {
+          "on": "Allumé",
+          "off": "Éteint",
+          "unknown": "Inconnu"
+        }
+      },
+      "last_time_sync": {
+        "name": "Dernière synchronisation de l'heure"
+      },
+      "program_next_start": {
+        "name": "Prochain démarrage de {program_name}"
+      },
+      "program_schedule": {
+        "name": "Programmation de {program_name}"
+      },
+      "station_remaining_time": {
+        "name": "Temps restant de {station_name}"
+      },
+      "station_status": {
+        "name": "État de {station_name}",
+        "state": {
+          "active": "Active",
+          "inactive": "Inactive",
+          "unknown": "Inconnu"
+        }
+      }
+    },
+    "valve": {
+      "station_valve": {
+        "name": "{station_name}"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Impossible de se connecter au programmateur via Bluetooth."
+    },
+    "start_irrigation_failed": {
+      "message": "Échec du démarrage de l'arrosage sur la station {station}."
+    },
+    "start_program_failed": {
+      "message": "Échec du démarrage du programme {program_name}."
+    },
+    "stop_irrigation_failed": {
+      "message": "Échec de l'arrêt de l'arrosage."
+    },
+    "controller_on_failed": {
+      "message": "Échec de l'allumage du programmateur."
+    },
+    "controller_off_failed": {
+      "message": "Échec de l'arrêt du programmateur."
+    },
+    "controller_off_days_failed": {
+      "message": "Échec de l'arrêt du programmateur pour le nombre de jours sélectionné."
+    },
+    "set_program_failed": {
+      "message": "Échec de la mise à jour de {program_name} sur le programmateur."
+    },
+    "set_program_while_watering": {
+      "message": "Les programmations ne peuvent pas être modifiées lorsqu'un arrosage est en cours."
+    },
+    "service_device_not_found": {
+      "message": "Impossible de trouver le programmateur Solem BL-IP sélectionné."
+    }
+  },
+  "issues": {
+    "bluetooth_unavailable": {
+      "title": "Connexion Bluetooth indisponible",
+      "description": "Home Assistant n'a pas pu interroger le programmateur {mac} via Bluetooth après plusieurs tentatives. Vérifiez que le programmateur est allumé, à portée et qu'il n'est pas connecté à une autre application."
+    }
+  },
+  "selector": {
+    "true_false_selector": {
+      "options": {
+        "true": "Vrai",
+        "false": "Faux"
+      }
+    },
+    "cycle_selector": {
+      "options": {
+        "custom": "Jours personnalisés",
+        "even": "Jours pairs",
+        "odd": "Jours impairs",
+        "odd_31": "Jours impairs, y compris le 31",
+        "periodic": "Périodique"
+      }
+    },
+    "weekday_selector": {
+      "options": {
+        "monday": "Lundi",
+        "tuesday": "Mardi",
+        "wednesday": "Mercredi",
+        "thursday": "Jeudi",
+        "friday": "Vendredi",
+        "saturday": "Samedi",
+        "sunday": "Dimanche"
+      }
+    }
+  }
+}
