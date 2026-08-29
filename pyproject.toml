@@ -8,7 +8,7 @@ version = "1.2.30b2"
 description = "Home Assistant integration for Solem BL-IP irrigation controllers"
 requires-python = ">=3.14"
 dependencies = [
-    "solem-blip-ble==0.1.36",
+    "solem-blip-ble==0.1.37b1",
 ]
 
 [project.optional-dependencies]
