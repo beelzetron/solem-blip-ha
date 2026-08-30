@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from .bluetooth_issue import note_ble_degradation
+
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
 
@@ -46,6 +48,7 @@ def note_cycle_outcome(
 
     streak += 1
     coordinator._ble_cycle_degraded_streak = streak
+    note_ble_degradation(coordinator, source=reason)
     if streak == 1:
         _LOGGER.warning(
             "%s - BLE cycle degraded (%s). %s",

@@ -180,7 +180,7 @@
   "issues": {
     "bluetooth_unavailable": {
       "title": "Bluetooth connection unavailable",
-      "description": "Home Assistant could not poll controller {mac} over Bluetooth after several attempts. Check that the controller is powered on, in range, and not connected to another app."
+      "description": "Home Assistant could not poll controller {mac} over Bluetooth after several attempts. Check that the controller is powered on, in range, and not connected to another app. If the controller is connected through an ESPHome Bluetooth proxy, the proxy may be holding a stale session for it (for example after a Home Assistant restart); rebooting the proxy typically resolves this."
     }
   },
   "selector": {

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.solem_blip.bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
+from custom_components.solem_blip.bluetooth_issue import WINDOW_FAILURE_THRESHOLD
 
 
 @pytest.mark.asyncio
@@ -23,8 +23,8 @@ async def test_coordinator_update_failure_raises_update_failed(coordinator) -> N
 
 
 @pytest.mark.asyncio
-async def test_coordinator_tracks_consecutive_failures(coordinator) -> None:
-    """Repeated update failures increment the repair issue counter."""
+async def test_coordinator_failures_feed_the_ble_health_window(coordinator) -> None:
+    """Repeated update failures accumulate as window degradation events."""
     with patch.object(
         coordinator,
         "async_update_all_sensors",
@@ -32,9 +32,10 @@ async def test_coordinator_tracks_consecutive_failures(coordinator) -> None:
     ), patch(
         "custom_components.solem_blip.bluetooth_issue.ir.async_create_issue"
     ) as create_issue:
-        for _ in range(CONSECUTIVE_FAILURES_THRESHOLD):
+        for _ in range(WINDOW_FAILURE_THRESHOLD):
             with pytest.raises(UpdateFailed):
                 await coordinator.async_update_data()
 
-        assert coordinator._consecutive_update_failures == CONSECUTIVE_FAILURES_THRESHOLD
+        assert len(coordinator._ble_health_events) == WINDOW_FAILURE_THRESHOLD
+        assert coordinator._ble_issue_active is True
         create_issue.assert_called_once()
