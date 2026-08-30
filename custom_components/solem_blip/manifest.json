@@ -18,6 +18,6 @@
   "requirements": ["solem-blip-ble==0.1.39b2"],
   "single_config_entry": false,
   "ssdp": [],
-  "version": "1.2.32b2",
+  "version": "1.2.32b3",
   "zeroconf": []
 }
