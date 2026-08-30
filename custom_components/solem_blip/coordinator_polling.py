@@ -23,6 +23,7 @@ from .const import (
     STATION_NAMES_READ_TIMEOUT,
 )
 from .util import normalize_entity_state
+from .ble_health import note_cycle_outcome
 from .coordinator_publish import publish_descriptor_update
 
 if TYPE_CHECKING:
@@ -160,8 +161,13 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
 
 async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
     """Read firmware and station names while holding the heavy-read lock."""
+    firmware_attempted = False
+    station_names_attempted = False
+    firmware_failed = False
+    station_names_failed = False
     now = asyncio.get_running_loop().time()
     if coordinator.firmware_version is None and now >= coordinator._firmware_retry_after:
+        firmware_attempted = True
         try:
             firmware = await asyncio.wait_for(
                 coordinator.api.get_firmware_version(),
@@ -169,11 +175,12 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             )
         except Exception as err:
             coordinator._firmware_retry_after = now + METADATA_RETRY_INTERVAL
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "%s - Failed to read firmware version: %s",
                 coordinator.controller_mac_address,
                 str(err) or type(err).__name__,
             )
+            firmware_failed = True
         else:
             coordinator.firmware_version = firmware["raw_hex"]
             coordinator.controller.software_version = coordinator.firmware_version
@@ -193,6 +200,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
         len(coordinator.station_names) < coordinator.num_stations
         and now >= coordinator._station_names_retry_after
     ):
+        station_names_attempted = True
         try:
             station_names = await asyncio.wait_for(
                 coordinator.api.get_station_names(),
@@ -200,11 +208,12 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             )
         except Exception as err:
             coordinator._station_names_retry_after = now + METADATA_RETRY_INTERVAL
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "%s - Failed to read station names: %s",
                 coordinator.controller_mac_address,
                 str(err) or type(err).__name__,
             )
+            station_names_failed = True
         else:
             coordinator.station_names.update(
                 {
@@ -221,6 +230,19 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                 coordinator,
                 await coordinator.async_update_all_sensors(fetch_status=False),
             )
+
+    if not (firmware_attempted or station_names_attempted):
+        return
+
+    if firmware_failed or station_names_failed:
+        parts = []
+        if firmware_failed:
+            parts.append("firmware read")
+        if station_names_failed:
+            parts.append("station names read")
+        note_cycle_outcome(coordinator, degraded=True, reason=" and ".join(parts))
+    else:
+        note_cycle_outcome(coordinator, degraded=False, reason="")
 
 
 def _mark_first_successful_status_poll(coordinator: SolemCoordinator) -> None:
@@ -273,10 +295,13 @@ async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None
         coordinator._irrigation_config_retry_after = (
             now + IRRIGATION_CONFIG_RETRY_INTERVAL
         )
-        _LOGGER.warning(
+        _LOGGER.debug(
             "%s - Failed to read irrigation config: %s",
             coordinator.controller_mac_address,
             str(err) or type(err).__name__,
+        )
+        note_cycle_outcome(
+            coordinator, degraded=True, reason="irrigation config read"
         )
         return
 
@@ -287,6 +312,7 @@ async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None
         now + IRRIGATION_CONFIG_REFRESH_INTERVAL
     )
     coordinator._irrigation_config_retry_after = 0.0
+    note_cycle_outcome(coordinator, degraded=False, reason="")
 
 
 async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
