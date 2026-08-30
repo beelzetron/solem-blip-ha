@@ -30,7 +30,7 @@ async def test_first_degraded_cycle_logs_warning_with_guidance(
     coordinator: SolemCoordinator,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The first degraded cycle warns once and carries the proxy guidance."""
+    """The first degraded cycle warns once and carries the recovery guidance."""
     with caplog.at_level(logging.DEBUG):
         note_cycle_outcome(coordinator, degraded=True, reason="status poll failed")
 
@@ -38,7 +38,7 @@ async def test_first_degraded_cycle_logs_warning_with_guidance(
     warnings = _warnings(caplog)
     assert len(warnings) == 1
     assert "BLE cycle degraded (status poll failed)" in warnings[0]
-    assert "stale session" in warnings[0]
+    assert "usually recovers" in warnings[0]
 
 
 async def test_consecutive_degraded_cycles_stay_at_one_warning_each(
@@ -53,9 +53,9 @@ async def test_consecutive_degraded_cycles_stay_at_one_warning_each(
     assert coordinator._ble_cycle_degraded_streak == 3
     warnings = _warnings(caplog)
     assert len(warnings) == 3
-    assert "stale session" in warnings[0]
-    assert "stale session" not in warnings[1]
-    assert "stale session" not in warnings[2]
+    assert "usually recovers" in warnings[0]
+    assert "usually recovers" not in warnings[1]
+    assert "usually recovers" not in warnings[2]
     assert "3 consecutive degraded cycles" in warnings[2]
 
 
@@ -118,9 +118,10 @@ async def test_metadata_failures_emit_one_warning_and_debug_detail(
     assert warnings == [
         "AA:BB:CC:DD:EE:FF - BLE cycle degraded "
         "(firmware read and station names read). "
-        "If this controller is connected through an ESPHome Bluetooth proxy, "
-        "the proxy may be holding a stale session (for example after a Home "
-        "Assistant restart); rebooting the proxy typically resolves this."
+        "The link usually recovers on the next poll. If the problem "
+        "persists, check the controller's battery and radio range; "
+        "rebooting a Bluetooth proxy, or restarting Home Assistant (which "
+        "reloads the Bluetooth adapter), typically resolves it."
     ]
     assert ble_coordinator._ble_cycle_degraded_streak == 1
     debug_details = [

@@ -264,9 +264,10 @@ class TestEntitySetupMetadata:
             assert caplog.messages[-1] == (
                 "AA:BB:CC:DD:EE:FF - BLE cycle degraded "
                 "(firmware read and station names read). "
-                "If this controller is connected through an ESPHome Bluetooth proxy, "
-                "the proxy may be holding a stale session (for example after a Home "
-                "Assistant restart); rebooting the proxy typically resolves this."
+                "The link usually recovers on the next poll. If the problem "
+                "persists, check the controller's battery and radio range; "
+                "rebooting a Bluetooth proxy, or restarting Home Assistant "
+                "(which reloads the Bluetooth adapter), typically resolves it."
             )
             assert all(
                 record.levelno == logging.DEBUG

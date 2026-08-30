@@ -216,7 +216,7 @@
   "issues": {
     "bluetooth_unavailable": {
       "title": "Connexion Bluetooth indisponible",
-      "description": "Home Assistant n'a pas pu interroger le programmateur {mac} via Bluetooth après plusieurs tentatives. Vérifiez que le programmateur est allumé, à portée et qu'il n'est pas connecté à une autre application. Si le programmateur est connecté via un proxy Bluetooth ESPHome, le proxy peut conserver une session obsolète le concernant (par exemple après un redémarrage de Home Assistant) ; redémarrer le proxy résout généralement le problème."
+      "description": "Home Assistant n'a pas pu interroger le programmateur {mac} via Bluetooth de manière fiable. Vérifiez que le programmateur est allumé, à portée et qu'il n'est pas connecté à une autre application. S'il est connecté via un proxy Bluetooth, redémarrer le proxy résout généralement le problème ; sinon, redémarrer Home Assistant recharge l'adaptateur Bluetooth."
     }
   },
   "selector": {
