@@ -18,10 +18,11 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_PROXY_STALE_SESSION_HINT = (
-    "If this controller is connected through an ESPHome Bluetooth proxy, "
-    "the proxy may be holding a stale session (for example after a Home "
-    "Assistant restart); rebooting the proxy typically resolves this."
+_RECOVERY_HINT = (
+    "The link usually recovers on the next poll. If the problem persists, "
+    "check the controller's battery and radio range; rebooting a Bluetooth "
+    "proxy, or restarting Home Assistant (which reloads the Bluetooth "
+    "adapter), typically resolves it."
 )
 
 
@@ -30,7 +31,7 @@ def note_cycle_outcome(
 ) -> None:
     """Record the poll cycle outcome and log one warning per degraded cycle.
 
-    The first degraded cycle of a streak carries the stale-proxy guidance;
+    The first degraded cycle of a streak carries the recovery guidance;
     consecutive degraded cycles keep the streak count so repeated noise
     stays at one line per poll instead of one line per failed read.
     """
@@ -54,7 +55,7 @@ def note_cycle_outcome(
             "%s - BLE cycle degraded (%s). %s",
             coordinator.controller_mac_address,
             reason,
-            _PROXY_STALE_SESSION_HINT,
+            _RECOVERY_HINT,
         )
     else:
         _LOGGER.warning(

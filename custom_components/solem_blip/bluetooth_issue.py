@@ -79,10 +79,10 @@ def note_ble_degradation(
         coordinator._ble_issue_active = True
         _LOGGER.warning(
             "%s - BLE health degraded: %d failures in the last %d minutes "
-            "(latest: %s). If this controller is connected through an ESPHome "
-            "Bluetooth proxy, the proxy may be holding a stale session (for "
-            "example after a Home Assistant restart); rebooting the proxy "
-            "typically resolves this.",
+            "(latest: %s). If the problem persists, check the controller's "
+            "battery and radio range; rebooting a Bluetooth proxy, or "
+            "restarting Home Assistant (which reloads the Bluetooth "
+            "adapter), typically resolves it.",
             coordinator.controller_mac_address,
             len(coordinator._ble_health_events),
             WINDOW_SECONDS // 60,
