@@ -53,6 +53,7 @@ from .coordinator_publish import publish_descriptor_update
 from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
+from .ble_health import note_cycle_outcome
 from .bluetooth_issue import async_manage_bluetooth_issue
 
 _LOGGER = logging.getLogger(__name__)
@@ -143,6 +144,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_set_time_sync: datetime | None = None
         self._set_time_pending = True
         self._consecutive_update_failures = 0
+        self._ble_cycle_degraded_streak = 0
         self._last_successful_poll_at: float | None = None
         self._is_watering = False
         self._metadata_task: asyncio.Task[None] | None = None
@@ -246,14 +248,11 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         return build_all_descriptors(self)
 
     async def async_update_data(self) -> list[dict[str, Any]]:
-        _LOGGER.debug(
-            "%s - Status poll started",
-            self.controller_mac_address,
-        )
         try:
             data = await self.async_update_all_sensors()
             self._last_successful_poll_at = asyncio.get_running_loop().time()
             async_manage_bluetooth_issue(self, success=True)
+            note_cycle_outcome(self, degraded=False, reason="")
             _LOGGER.debug(
                 "%s - Status poll completed",
                 self.controller_mac_address,
@@ -261,6 +260,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             return data
         except Exception as err:
             async_manage_bluetooth_issue(self, success=False)
+            note_cycle_outcome(self, degraded=True, reason="status poll failed")
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
         finally:
             if self.release_ble_after_poll:
@@ -268,7 +268,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                     async with asyncio.timeout(5):
                         await self.api.disconnect()
                 except TimeoutError:
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "%s - BLE release after poll timed out",
                         self.controller_mac_address,
                     )

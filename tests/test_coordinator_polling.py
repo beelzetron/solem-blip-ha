@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -260,10 +261,18 @@ class TestEntitySetupMetadata:
 
             mock_solem_client.get_firmware_version.assert_awaited_once()
             mock_solem_client.get_station_names.assert_awaited_once()
-            assert caplog.messages[-2:] == [
-                "AA:BB:CC:DD:EE:FF - Failed to read firmware version: TimeoutError",
-                "AA:BB:CC:DD:EE:FF - Failed to read station names: TimeoutError",
-            ]
+            assert caplog.messages[-1] == (
+                "AA:BB:CC:DD:EE:FF - BLE cycle degraded "
+                "(firmware read and station names read). "
+                "If this controller is connected through an ESPHome Bluetooth proxy, "
+                "the proxy may be holding a stale session (for example after a Home "
+                "Assistant restart); rebooting the proxy typically resolves this."
+            )
+            assert all(
+                record.levelno == logging.DEBUG
+                for record in caplog.records
+                if "Failed to read" in record.getMessage()
+            )
 
     async def test_metadata_timeout_does_not_prevent_later_status_poll(
         self,
