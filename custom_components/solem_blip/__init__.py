@@ -12,7 +12,10 @@ from .const import CONTROLLER_MAC_ADDRESS, DOMAIN
 from .coordinator import SolemCoordinator
 from .entity import load_entity_translations
 from .migrate import async_migrate_unique_ids, async_remove_program_name_entities
-from .bluetooth_issue import CONSECUTIVE_FAILURES_THRESHOLD
+from .bluetooth_issue import (
+    WINDOW_FAILURE_THRESHOLD,
+    is_device_stale,
+)
 from .services import async_setup_services, async_unload_services
 
 CONFIG_VERSION = 2
@@ -107,8 +110,5 @@ async def async_remove_entry(hass: HomeAssistant, config_entry: MyConfigEntry) -
 async def async_remove_config_entry_device(
     hass: HomeAssistant, config_entry: MyConfigEntry, device_entry: dr.DeviceEntry
 ) -> bool:
-    """Allow removing the controller only after repeated failed updates."""
-    return (
-        config_entry.runtime_data.coordinator._consecutive_update_failures
-        >= CONSECUTIVE_FAILURES_THRESHOLD
-    )
+    """Allow removing the controller only after degraded BLE health."""
+    return is_device_stale(config_entry.runtime_data.coordinator)
