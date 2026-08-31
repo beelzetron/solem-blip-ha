@@ -184,14 +184,6 @@ From the integration **Configure** menu:
 
 - **Scan interval** — BLE poll interval (seconds)
 - **Bluetooth timeout** — connection timeout (seconds)
-- **Release BLE connection after each status poll** — when enabled, the integration
-  disconnects from the BL-IP after each periodic status poll, allowing another
-  application or BLE client to use the controller between polls. Disabled by
-  default to preserve the existing persistent connection behavior.
-
-  This applies to periodic status polling. Other BLE operations, such as
-  irrigation commands, may keep the connection active temporarily until a
-  following status update.
 - **Mock Solem API** — debug without hardware
 - **Edit on-device program** — update one controller program (A/B/C), including
   start times and station durations in minutes. Loaded program names appear in

@@ -115,8 +115,8 @@ def create_mock_solem_client(station_num: int = 2) -> MagicMock:
     client.turn_on = AsyncMock()
     client.turn_off_permanent = AsyncMock()
     client.turn_off_x_days = AsyncMock()
+    # v2 client still exposes connect() (reachability probe); disconnect is gone.
     client.connect = AsyncMock()
-    client.disconnect = AsyncMock()
     return client
 
 

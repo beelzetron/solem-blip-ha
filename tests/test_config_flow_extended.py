@@ -82,7 +82,6 @@ async def test_validate_input_connects_successfully(hass: HomeAssistant) -> None
     """Validation succeeds when BLE connect works."""
     mock_api = MagicMock()
     mock_api.connect = AsyncMock()
-    mock_api.disconnect = AsyncMock()
 
     with patch(
         "custom_components.solem_blip.config_flow.async_get_connectable_device",
@@ -98,7 +97,6 @@ async def test_validate_input_connects_successfully(hass: HomeAssistant) -> None
 
     assert result["title"] == "Solem BL-IP"
     mock_api.connect.assert_awaited_once()
-    mock_api.disconnect.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -111,7 +109,6 @@ async def test_validate_input_retries_busy_slots(hass: HomeAssistant) -> None:
             None,
         ]
     )
-    mock_api.disconnect = AsyncMock()
 
     with patch(
         "custom_components.solem_blip.config_flow.async_get_connectable_device",
@@ -141,7 +138,6 @@ async def test_validate_input_slots_with_discovery_proceeds(
     mock_api.connect = AsyncMock(
         side_effect=SolemConnectionError("No free connection slots")
     )
-    mock_api.disconnect = AsyncMock()
 
     with patch(
         "custom_components.solem_blip.config_flow.async_get_connectable_device",
@@ -170,7 +166,6 @@ async def test_validate_input_slots_without_discovery_raises(
     mock_api.connect = AsyncMock(
         side_effect=SolemConnectionError("No free connection slots")
     )
-    mock_api.disconnect = AsyncMock()
 
     with patch(
         "custom_components.solem_blip.config_flow.async_get_connectable_device",
@@ -194,7 +189,6 @@ async def test_validate_input_generic_connect_error(hass: HomeAssistant) -> None
     """Validation raises CannotConnect for non-slot connection failures."""
     mock_api = MagicMock()
     mock_api.connect = AsyncMock(side_effect=SolemConnectionError("timeout"))
-    mock_api.disconnect = AsyncMock()
 
     with patch(
         "custom_components.solem_blip.config_flow.async_get_connectable_device",
@@ -344,7 +338,6 @@ async def test_validate_input_raises_when_no_connect_attempts(
     """Validation fails when no BLE connect attempts were made."""
     mock_api = MagicMock()
     mock_api.connect = AsyncMock()
-    mock_api.disconnect = AsyncMock()
 
     with patch(
         "custom_components.solem_blip.config_flow.async_get_connectable_device",
