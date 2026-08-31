@@ -21,7 +21,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import selector
 
-from solem_blip_ble import IrrigationProgram, SolemClient, SolemConnectionError
+from solem_blip_ble import IrrigationProgram, SolemConnectionError
+from solem_blip_ble.client_v2 import StatelessSolemClient as SolemClient
 
 from .bluetooth import (
     async_get_connectable_device,
@@ -45,7 +46,6 @@ from .const import (
     MIN_SCAN_INTERVAL,
     NUM_STATIONS,
     PROGRAM_LABELS,
-    RELEASE_BLE_AFTER_POLL,
     SOLEM_API_MOCK,
 )
 from .config_entry import MyConfigEntry
@@ -105,42 +105,26 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     )
 
     last_err: Exception | None = None
-    try:
-        for attempt in range(CONFIG_FLOW_CONNECT_RETRIES):
-            try:
-                await api.connect()
-                _LOGGER.debug("Connected to Bluetooth controller %s", address)
-                return {"title": "Solem BL-IP"}
-            except SolemConnectionError as err:
-                last_err = err
-                if (
-                    "connection slots" in str(err).lower()
-                    and attempt < CONFIG_FLOW_CONNECT_RETRIES - 1
-                ):
-                    _LOGGER.debug(
-                        "BLE connection slots busy for %s, retrying (%s/%s)",
-                        address,
-                        attempt + 1,
-                        CONFIG_FLOW_CONNECT_RETRIES,
-                    )
-                    await asyncio.sleep(CONFIG_FLOW_CONNECT_RETRY_DELAY)
-                    continue
-                break
-    finally:
+    for attempt in range(CONFIG_FLOW_CONNECT_RETRIES):
         try:
-            async with asyncio.timeout(5):
-                await api.disconnect()
-        except TimeoutError:
-            _LOGGER.warning(
-                "BLE disconnect timed out after connection attempt for %s",
-                address,
-            )
-        except Exception:
-            _LOGGER.warning(
-                "Failed to disconnect BLE after connection attempt for %s",
-                address,
-                exc_info=True,
-            )
+            await api.connect()
+            _LOGGER.debug("Connected to Bluetooth controller %s", address)
+            return {"title": "Solem BL-IP"}
+        except SolemConnectionError as err:
+            last_err = err
+            if (
+                "connection slots" in str(err).lower()
+                and attempt < CONFIG_FLOW_CONNECT_RETRIES - 1
+            ):
+                _LOGGER.debug(
+                    "BLE connection slots busy for %s, retrying (%s/%s)",
+                    address,
+                    attempt + 1,
+                    CONFIG_FLOW_CONNECT_RETRIES,
+                )
+                await asyncio.sleep(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+                continue
+            break
 
     if last_err is None:
         raise CannotConnect
@@ -397,10 +381,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                         }
                     }
                 ),
-                vol.Required(
-                    RELEASE_BLE_AFTER_POLL,
-                    default=options.get(RELEASE_BLE_AFTER_POLL, False),
-                ): bool,
             }
         )
 

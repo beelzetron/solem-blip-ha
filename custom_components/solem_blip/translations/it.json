@@ -54,8 +54,7 @@
         "data": {
           "scan_interval": "Intervallo di scansione (secondi)",
           "bluetooth_timeout": "Timeout Bluetooth (secondi)",
-          "solem_api_mock": "Simula API Solem (debug)",
-          "release_ble_after_poll": "Rilascia la connessione BLE dopo ogni rilevazione di stato"
+          "solem_api_mock": "Simula API Solem (debug)"
         },
         "description": "Modifica polling e opzioni BLE.",
         "title": "Opzioni Solem BL-IP"

@@ -166,7 +166,6 @@ class TestStartStopButtonBehavior:
             side_effect=APIConnectionError("Connection failed")
         )
         mock_client.connect = AsyncMock()
-        mock_client.disconnect = AsyncMock()
 
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",
@@ -277,7 +276,6 @@ class TestIrrigationMonitorLifecycle:
             side_effect=APIConnectionError("Failed to start")
         )
         mock_client.connect = AsyncMock()
-        mock_client.disconnect = AsyncMock()
 
         with patch(
             "custom_components.solem_blip.coordinator.SolemClient",

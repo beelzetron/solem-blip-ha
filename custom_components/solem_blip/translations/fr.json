@@ -54,8 +54,7 @@
         "data": {
           "scan_interval": "Intervalle d'interrogation (secondes)",
           "bluetooth_timeout": "Délai d'expiration Bluetooth (secondes)",
-          "solem_api_mock": "Simuler l'API Solem pour le débogage",
-          "release_ble_after_poll": "Libérer la connexion BLE après chaque interrogation d'état"
+          "solem_api_mock": "Simuler l'API Solem pour le débogage"
         },
         "description": "Réglez l'interrogation et les options Bluetooth.",
         "title": "Options Solem BL-IP"

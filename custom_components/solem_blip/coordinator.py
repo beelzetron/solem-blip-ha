@@ -13,7 +13,8 @@ from homeassistant.core import HomeAssistant
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from solem_blip_ble import IrrigationProgram, SolemClient
+from solem_blip_ble import IrrigationProgram
+from solem_blip_ble.client_v2 import StatelessSolemClient as SolemClient
 
 from .config_entry import MyConfigEntry
 from .const import (
@@ -27,7 +28,6 @@ from .const import (
     IRRIGATION_CONFIG_UPDATE_INTERVAL,
     NUM_STATIONS,
     PROGRAM_LABELS,
-    RELEASE_BLE_AFTER_POLL,
     SOLEM_API_MOCK,
 )
 from .coordinator_descriptors import build_all_descriptors
@@ -55,7 +55,7 @@ from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
 from .ble_health import note_cycle_outcome
-from .bluetooth_issue import note_ble_degradation, note_ble_recovery
+from .bluetooth_issue import note_ble_recovery
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,9 +80,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         self.solem_api_mock = (
             config_entry.options.get(SOLEM_API_MOCK, "false") == "true"
-        )
-        self.release_ble_after_poll = bool(
-            config_entry.options.get(RELEASE_BLE_AFTER_POLL, False)
         )
 
         super().__init__(
@@ -187,7 +184,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         ]
 
     async def async_shutdown(self) -> None:
-        """Release BLE resources when the integration unloads."""
+        """Tear down coordinator tasks when the integration unloads.
+
+        The v2 client holds no BLE session between operations, so there is
+        nothing to disconnect here; any in-flight operation closes its own
+        connection when the monitor task is cancelled below.
+        """
         self.irrigation_stop_event.set()
         task = self._irrigation_monitor_task
         if task is not None and not task.done():
@@ -195,14 +197,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         await self._await_irrigation_monitor_task()
         self._clear_irrigation_idle_state()
         await self.schedule_coordinator.async_shutdown()
-        try:
-            async with asyncio.timeout(5):
-                await self.api.disconnect()
-        except TimeoutError:
-            _LOGGER.warning(
-                "%s - BLE disconnect did not complete in time during unload",
-                self.controller_mac_address,
-            )
 
     def request_schedule_refresh(self) -> None:
         """Mark schedule data due for the next slow-coordinator refresh."""
@@ -264,23 +258,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         except Exception as err:
             note_cycle_outcome(self, degraded=True, reason="status poll failed")
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
-        finally:
-            if self.release_ble_after_poll:
-                try:
-                    async with asyncio.timeout(5):
-                        await self.api.disconnect()
-                except TimeoutError:
-                    _LOGGER.debug(
-                        "%s - BLE release after poll timed out",
-                        self.controller_mac_address,
-                    )
-                    note_ble_degradation(self, source="release timeout")
-                except Exception:
-                    _LOGGER.warning(
-                        "%s - Failed to release BLE connection after status poll",
-                        self.controller_mac_address,
-                        exc_info=True,
-                    )
 
     async def start_irrigation(
         self, station: int, minutes: int | None = None
