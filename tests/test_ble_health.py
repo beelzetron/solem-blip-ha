@@ -92,6 +92,25 @@ async def test_healthy_cycle_without_streak_is_silent(
     assert caplog.records == []
 
 
+async def test_recovery_requests_device_time_sync(
+    coordinator: SolemCoordinator,
+) -> None:
+    """Recovering from a degraded streak forces a device-time re-sync."""
+    coordinator._set_time_pending = False
+    note_cycle_outcome(coordinator, degraded=True, reason="status poll failed")
+    note_cycle_outcome(coordinator, degraded=False, reason="")
+    assert coordinator._set_time_pending is True
+
+
+async def test_healthy_cycle_leaves_time_sync_pending_untouched(
+    coordinator: SolemCoordinator,
+) -> None:
+    """Healthy cycles without a streak do not force a device-time re-sync."""
+    coordinator._set_time_pending = False
+    note_cycle_outcome(coordinator, degraded=False, reason="")
+    assert coordinator._set_time_pending is False
+
+
 async def test_metadata_failures_emit_one_warning_and_debug_detail(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,

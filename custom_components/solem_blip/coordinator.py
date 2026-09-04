@@ -228,6 +228,16 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Clear stored monitor task when it completes."""
         clear_monitor_task_ref(self, task)
 
+    def request_device_time_sync(self) -> None:
+        """Force a device-time sync on the next successful status poll.
+
+        Clears the 24h throttle set by ``maybe_set_device_time`` so a
+        controller that lost its clock (e.g. after a power/battery blip)
+        is re-synced as soon as the BLE link recovers, instead of waiting
+        up to a day.
+        """
+        self._set_time_pending = True
+
     async def _await_irrigation_monitor_task(self) -> None:
         """Wait for the background irrigation monitor to finish."""
         await await_irrigation_monitor_task(self)
