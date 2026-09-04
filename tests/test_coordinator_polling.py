@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.api import APIConnectionError
+from custom_components.solem_blip.ble_health import note_cycle_outcome
 from custom_components.solem_blip.const import SOLEM_API_MOCK
 from custom_components.solem_blip.coordinator import SolemCoordinator
 
@@ -345,6 +346,46 @@ async def test_set_time_throttled(
         await coordinator._fetch_device_status()
 
     mock_solem_client.set_time.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_set_time_retriggers_after_cycle_recovery(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A degraded-cycle recovery bypasses the 24h device-time throttle."""
+    config_entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        data=mock_config_entry.data,
+        options={
+            **mock_config_entry.options,
+            SOLEM_API_MOCK: "false",
+        },
+        unique_id=mock_config_entry.unique_id,
+    )
+    mock_solem_client.mock = False
+
+    with patch(
+        "custom_components.solem_blip.coordinator.SolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+        # After the first sync the 24h throttle applies: no more set_time.
+        await coordinator._fetch_device_status()
+        assert mock_solem_client.set_time.await_count == 1
+
+        # Degraded cycle followed by recovery forces a re-sync next poll.
+        note_cycle_outcome(coordinator, degraded=True, reason="status poll failed")
+        note_cycle_outcome(coordinator, degraded=False, reason="")
+        await coordinator._fetch_device_status()
+
+    assert mock_solem_client.set_time.await_count == 2
+    assert coordinator._set_time_pending is False
 
 
 @pytest.mark.asyncio

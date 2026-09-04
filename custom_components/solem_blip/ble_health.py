@@ -44,6 +44,11 @@ def note_cycle_outcome(
                 coordinator.controller_mac_address,
                 streak,
             )
+            # The link was down long enough to break the cycle streak: the
+            # controller may have lost its clock too (e.g. power/battery
+            # blip), so re-sync device time on the next poll instead of
+            # waiting out the 24h throttle.
+            coordinator.request_device_time_sync()
         coordinator._ble_cycle_degraded_streak = 0
         return
 
