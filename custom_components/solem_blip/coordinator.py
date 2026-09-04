@@ -125,6 +125,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.battery_voltage: int | None = None
         self.battery_level: int | None = None
         self.battery_low: bool | None = None
+        self.time_alarm: bool | None = None
         self._has_status = False
         self.irrigation_manual_duration = DEFAULT_MANUAL_DURATION
         self.controller_off_days = DEFAULT_CONTROLLER_OFF_DAYS

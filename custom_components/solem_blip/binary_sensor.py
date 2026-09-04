@@ -71,6 +71,14 @@ class BatteryLow(SolemBinarySensorEntity):
         return self.coordinator.battery_low
 
 
+class TimeAlarm(SolemBinarySensorEntity):
+    """Controller clock/time alarm (status byte 3 bit 0x20)."""
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.time_alarm
+
+
 class ProgramRunning(SolemBinarySensorEntity):
     """Program run in progress (from status byte 8)."""
 
@@ -84,5 +92,6 @@ class ProgramRunning(SolemBinarySensorEntity):
 
 BINARY_SENSOR_ENTITY_CLASSES: dict[str, type[SolemBinarySensorEntity]] = {
     "BATTERY_LOW_SENSOR": BatteryLow,
+    "TIME_ALARM_SENSOR": TimeAlarm,
     "PROGRAM_RUNNING_SENSOR": ProgramRunning,
 }

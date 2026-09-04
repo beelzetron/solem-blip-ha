@@ -103,6 +103,9 @@
       "battery_low": {
         "name": "Batterie faible"
       },
+      "time_alarm": {
+        "name": "Horloge non synchronisée"
+      },
       "program_running": {
         "name": "{program_name} en cours"
       }

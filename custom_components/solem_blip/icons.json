@@ -3,6 +3,9 @@
     "binary_sensor": {
       "battery_low": {
         "default": "mdi:battery-alert"
+      },
+      "time_alarm": {
+        "default": "mdi:clock-alert-outline"
       }
     },
     "button": {

@@ -205,13 +205,19 @@ async def test_program_sensor_subscribes_to_schedule_coordinator(
 async def test_binary_sensor_platform(
     hass: HomeAssistant, coordinator: SolemCoordinator, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Binary sensor platform exposes battery low and program running sensors."""
+    """Binary sensor platform exposes battery low, clock alarm and program running sensors."""
     entities = await _setup_platform(hass, coordinator, mock_config_entry, setup_binary)
-    assert len(entities) == 4
+    assert len(entities) == 5
     battery_entities = [e for e in entities if e.__class__.__name__ == "BatteryLow"]
     assert len(battery_entities) == 1
     coordinator.battery_low = False
     assert battery_entities[0].is_on is False
+    time_alarm_entities = [e for e in entities if e.__class__.__name__ == "TimeAlarm"]
+    assert len(time_alarm_entities) == 1
+    coordinator.time_alarm = False
+    assert time_alarm_entities[0].is_on is False
+    coordinator.time_alarm = True
+    assert time_alarm_entities[0].is_on is True
 
 
 @pytest.mark.asyncio

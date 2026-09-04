@@ -101,6 +101,7 @@
   "entity": {
     "binary_sensor": {
       "battery_low": { "name": "Battery low" },
+      "time_alarm": { "name": "Clock alarm" },
       "program_running": { "name": "{program_name} running" }
     },
     "button": {

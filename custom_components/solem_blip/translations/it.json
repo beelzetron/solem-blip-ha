@@ -101,6 +101,7 @@
   "entity": {
     "binary_sensor": {
       "battery_low": { "name": "Batteria scarica" },
+      "time_alarm": { "name": "Orologio non sincronizzato" },
       "program_running": { "name": "{program_name} in esecuzione" }
     },
     "button": {
