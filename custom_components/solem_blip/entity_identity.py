@@ -218,6 +218,15 @@ def iter_entity_identities(mac: str, num_stations: int) -> Iterator[EntityIdenti
         )
         program_button_counter += 1
 
+    # New entity appended after all legacy slots so existing counter-based
+    # unique_ids (control buttons, program sensors) stay stable across upgrades.
+    yield _yield_identity(
+        mac,
+        f"{mac}_time_alarm",
+        "TIME_ALARM_SENSOR",
+        mac_to_uuid(mac, 1401),
+    )
+
 
 def build_legacy_unique_id_map(mac: str, num_stations: int) -> dict[str, str]:
     """Map legacy unique_id values to stable unique_id values."""

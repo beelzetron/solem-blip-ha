@@ -94,6 +94,45 @@ def test_apply_status_stores_controller_off_days(coordinator: MagicMock) -> None
     assert coordinator.controller_off_days_remaining == 3
 
 
+def test_apply_status_stores_time_alarm(coordinator: MagicMock) -> None:
+    """The controller clock alarm bit is stored on the coordinator."""
+    apply_status(
+        coordinator,
+        {
+            "controller_state": "On",
+            "is_watering": False,
+            "station_num": None,
+            "remaining_seconds": None,
+            "battery_voltage": 70,
+            "battery_level": 3,
+            "battery_low": False,
+            "time_alarm": True,
+            "active_program": None,
+            "watering_origin": None,
+        },
+    )
+    assert coordinator.time_alarm is True
+
+
+def test_apply_status_defaults_time_alarm_to_false(coordinator: MagicMock) -> None:
+    """Status dicts without the key keep clock alarm off."""
+    apply_status(
+        coordinator,
+        {
+            "controller_state": "On",
+            "is_watering": False,
+            "station_num": None,
+            "remaining_seconds": None,
+            "battery_voltage": 70,
+            "battery_level": 3,
+            "battery_low": False,
+            "active_program": None,
+            "watering_origin": None,
+        },
+    )
+    assert coordinator.time_alarm is False
+
+
 def test_apply_status_keeps_program_during_inter_station_idle(
     coordinator: MagicMock,
 ) -> None:

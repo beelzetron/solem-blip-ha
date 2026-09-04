@@ -13,7 +13,7 @@ _LEGACY_UNIQUE_ID_RE = re.compile(
     + re.escape(DOMAIN)
     + r"-[0-9A-Fa-f:]{11,17}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-\d{3,4}-"
     r"(?:state|value|sprinkle_station|stop_sprinkle|controller_on|controller_off"
-    r"|battery_low|program_running)$"
+    r"|battery_low|time_alarm|program_running)$"
 )
 
 

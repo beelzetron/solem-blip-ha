@@ -395,6 +395,20 @@ def build_program_descriptors(
         )
         program_button_counter += 1
 
+    data.append(
+        {
+            "device_id": (
+                f"{coordinator.controller_mac_address}_time_alarm"
+            ),
+            "device_type": "TIME_ALARM_SENSOR",
+            "device_name": "Clock alarm",
+            "device_uid": mac_to_uuid(coordinator.controller_mac_address, 1401),
+            "software_version": "1.0",
+            "state": coordinator.time_alarm,
+            "last_reboot": None,
+        }
+    )
+
     return data
 
 

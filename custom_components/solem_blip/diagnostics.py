@@ -56,6 +56,7 @@ async def async_get_config_entry_diagnostics(
             "level": coordinator.battery_level,
             "voltage_raw": coordinator.battery_voltage,
             "low": coordinator.battery_low,
+            "time_alarm": coordinator.time_alarm,
         },
         "irrigation": {
             "active": coordinator._irrigation_active,

@@ -140,6 +140,14 @@ BINARY_SENSOR_DESCRIPTIONS: dict[str, SolemBinarySensorEntityDescription] = {
         entity_category=EntityCategory.DIAGNOSTIC,
         has_entity_name=True,
     ),
+    "TIME_ALARM_SENSOR": SolemBinarySensorEntityDescription(
+        key="time_alarm",
+        device_type="TIME_ALARM_SENSOR",
+        translation_key="time_alarm",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        has_entity_name=True,
+    ),
     "PROGRAM_RUNNING_SENSOR": SolemBinarySensorEntityDescription(
         key="program_running",
         device_type="PROGRAM_RUNNING_SENSOR",
