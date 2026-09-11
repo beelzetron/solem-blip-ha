@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-import voluptuous_serialize
+from probatio import to_field_list
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.config_entries import OptionsFlowWithReload
@@ -740,7 +740,7 @@ def test_options_flow_program_edit_schema_serializes(
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        serialized = voluptuous_serialize.convert(
+        serialized = to_field_list(
             handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
             custom_serializer=cv.custom_serializer,
         )
@@ -760,7 +760,7 @@ def test_options_flow_program_edit_schema_uses_station_names(
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        serialized = voluptuous_serialize.convert(
+        serialized = to_field_list(
             handler._program_schema(
                 MOCK_IRRIGATION_PROGRAMS[2],
                 station_names={1: "Front lawn", 2: "Herbs"},
