@@ -17,6 +17,7 @@ from custom_components.solem_blip.const import DOMAIN
 from custom_components.solem_blip.coordinator import SolemCoordinator
 from custom_components.solem_blip.services import (
     SERVICE_REFRESH_PROGRAMS,
+    SERVICE_RESTORE_PROGRAMS,
     SERVICE_SET_PROGRAM,
     async_unload_services,
     async_setup_services,
@@ -172,11 +173,13 @@ async def test_services_register_once_and_unload(hass: HomeAssistant) -> None:
 
     assert hass.services.has_service(DOMAIN, SERVICE_SET_PROGRAM)
     assert hass.services.has_service(DOMAIN, SERVICE_REFRESH_PROGRAMS)
+    assert hass.services.has_service(DOMAIN, SERVICE_RESTORE_PROGRAMS)
 
     async_unload_services(hass)
 
     assert not hass.services.has_service(DOMAIN, SERVICE_SET_PROGRAM)
     assert not hass.services.has_service(DOMAIN, SERVICE_REFRESH_PROGRAMS)
+    assert not hass.services.has_service(DOMAIN, SERVICE_RESTORE_PROGRAMS)
 
 
 @pytest.mark.asyncio
@@ -219,6 +222,140 @@ async def test_set_program_service_wraps_write_failure(
             blocking=True,
         )
 
+
+
+@pytest.mark.asyncio
+async def test_restore_programs_service_replays_backup(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """restore_programs replays each backed-up slot through the coordinator."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
+    programs = {
+        0: {
+            "name": "Morning",
+            "inter_station_delay": 0,
+            "water_budget": 100,
+            "cycle": 0,
+            "week_days": 0x7F,
+            "period_length": 1,
+            "synchro_day": 0,
+            "period_start_date": date(2026, 6, 1),
+            "start_times": [360, None, None, None, None, None, None, None],
+            "station_durations": [60, 120],
+        }
+    }
+    await coordinator.program_backup.async_save_if_non_empty(programs)
+    mock_solem_client.set_irrigation_program = AsyncMock(return_value=programs)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_RESTORE_PROGRAMS,
+        {"device_id": device_id},
+        blocking=True,
+    )
+
+    mock_solem_client.set_irrigation_program.assert_awaited_once_with(0, programs[0])
+
+
+@pytest.mark.asyncio
+async def test_restore_programs_service_rejects_missing_backup(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """restore_programs fails clearly when no snapshot exists."""
+    _, device_id = await _setup_service_target(hass, mock_config_entry, mock_solem_client)
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
+
+    mock_solem_client.set_irrigation_program.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_restore_programs_service_rejects_active_watering(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Backups cannot be restored while watering is active."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    await coordinator.program_backup.async_save_if_non_empty(
+        {
+            0: {
+                "name": "Morning",
+                "inter_station_delay": 0,
+                "water_budget": 100,
+                "cycle": 0,
+                "week_days": 0x7F,
+                "period_length": 1,
+                "synchro_day": 0,
+                "period_start_date": None,
+                "start_times": [360, None, None, None, None, None, None, None],
+                "station_durations": [60, 120],
+            }
+        }
+    )
+    coordinator._is_watering = True
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
+
+    mock_solem_client.set_irrigation_program.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_restore_programs_service_wraps_write_failure(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """BLE restore errors are surfaced as service errors."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    await coordinator.program_backup.async_save_if_non_empty(
+        {
+            0: {
+                "name": "Morning",
+                "inter_station_delay": 0,
+                "water_budget": 100,
+                "cycle": 0,
+                "week_days": 0x7F,
+                "period_length": 1,
+                "synchro_day": 0,
+                "period_start_date": None,
+                "start_times": [360, None, None, None, None, None, None, None],
+                "station_durations": [60, 120],
+            }
+        }
+    )
+    mock_solem_client.set_irrigation_program = AsyncMock(side_effect=RuntimeError)
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
 
 def test_program_service_data_validation_errors() -> None:
     """Structured program service data rejects malformed values."""
