@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .config_entry import MyConfigEntry
+from .const import BATTERY_EARLY_WARNING_LEVEL
 from .entity import SolemBaseEntity
 from .coordinator import SolemCoordinator
 from .entity_descriptions import (
@@ -64,11 +65,25 @@ class SolemBinarySensorEntity(SolemBaseEntity, BinarySensorEntity):
 
 
 class BatteryLow(SolemBinarySensorEntity):
-    """Battery low alert binary sensor."""
+    """Battery low alert binary sensor.
+
+    Early warning: in addition to the protocol low-battery alert
+    (raw 9V voltage below the alert threshold), this also triggers when
+    the reported battery icon level drops to 1/5 or lower. A controller
+    can sit at level 1 (voltage in the 50-59 range) with the protocol
+    alert still false and then stop advertising before the alert ever
+    fires, so level-based detection is the only reliable early warning.
+    """
 
     @property
     def is_on(self) -> bool | None:
-        return self.coordinator.battery_low
+        low = self.coordinator.battery_low
+        level = self.coordinator.battery_level
+        if low or (level is not None and level <= BATTERY_EARLY_WARNING_LEVEL):
+            return True
+        if low is None and level is None:
+            return None
+        return False
 
 
 class TimeAlarm(SolemBinarySensorEntity):

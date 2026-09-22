@@ -51,3 +51,9 @@ PERSISTENT_DISCONNECT_TIMEOUT = 5
 DEFAULT_MANUAL_DURATION = 10
 DEFAULT_CONTROLLER_OFF_DAYS = 1
 MAX_CONTROLLER_OFF_DAYS = 15
+
+# Early-warning threshold on the reported battery icon level (0-5).
+# The protocol low-battery alert only fires below raw voltage 50, which
+# is inside the level-1 range (50-59): a controller can reach 1/5 and
+# then die without the protocol alert ever triggering (#92).
+BATTERY_EARLY_WARNING_LEVEL = 1
