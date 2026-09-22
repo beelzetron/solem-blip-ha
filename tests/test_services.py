@@ -15,7 +15,10 @@ from solem_blip_ble.exceptions import SolemConnectionError, SolemDeadlineExceede
 
 from custom_components.solem_blip import RuntimeData
 from custom_components.solem_blip.const import DOMAIN
-from custom_components.solem_blip.coordinator import (\n    RESTORE_PROGRAM_WRITE_DELAY,\n    SolemCoordinator,\n)
+from custom_components.solem_blip.coordinator import (
+    RESTORE_PROGRAM_WRITE_DELAY,
+    SolemCoordinator,
+)
 from custom_components.solem_blip.services import (
     SERVICE_REFRESH_PROGRAMS,
     SERVICE_RESTORE_PROGRAMS,
