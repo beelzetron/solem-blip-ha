@@ -15,7 +15,7 @@ from solem_blip_ble.exceptions import SolemConnectionError, SolemDeadlineExceede
 
 from custom_components.solem_blip import RuntimeData
 from custom_components.solem_blip.const import DOMAIN
-from custom_components.solem_blip.coordinator import SolemCoordinator
+from custom_components.solem_blip.coordinator import (\n    RESTORE_PROGRAM_WRITE_DELAY,\n    SolemCoordinator,\n)
 from custom_components.solem_blip.services import (
     SERVICE_REFRESH_PROGRAMS,
     SERVICE_RESTORE_PROGRAMS,
@@ -401,6 +401,61 @@ async def test_restore_programs_defers_verification_to_schedule_refresh(
     mock_solem_client.write_irrigation_program.assert_awaited_once_with(1, programs[1])
     mock_solem_client.get_irrigation_config.assert_not_awaited()
     assert coordinator._irrigation_config_refresh_after == 0.0
+
+
+@pytest.mark.asyncio
+async def test_restore_programs_spaces_ble_write_sessions(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Restore lets the controller advertise again between BLE write sessions."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    programs = {
+        1: {
+            "name": "Programme B",
+            "inter_station_delay": 0,
+            "water_budget": 100,
+            "cycle": 4,
+            "week_days": 0x7F,
+            "period_length": 3,
+            "synchro_day": 1,
+            "period_start_date": date(2026, 9, 22),
+            "start_times": [360, None, None, None, None, None, None, None],
+            "station_durations": [600, 600],
+        },
+        2: {
+            "name": "Programme C",
+            "inter_station_delay": 0,
+            "water_budget": 100,
+            "cycle": 4,
+            "week_days": 0x7F,
+            "period_length": 7,
+            "synchro_day": 5,
+            "period_start_date": date(2026, 9, 22),
+            "start_times": [1200, None, None, None, None, None, None, None],
+            "station_durations": [0, 1200],
+        },
+    }
+    await coordinator.program_backup.async_save_if_non_empty(programs)
+    mock_solem_client.write_irrigation_program = AsyncMock()
+
+    with patch(
+        "custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()
+    ) as sleep:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
+
+    assert sleep.await_args_list == [
+        ((RESTORE_PROGRAM_WRITE_DELAY,),),
+        ((RESTORE_PROGRAM_WRITE_DELAY,),),
+    ]
 
 
 @pytest.mark.asyncio
