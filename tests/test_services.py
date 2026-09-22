@@ -423,7 +423,7 @@ async def test_restore_programs_retries_stale_readback_once(
             "synchro_day": 5,
             "period_start_date": date(2026, 9, 22),
             "start_times": [1200, None, None, None, None, None, None, None],
-            "station_durations": [0, 0, 0, 0, 0, 1200],
+            "station_durations": [0, 1200],
         }
     }
     stale = {
@@ -479,7 +479,7 @@ async def test_restore_programs_accepts_delayed_success_without_rewrite(
             "synchro_day": 1,
             "period_start_date": date(2026, 9, 22),
             "start_times": [360, None, None, None, None, None, None, None],
-            "station_durations": [0, 600, 600, 600, 600, 0],
+            "station_durations": [600, 600],
         }
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
