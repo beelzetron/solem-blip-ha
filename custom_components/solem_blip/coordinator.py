@@ -60,6 +60,7 @@ from .coordinator_publish import publish_descriptor_update
 from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
+from .program_backup import ProgramBackupStore
 from .ble_health import note_cycle_outcome
 from .bluetooth_issue import note_ble_recovery
 
@@ -144,6 +145,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.active_program_num: int | None = None
         self.watering_origin: str | None = None
         self.irrigation_programs: dict[int, IrrigationProgram] = {}
+        self.program_backup = ProgramBackupStore(hass, config_entry.entry_id)
         self._irrigation_config_retry_after = 0.0
         self._irrigation_config_refresh_after = 0.0
         self.schedule_coordinator = SolemScheduleCoordinator(hass, config_entry, self)
@@ -227,6 +229,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     async def async_init(self) -> None:
         """Build initial entity data without blocking setup on BLE availability."""
+        await self.program_backup.async_load()
         self._ready = True
         self.data = await self.async_update_all_sensors(fetch_status=False)
         self.last_update_success = False
@@ -323,6 +326,22 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.request_schedule_refresh()
         self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))
         self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
+
+    async def restore_irrigation_programs(self) -> None:
+        """Restore the last persisted non-empty irrigation program set."""
+        programs = self.program_backup.programs
+        if not programs:
+            raise ValueError("No irrigation program backup is available")
+        for program_index in sorted(programs):
+            self.irrigation_programs = await self.api.set_irrigation_program(
+                program_index,
+                programs[program_index],
+            )
+        self.request_schedule_refresh()
+        self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))
+        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
 
     async def turn_controller_on(self) -> None:
         """Turn the irrigation controller on."""
