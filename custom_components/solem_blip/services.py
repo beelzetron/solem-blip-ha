@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
 
 SERVICE_REFRESH_PROGRAMS = "refresh_programs"
+SERVICE_RESTORE_PROGRAMS = "restore_programs"
 SERVICE_SET_PROGRAM = "set_program"
 
 ATTR_CYCLE = "cycle"
@@ -119,6 +120,26 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 },
             ) from err
 
+    async def handle_restore_programs(call: ServiceCall) -> None:
+        coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
+        if coordinator._irrigation_active or coordinator._is_watering:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_while_watering",
+            )
+        if not coordinator.program_backup.programs:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_no_backup",
+            )
+        try:
+            await coordinator.restore_irrigation_programs()
+        except Exception as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_failed",
+            ) from err
+
     async def handle_refresh_programs(call: ServiceCall) -> None:
         coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
         coordinator.request_schedule_refresh()
@@ -132,6 +153,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_RESTORE_PROGRAMS,
+        handle_restore_programs,
+        schema=_COMMON_SERVICE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_REFRESH_PROGRAMS,
         handle_refresh_programs,
         schema=_COMMON_SERVICE_SCHEMA,
@@ -140,7 +167,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
 def async_unload_services(hass: HomeAssistant) -> None:
     """Remove Solem BL-IP services."""
-    for service in (SERVICE_SET_PROGRAM, SERVICE_REFRESH_PROGRAMS):
+    for service in (
+        SERVICE_SET_PROGRAM,
+        SERVICE_RESTORE_PROGRAMS,
+        SERVICE_REFRESH_PROGRAMS,
+    ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
 
