@@ -19,6 +19,7 @@ from solem_blip_ble import (
     irrigation_program_write_mismatches,
 )
 from solem_blip_ble.exceptions import SolemDeadlineExceeded
+from solem_blip_ble.protocol import normalize_irrigation_program_for_write
 
 from .client_factory import (
     PersistentSolemClient,
@@ -338,36 +339,77 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         program_index: int,
         program: IrrigationProgram,
     ) -> dict[int, IrrigationProgram]:
-        """Write one backed-up program, recovering a timed-out write verification."""
-        try:
-            return await self.api.set_irrigation_program(program_index, program)
-        except SolemDeadlineExceeded:
-            # The V5 controller may drop the BLE link after accepting the write.
-            # set_irrigation_program() then times out in its immediate read-back even
-            # though the write itself succeeded. Reconnect with a fresh read and
-            # verify the slot before continuing with the next backed-up program.
-            _LOGGER.warning(
-                "%s - Program %s write verification timed out; "
-                "reconnecting to verify the controller state",
-                self.controller_mac_address,
-                PROGRAM_LABELS[program_index],
-            )
-            await asyncio.sleep(1)
-            programs = await self.api.get_irrigation_config()
-            mismatches = irrigation_program_write_mismatches(
-                programs.get(program_index),
-                program,
-            )
-            if mismatches:
+        """Write one backed-up program with delayed verification and one retry."""
+        expected = normalize_irrigation_program_for_write(
+            program,
+            max_stations=self.num_stations,
+        )
+
+        for attempt in range(2):
+            try:
+                return await self.api.set_irrigation_program(program_index, program)
+            except (SolemDeadlineExceeded, SolemConnectionError) as err:
+                # Hardware validation showed two recoverable V5 behaviours here:
+                # the immediate read-back can time out after an accepted write, or
+                # it can briefly return the previous slot contents. Give the
+                # controller time to settle, reconnect with a fresh read, and only
+                # rewrite the slot when that delayed verification still mismatches.
+                _LOGGER.warning(
+                    "%s - Program %s write verification failed on attempt %s/2 "
+                    "(%s); waiting before a fresh verification",
+                    self.controller_mac_address,
+                    PROGRAM_LABELS[program_index],
+                    attempt + 1,
+                    str(err) or type(err).__name__,
+                )
+                await asyncio.sleep(2)
+
+                try:
+                    programs = await self.api.get_irrigation_config()
+                except (SolemDeadlineExceeded, SolemConnectionError):
+                    if attempt == 0:
+                        _LOGGER.warning(
+                            "%s - Program %s delayed verification could not be read; "
+                            "retrying the write once",
+                            self.controller_mac_address,
+                            PROGRAM_LABELS[program_index],
+                        )
+                        await asyncio.sleep(2)
+                        continue
+                    raise
+
+                mismatches = irrigation_program_write_mismatches(
+                    programs.get(program_index),
+                    expected,
+                )
+                if not mismatches:
+                    _LOGGER.info(
+                        "%s - Program %s confirmed by delayed verification",
+                        self.controller_mac_address,
+                        PROGRAM_LABELS[program_index],
+                    )
+                    return programs
+
+                if attempt == 0:
+                    _LOGGER.warning(
+                        "%s - Program %s still contains the previous state after "
+                        "delayed verification; retrying the write once",
+                        self.controller_mac_address,
+                        PROGRAM_LABELS[program_index],
+                    )
+                    await asyncio.sleep(2)
+                    continue
+
                 details = ", ".join(
-                    f"{field}: expected {expected!r}, got {actual!r}"
-                    for field, (expected, actual) in mismatches.items()
+                    f"{field}: expected {wanted!r}, got {actual!r}"
+                    for field, (wanted, actual) in mismatches.items()
                 )
                 raise SolemConnectionError(
-                    "Irrigation program restore verification failed "
+                    "Irrigation program restore verification failed after retry "
                     f"({details})"
-                )
-            return programs
+                ) from err
+
+        raise AssertionError("Unreachable irrigation program restore state")
 
     async def restore_irrigation_programs(self) -> None:
         """Restore the last persisted non-empty irrigation program set."""
