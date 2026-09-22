@@ -14,7 +14,7 @@ from custom_components.solem_blip.entity_descriptions import (
 @pytest.fixture
 def battery_low_entity(coordinator) -> BatteryLow:
     """Return a BatteryLow entity wired to the shared coordinator fixture."""
-    device = {"device_type": "BATTERY_LOW_SENSOR"}
+    device = {"device_id": "BATTERY_LOW", "device_type": "BATTERY_LOW_SENSOR"}
     return BatteryLow(
         coordinator,
         device,
