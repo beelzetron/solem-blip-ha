@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from solem_blip_ble.exceptions import SolemDeadlineExceeded
+from solem_blip_ble.exceptions import SolemConnectionError, SolemDeadlineExceeded
 
 from custom_components.solem_blip import RuntimeData
 from custom_components.solem_blip.const import DOMAIN
@@ -398,6 +398,105 @@ async def test_restore_programs_recovers_timed_out_write_verification(
         )
 
     mock_solem_client.set_irrigation_program.assert_awaited_once_with(0, programs[0])
+    mock_solem_client.get_irrigation_config.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_restore_programs_retries_stale_readback_once(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A stale immediate read-back is delayed, verified, and rewritten once."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
+    expected = {
+        2: {
+            "name": "Programme C",
+            "inter_station_delay": 0,
+            "water_budget": 100,
+            "cycle": 4,
+            "week_days": 0x7F,
+            "period_length": 7,
+            "synchro_day": 5,
+            "period_start_date": date(2026, 9, 22),
+            "start_times": [1200, None, None, None, None, None, None, None],
+            "station_durations": [0, 0, 0, 0, 0, 1200],
+        }
+    }
+    stale = {
+        2: {
+            **expected[2],
+            "name": "test 2",
+            "cycle": 0,
+            "week_days": 0,
+            "synchro_day": 0,
+            "start_times": [None, None, None, None, None, None, None, None],
+        }
+    }
+    await coordinator.program_backup.async_save_if_non_empty(expected)
+    mock_solem_client.set_irrigation_program = AsyncMock(
+        side_effect=[
+            SolemConnectionError("stale immediate read-back"),
+            expected,
+        ]
+    )
+    mock_solem_client.get_irrigation_config = AsyncMock(return_value=stale)
+
+    with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
+
+    assert mock_solem_client.set_irrigation_program.await_count == 2
+    mock_solem_client.get_irrigation_config.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_restore_programs_accepts_delayed_success_without_rewrite(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A delayed read that matches the backup avoids an unnecessary second write."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
+    programs = {
+        1: {
+            "name": "Programme B",
+            "inter_station_delay": 0,
+            "water_budget": 100,
+            "cycle": 4,
+            "week_days": 0x7F,
+            "period_length": 3,
+            "synchro_day": 1,
+            "period_start_date": date(2026, 9, 22),
+            "start_times": [360, None, None, None, None, None, None, None],
+            "station_durations": [0, 600, 600, 600, 600, 0],
+        }
+    }
+    await coordinator.program_backup.async_save_if_non_empty(programs)
+    mock_solem_client.set_irrigation_program = AsyncMock(
+        side_effect=SolemConnectionError("stale immediate read-back")
+    )
+    mock_solem_client.get_irrigation_config = AsyncMock(return_value=programs)
+
+    with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
+
+    mock_solem_client.set_irrigation_program.assert_awaited_once_with(1, programs[1])
     mock_solem_client.get_irrigation_config.assert_awaited_once()
 
 
