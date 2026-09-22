@@ -140,7 +140,7 @@ async def test_set_program_service_rejects_active_watering(
             blocking=True,
         )
 
-    mock_solem_client.write_irrigation_program.assert_not_awaited()
+    mock_solem_client.set_irrigation_program.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -207,7 +207,7 @@ async def test_set_program_service_wraps_write_failure(
 ) -> None:
     """BLE write errors are surfaced as service errors."""
     _, device_id = await _setup_service_target(hass, mock_config_entry, mock_solem_client)
-    mock_solem_client.write_irrigation_program = AsyncMock(side_effect=RuntimeError)
+    mock_solem_client.set_irrigation_program = AsyncMock(side_effect=RuntimeError)
 
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
@@ -283,7 +283,7 @@ async def test_restore_programs_service_rejects_missing_backup(
             blocking=True,
         )
 
-    mock_solem_client.write_irrigation_program.assert_not_awaited()
+    assert not mock_solem_client.write_irrigation_program.called
 
 
 @pytest.mark.asyncio
@@ -322,7 +322,7 @@ async def test_restore_programs_service_rejects_active_watering(
             blocking=True,
         )
 
-    mock_solem_client.write_irrigation_program.assert_not_awaited()
+    assert not mock_solem_client.write_irrigation_program.called
 
 
 @pytest.mark.asyncio
@@ -403,12 +403,12 @@ async def test_restore_programs_uses_independent_final_verification(
 
 
 @pytest.mark.asyncio
-async def test_restore_programs_retries_only_slots_failing_final_verification(
+async def test_restore_programs_does_not_retry_slots_failing_final_verification(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """Only slots proven stale by the independent final read are rewritten."""
+    """A stale final read fails without adding more BLE write retries."""
     coordinator, device_id = await _setup_service_target(
         hass, mock_config_entry, mock_solem_client
     )
@@ -452,11 +452,12 @@ async def test_restore_programs_retries_only_slots_failing_final_verification(
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
     mock_solem_client.write_irrigation_program = AsyncMock()
-    mock_solem_client.get_irrigation_config = AsyncMock(
-        side_effect=[stale, programs]
-    )
+    mock_solem_client.get_irrigation_config = AsyncMock(return_value=stale)
 
-    with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
+    with (
+        patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()),
+        pytest.raises(HomeAssistantError),
+    ):
         await hass.services.async_call(
             DOMAIN,
             SERVICE_RESTORE_PROGRAMS,
