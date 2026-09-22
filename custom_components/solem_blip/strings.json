@@ -175,6 +175,15 @@
     "set_program_while_watering": {
       "message": "Program schedules cannot be changed while watering is active."
     },
+    "restore_programs_failed": {
+      "message": "Failed to restore the backed-up programs to the controller."
+    },
+    "restore_programs_no_backup": {
+      "message": "No backed-up irrigation programs are available for this controller."
+    },
+    "restore_programs_while_watering": {
+      "message": "Program schedules cannot be restored while watering is active."
+    },
     "service_device_not_found": {
       "message": "Could not find the selected Solem BL-IP controller."
     }
