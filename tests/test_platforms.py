@@ -211,6 +211,7 @@ async def test_binary_sensor_platform(
     battery_entities = [e for e in entities if e.__class__.__name__ == "BatteryLow"]
     assert len(battery_entities) == 1
     coordinator.battery_low = False
+    coordinator.battery_level = 5
     assert battery_entities[0].is_on is False
     time_alarm_entities = [e for e in entities if e.__class__.__name__ == "TimeAlarm"]
     assert len(time_alarm_entities) == 1
