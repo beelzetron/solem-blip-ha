@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
@@ -17,6 +18,8 @@ from .const import DOMAIN, PROGRAM_LABELS
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 SERVICE_REFRESH_PROGRAMS = "refresh_programs"
 SERVICE_RESTORE_PROGRAMS = "restore_programs"
@@ -135,6 +138,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         try:
             await coordinator.restore_irrigation_programs()
         except Exception as err:
+            _LOGGER.exception(
+                "%s - Failed to restore irrigation programs: %s",
+                coordinator.controller_mac_address,
+                str(err) or type(err).__name__,
+            )
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="restore_programs_failed",
