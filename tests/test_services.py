@@ -263,7 +263,7 @@ async def test_restore_programs_service_replays_backup(
         )
 
     mock_solem_client.write_irrigation_program.assert_awaited_once_with(0, programs[0])
-    mock_solem_client.get_irrigation_config.assert_awaited_once()
+    mock_solem_client.get_irrigation_config.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -362,16 +362,15 @@ async def test_restore_programs_service_wraps_write_failure(
         )
 
 @pytest.mark.asyncio
-async def test_restore_programs_uses_independent_final_verification(
+async def test_restore_programs_defers_verification_to_schedule_refresh(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """Immediate verification failures do not decide complete restore success."""
+    """Restore writes the snapshot without forcing an immediate heavy read."""
     coordinator, device_id = await _setup_service_target(
         hass, mock_config_entry, mock_solem_client
     )
-    coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
     programs = {
         1: {
             "name": "Programme B",
@@ -388,7 +387,8 @@ async def test_restore_programs_uses_independent_final_verification(
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
     mock_solem_client.write_irrigation_program = AsyncMock()
-    mock_solem_client.get_irrigation_config = AsyncMock(return_value=programs)
+    mock_solem_client.get_irrigation_config = AsyncMock()
+    coordinator._irrigation_config_refresh_after = float("inf")
 
     with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
         await hass.services.async_call(
@@ -399,127 +399,8 @@ async def test_restore_programs_uses_independent_final_verification(
         )
 
     mock_solem_client.write_irrigation_program.assert_awaited_once_with(1, programs[1])
-    mock_solem_client.get_irrigation_config.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_restore_programs_does_not_retry_slots_failing_final_verification(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    mock_solem_client: MagicMock,
-) -> None:
-    """A stale final read fails without adding more BLE write retries."""
-    coordinator, device_id = await _setup_service_target(
-        hass, mock_config_entry, mock_solem_client
-    )
-    coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
-    programs = {
-        1: {
-            "name": "Programme B",
-            "inter_station_delay": 0,
-            "water_budget": 100,
-            "cycle": 4,
-            "week_days": 0x7F,
-            "period_length": 3,
-            "synchro_day": 1,
-            "period_start_date": date(2026, 9, 22),
-            "start_times": [360, None, None, None, None, None, None, None],
-            "station_durations": [600, 600],
-        },
-        2: {
-            "name": "Programme C",
-            "inter_station_delay": 0,
-            "water_budget": 100,
-            "cycle": 4,
-            "week_days": 0x7F,
-            "period_length": 7,
-            "synchro_day": 5,
-            "period_start_date": date(2026, 9, 22),
-            "start_times": [1200, None, None, None, None, None, None, None],
-            "station_durations": [0, 1200],
-        },
-    }
-    stale = {
-        **programs,
-        2: {
-            **programs[2],
-            "name": "test 2",
-            "cycle": 0,
-            "week_days": 0,
-            "synchro_day": 0,
-            "start_times": [None, None, None, None, None, None, None, None],
-        },
-    }
-    await coordinator.program_backup.async_save_if_non_empty(programs)
-    mock_solem_client.write_irrigation_program = AsyncMock()
-    mock_solem_client.get_irrigation_config = AsyncMock(return_value=stale)
-
-    with (
-        patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()),
-        pytest.raises(HomeAssistantError),
-    ):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_RESTORE_PROGRAMS,
-            {"device_id": device_id},
-            blocking=True,
-        )
-
-    assert mock_solem_client.write_irrigation_program.await_count == 2
-    assert mock_solem_client.get_irrigation_config.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_restore_programs_fails_if_final_retry_is_not_persisted(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    mock_solem_client: MagicMock,
-) -> None:
-    """Restore reports failure when the controller remains stale after retry."""
-    coordinator, device_id = await _setup_service_target(
-        hass, mock_config_entry, mock_solem_client
-    )
-    programs = {
-        2: {
-            "name": "Programme C",
-            "inter_station_delay": 0,
-            "water_budget": 100,
-            "cycle": 4,
-            "week_days": 0x7F,
-            "period_length": 7,
-            "synchro_day": 5,
-            "period_start_date": date(2026, 9, 22),
-            "start_times": [1200, None, None, None, None, None, None, None],
-            "station_durations": [0, 1200],
-        }
-    }
-    stale = {
-        2: {
-            **programs[2],
-            "name": "test 2",
-            "cycle": 0,
-            "week_days": 0,
-            "synchro_day": 0,
-            "start_times": [None, None, None, None, None, None, None, None],
-        }
-    }
-    await coordinator.program_backup.async_save_if_non_empty(programs)
-    mock_solem_client.write_irrigation_program = AsyncMock()
-    mock_solem_client.get_irrigation_config = AsyncMock(return_value=stale)
-
-    with (
-        patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()),
-        pytest.raises(HomeAssistantError),
-    ):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_RESTORE_PROGRAMS,
-            {"device_id": device_id},
-            blocking=True,
-        )
-
-    assert mock_solem_client.write_irrigation_program.await_count == 1
-    assert mock_solem_client.get_irrigation_config.await_count == 1
+    mock_solem_client.get_irrigation_config.assert_not_awaited()
+    assert coordinator._irrigation_config_refresh_after == 0.0
 
 
 @pytest.mark.asyncio
