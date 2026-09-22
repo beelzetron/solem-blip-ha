@@ -94,3 +94,11 @@ refresh_programs:
       selector:
         device:
           integration: solem_blip
+
+restore_programs:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: solem_blip
