@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from solem_blip_ble.exceptions import SolemDeadlineExceeded
 
 from custom_components.solem_blip import RuntimeData
 from custom_components.solem_blip.const import DOMAIN
@@ -356,6 +357,49 @@ async def test_restore_programs_service_wraps_write_failure(
             {"device_id": device_id},
             blocking=True,
         )
+
+@pytest.mark.asyncio
+async def test_restore_programs_recovers_timed_out_write_verification(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A deadline during immediate read-back is recovered by a fresh verified read."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
+    programs = {
+        0: {
+            "name": "Morning",
+            "inter_station_delay": 0,
+            "water_budget": 100,
+            "cycle": 0,
+            "week_days": 0x7F,
+            "period_length": 1,
+            "synchro_day": 0,
+            "period_start_date": date(2026, 6, 1),
+            "start_times": [360, None, None, None, None, None, None, None],
+            "station_durations": [60, 120],
+        }
+    }
+    await coordinator.program_backup.async_save_if_non_empty(programs)
+    mock_solem_client.set_irrigation_program = AsyncMock(
+        side_effect=SolemDeadlineExceeded("verification deadline")
+    )
+    mock_solem_client.get_irrigation_config = AsyncMock(return_value=programs)
+
+    with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
+
+    mock_solem_client.set_irrigation_program.assert_awaited_once_with(0, programs[0])
+    mock_solem_client.get_irrigation_config.assert_awaited_once()
+
 
 def test_program_service_data_validation_errors() -> None:
     """Structured program service data rejects malformed values."""
