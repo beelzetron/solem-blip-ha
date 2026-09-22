@@ -17,7 +17,7 @@ _STORAGE_KEY = f"{DOMAIN}.program_backup"
 
 
 class ProgramBackupStore:
-    """Persist the last known non-empty irrigation program set."""
+    """Persist a protected non-empty irrigation program snapshot."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         self._store = Store[dict[str, Any]](
@@ -46,10 +46,7 @@ class ProgramBackupStore:
     async def async_save_if_non_empty(
         self, programs: dict[int, IrrigationProgram]
     ) -> bool:
-        """Persist programs only when at least one slot contains a real schedule."""
-        if not _has_scheduled_program(programs):
-            return False
-        self._programs = deepcopy(programs)
+        """Persist the first useful snapshot without replacing an existing backup.\n\n        Controller reads are observations, not proof that a changed schedule is\n        a better restore point. Once a useful backup exists, normal polling and\n        schedule writes must not silently replace it.\n        """\n        if self._programs or not _has_scheduled_program(programs):\n            return False\n        self._programs = deepcopy(programs)
         await self._store.async_save(
             {
                 "programs": {
