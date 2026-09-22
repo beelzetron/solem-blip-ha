@@ -140,7 +140,7 @@ async def test_set_program_service_rejects_active_watering(
             blocking=True,
         )
 
-    mock_solem_client.set_irrigation_program.assert_not_awaited()
+    mock_solem_client.write_irrigation_program.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -207,7 +207,7 @@ async def test_set_program_service_wraps_write_failure(
 ) -> None:
     """BLE write errors are surfaced as service errors."""
     _, device_id = await _setup_service_target(hass, mock_config_entry, mock_solem_client)
-    mock_solem_client.set_irrigation_program = AsyncMock(side_effect=RuntimeError)
+    mock_solem_client.write_irrigation_program = AsyncMock(side_effect=RuntimeError)
 
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
@@ -251,7 +251,7 @@ async def test_restore_programs_service_replays_backup(
         }
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
-    mock_solem_client.set_irrigation_program = AsyncMock(return_value=programs)
+    mock_solem_client.write_irrigation_program = AsyncMock()
     mock_solem_client.get_irrigation_config = AsyncMock(return_value=programs)
 
     with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
@@ -262,7 +262,7 @@ async def test_restore_programs_service_replays_backup(
             blocking=True,
         )
 
-    mock_solem_client.set_irrigation_program.assert_awaited_once_with(0, programs[0])
+    mock_solem_client.write_irrigation_program.assert_awaited_once_with(0, programs[0])
     mock_solem_client.get_irrigation_config.assert_awaited_once()
 
 
@@ -283,7 +283,7 @@ async def test_restore_programs_service_rejects_missing_backup(
             blocking=True,
         )
 
-    mock_solem_client.set_irrigation_program.assert_not_awaited()
+    mock_solem_client.write_irrigation_program.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -322,7 +322,7 @@ async def test_restore_programs_service_rejects_active_watering(
             blocking=True,
         )
 
-    mock_solem_client.set_irrigation_program.assert_not_awaited()
+    mock_solem_client.write_irrigation_program.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -351,7 +351,7 @@ async def test_restore_programs_service_wraps_write_failure(
             }
         }
     )
-    mock_solem_client.set_irrigation_program = AsyncMock(side_effect=RuntimeError)
+    mock_solem_client.write_irrigation_program = AsyncMock(side_effect=RuntimeError)
 
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
@@ -387,9 +387,7 @@ async def test_restore_programs_uses_independent_final_verification(
         }
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
-    mock_solem_client.set_irrigation_program = AsyncMock(
-        side_effect=SolemDeadlineExceeded("immediate verification deadline")
-    )
+    mock_solem_client.write_irrigation_program = AsyncMock()
     mock_solem_client.get_irrigation_config = AsyncMock(return_value=programs)
 
     with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
@@ -400,7 +398,7 @@ async def test_restore_programs_uses_independent_final_verification(
             blocking=True,
         )
 
-    mock_solem_client.set_irrigation_program.assert_awaited_once_with(1, programs[1])
+    mock_solem_client.write_irrigation_program.assert_awaited_once_with(1, programs[1])
     mock_solem_client.get_irrigation_config.assert_awaited_once()
 
 
@@ -453,7 +451,7 @@ async def test_restore_programs_retries_only_slots_failing_final_verification(
         },
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
-    mock_solem_client.set_irrigation_program = AsyncMock(return_value=programs)
+    mock_solem_client.write_irrigation_program = AsyncMock()
     mock_solem_client.get_irrigation_config = AsyncMock(
         side_effect=[stale, programs]
     )
@@ -466,12 +464,8 @@ async def test_restore_programs_retries_only_slots_failing_final_verification(
             blocking=True,
         )
 
-    assert mock_solem_client.set_irrigation_program.await_count == 3
-    assert mock_solem_client.set_irrigation_program.await_args_list[-1].args == (
-        2,
-        programs[2],
-    )
-    assert mock_solem_client.get_irrigation_config.await_count == 2
+    assert mock_solem_client.write_irrigation_program.await_count == 2
+    assert mock_solem_client.get_irrigation_config.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -509,7 +503,7 @@ async def test_restore_programs_fails_if_final_retry_is_not_persisted(
         }
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
-    mock_solem_client.set_irrigation_program = AsyncMock(return_value=programs)
+    mock_solem_client.write_irrigation_program = AsyncMock()
     mock_solem_client.get_irrigation_config = AsyncMock(return_value=stale)
 
     with (
@@ -523,8 +517,8 @@ async def test_restore_programs_fails_if_final_retry_is_not_persisted(
             blocking=True,
         )
 
-    assert mock_solem_client.set_irrigation_program.await_count == 2
-    assert mock_solem_client.get_irrigation_config.await_count == 2
+    assert mock_solem_client.write_irrigation_program.await_count == 1
+    assert mock_solem_client.get_irrigation_config.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -565,7 +559,7 @@ async def test_restore_programs_writes_scheduled_slots_before_empty_slots(
         },
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
-    mock_solem_client.set_irrigation_program = AsyncMock(return_value=programs)
+    mock_solem_client.write_irrigation_program = AsyncMock()
     mock_solem_client.get_irrigation_config = AsyncMock(return_value=programs)
 
     with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
@@ -578,7 +572,7 @@ async def test_restore_programs_writes_scheduled_slots_before_empty_slots(
 
     assert [
         call.args[0]
-        for call in mock_solem_client.set_irrigation_program.await_args_list
+        for call in mock_solem_client.write_irrigation_program.await_args_list
     ] == [1, 0]
 
 
