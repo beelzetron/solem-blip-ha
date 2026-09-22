@@ -72,6 +72,11 @@ from .bluetooth_issue import note_ble_recovery
 
 _LOGGER = logging.getLogger(__name__)
 
+# The BL-IP stops advertising briefly after a BLE session closes. Match the
+# library retry spacing before opening the next restore session so consecutive
+# program writes do not race the controller/proxy teardown.
+RESTORE_PROGRAM_WRITE_DELAY = 8.0
+
 
 class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     """Poll BLE status and expose manual irrigation controls."""
@@ -400,7 +405,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 program_index,
                 programs[program_index],
             )
-            await asyncio.sleep(2)
+            await asyncio.sleep(RESTORE_PROGRAM_WRITE_DELAY)
 
         # Do not force a heavy read-back here. Mark schedules due so the normal
         # coordinator performs the next verification after the BLE link settles.
