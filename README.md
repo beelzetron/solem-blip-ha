@@ -23,6 +23,7 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Configure-menu editor for on-device program start times and station durations,
   using loaded program and station names when available
 - Manual start buttons for on-device programs
+- Persistent backup of the last non-empty on-device schedule, with manual restore after battery replacement
 - Program run detection (`0x44` status) with per-program running binary sensors
 - Controller status attributes: active program, program name, watering origin
 - Daily controller RTC synchronization after a successful BLE poll
@@ -195,6 +196,17 @@ retry every 15 minutes without delaying status updates. The Configure menu can
 write the controller's on-device programs. Home Assistant automations or another
 scheduler are still recommended for weather-aware schedules and other logic that
 does not live on the controller.
+
+### Restore programs after a battery replacement
+
+The integration keeps a persistent copy of the last successfully read non-empty
+on-device schedule. An entirely empty controller read does not overwrite that
+backup, so a battery replacement that clears the BL-IP programs does not also
+remove the Home Assistant copy.
+
+Use the `solem_blip.restore_programs` action for the controller device to replay
+the saved programs. Restoration is always manual and is blocked while watering
+is active; the integration never automatically overwrites the controller.
 
 ## Upgrading to 1.2.3+
 
