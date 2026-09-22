@@ -369,13 +369,15 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
 
     async def restore_irrigation_programs(self) -> None:
-        """Restore and independently verify the complete persisted program set."""
+        """Restore programs with write-only BLE operations, then verify once."""
         programs = self.program_backup.programs
         if not programs:
             raise ValueError("No irrigation program backup is available")
 
-        # Restore useful scheduled slots first. An empty/default slot must not
-        # consume the best BLE window before the schedules the user needs.
+        # Restore useful scheduled slots first. The write-only library primitive
+        # avoids the full schedule read-back that set_irrigation_program() does
+        # after every slot; the complete snapshot is verified independently once
+        # after all writes have had time to settle.
         ordered_indexes = sorted(
             programs,
             key=lambda index: (
@@ -391,63 +393,20 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
 
         for program_index in ordered_indexes:
-            try:
-                self.irrigation_programs = await self.api.set_irrigation_program(
-                    program_index,
-                    programs[program_index],
-                )
-            except (SolemDeadlineExceeded, SolemConnectionError) as err:
-                # Immediate read-back is not authoritative on this controller.
-                # Continue writing the snapshot; a separate final read below is
-                # the only source of truth for restore success.
-                _LOGGER.warning(
-                    "%s - Program %s immediate write verification failed (%s); "
-                    "continuing to final restore verification",
-                    self.controller_mac_address,
-                    PROGRAM_LABELS[program_index],
-                    str(err) or type(err).__name__,
-                )
+            await self.api.write_irrigation_program(
+                program_index,
+                programs[program_index],
+            )
             await asyncio.sleep(2)
 
-        # A read performed as part of set_irrigation_program() can expose a
-        # transient state that is not persisted. Verify the complete snapshot
-        # independently after the write sequence has settled.
         await asyncio.sleep(5)
         verified = await self.api.get_irrigation_config()
         mismatches = self._restore_mismatches(verified, programs)
-
         if mismatches:
-            # Retry only slots that the independent final read proves are wrong.
-            for program_index in sorted(mismatches):
-                _LOGGER.warning(
-                    "%s - Program %s failed final restore verification; "
-                    "retrying this slot once",
-                    self.controller_mac_address,
-                    PROGRAM_LABELS[program_index],
-                )
-                try:
-                    await self.api.set_irrigation_program(
-                        program_index,
-                        programs[program_index],
-                    )
-                except (SolemDeadlineExceeded, SolemConnectionError) as err:
-                    _LOGGER.warning(
-                        "%s - Program %s retry immediate verification failed (%s); "
-                        "waiting for authoritative final read",
-                        self.controller_mac_address,
-                        PROGRAM_LABELS[program_index],
-                        str(err) or type(err).__name__,
-                    )
-                await asyncio.sleep(2)
-
-            await asyncio.sleep(5)
-            verified = await self.api.get_irrigation_config()
-            mismatches = self._restore_mismatches(verified, programs)
-            if mismatches:
-                raise SolemConnectionError(
-                    "Irrigation program restore final verification failed ("
-                    f"{self._format_restore_mismatches(mismatches)})"
-                )
+            raise SolemConnectionError(
+                "Irrigation program restore final verification failed ("
+                f"{self._format_restore_mismatches(mismatches)})"
+            )
 
         self.irrigation_programs = verified
         self.request_schedule_refresh()
