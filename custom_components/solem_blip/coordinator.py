@@ -369,15 +369,18 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
 
     async def restore_irrigation_programs(self) -> None:
-        """Restore programs with write-only BLE operations, then verify once."""
+        """Queue backed-up programs with write-only BLE operations.
+
+        Restore deliberately does not perform an immediate full schedule read.
+        The controller and Bluetooth link are allowed to settle, and the normal
+        schedule coordinator verifies the persisted state on a later refresh.
+        """
         programs = self.program_backup.programs
         if not programs:
             raise ValueError("No irrigation program backup is available")
 
-        # Restore useful scheduled slots first. The write-only library primitive
-        # avoids the full schedule read-back that set_irrigation_program() does
-        # after every slot; the complete snapshot is verified independently once
-        # after all writes have had time to settle.
+        # Restore useful scheduled slots first so the meaningful schedules are
+        # sent before empty/default slots if the BLE link later degrades.
         ordered_indexes = sorted(
             programs,
             key=lambda index: (
@@ -399,20 +402,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             )
             await asyncio.sleep(2)
 
-        await asyncio.sleep(5)
-        verified = await self.api.get_irrigation_config()
-        mismatches = self._restore_mismatches(verified, programs)
-        if mismatches:
-            raise SolemConnectionError(
-                "Irrigation program restore final verification failed ("
-                f"{self._format_restore_mismatches(mismatches)})"
-            )
-
-        self.irrigation_programs = verified
+        # Do not force a heavy read-back here. Mark schedules due so the normal
+        # coordinator performs the next verification after the BLE link settles.
         self.request_schedule_refresh()
-        self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))
-        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
-        await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
 
     async def turn_controller_on(self) -> None:
         """Turn the irrigation controller on."""
