@@ -310,6 +310,9 @@ async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None
     coordinator.irrigation_programs = {
         index: programs[index] for index in (0, 1, 2) if index in programs
     }
+    await coordinator.program_backup.async_save_if_non_empty(
+        coordinator.irrigation_programs
+    )
     coordinator._irrigation_config_refresh_after = (
         now + IRRIGATION_CONFIG_REFRESH_INTERVAL
     )
