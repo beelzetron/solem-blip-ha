@@ -46,7 +46,15 @@ class ProgramBackupStore:
     async def async_save_if_non_empty(
         self, programs: dict[int, IrrigationProgram]
     ) -> bool:
-        """Persist the first useful snapshot without replacing an existing backup.\n\n        Controller reads are observations, not proof that a changed schedule is\n        a better restore point. Once a useful backup exists, normal polling and\n        schedule writes must not silently replace it.\n        """\n        if self._programs or not _has_scheduled_program(programs):\n            return False\n        self._programs = deepcopy(programs)
+        """Persist the first useful snapshot without replacing an existing backup.
+
+        Controller reads are observations, not proof that a changed schedule is
+        a better restore point. Once a useful backup exists, normal polling and
+        schedule writes must not silently replace it.
+        """
+        if self._programs or not _has_scheduled_program(programs):
+            return False
+        self._programs = deepcopy(programs)
         await self._store.async_save(
             {
                 "programs": {
@@ -56,7 +64,6 @@ class ProgramBackupStore:
             }
         )
         return True
-
 
 def _has_scheduled_program(programs: dict[int, IrrigationProgram]) -> bool:
     """Return whether at least one program has a start and a station duration."""
