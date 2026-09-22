@@ -13,7 +13,12 @@ from homeassistant.core import HomeAssistant
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from solem_blip_ble import IrrigationProgram
+from solem_blip_ble import (
+    IrrigationProgram,
+    SolemConnectionError,
+    irrigation_program_write_mismatches,
+)
+from solem_blip_ble.exceptions import SolemDeadlineExceeded
 
 from .client_factory import (
     PersistentSolemClient,
@@ -328,13 +333,49 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
         await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
 
+    async def _restore_irrigation_program(
+        self,
+        program_index: int,
+        program: IrrigationProgram,
+    ) -> dict[int, IrrigationProgram]:
+        """Write one backed-up program, recovering a timed-out write verification."""
+        try:
+            return await self.api.set_irrigation_program(program_index, program)
+        except SolemDeadlineExceeded:
+            # The V5 controller may drop the BLE link after accepting the write.
+            # set_irrigation_program() then times out in its immediate read-back even
+            # though the write itself succeeded. Reconnect with a fresh read and
+            # verify the slot before continuing with the next backed-up program.
+            _LOGGER.warning(
+                "%s - Program %s write verification timed out; "
+                "reconnecting to verify the controller state",
+                self.controller_mac_address,
+                PROGRAM_LABELS[program_index],
+            )
+            await asyncio.sleep(1)
+            programs = await self.api.get_irrigation_config()
+            mismatches = irrigation_program_write_mismatches(
+                programs.get(program_index),
+                program,
+            )
+            if mismatches:
+                details = ", ".join(
+                    f"{field}: expected {expected!r}, got {actual!r}"
+                    for field, (expected, actual) in mismatches.items()
+                )
+                raise SolemConnectionError(
+                    "Irrigation program restore verification failed "
+                    f"({details})"
+                )
+            return programs
+
     async def restore_irrigation_programs(self) -> None:
         """Restore the last persisted non-empty irrigation program set."""
         programs = self.program_backup.programs
         if not programs:
             raise ValueError("No irrigation program backup is available")
         for program_index in sorted(programs):
-            self.irrigation_programs = await self.api.set_irrigation_program(
+            self.irrigation_programs = await self._restore_irrigation_program(
                 program_index,
                 programs[program_index],
             )
