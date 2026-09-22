@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "solem-blip-ha"
-version = "1.3.3-beta.9"
+version = "1.3.3-beta.10"
 description = "Home Assistant integration for Solem BL-IP irrigation controllers"
 requires-python = ">=3.14"
 dependencies = [
-    "solem-blip-ble @ git+https://github.com/minimicro34/ha-solem-blip-ble.git@v0.3.1-beta.2",
+    "solem-blip-ble @ git+https://github.com/minimicro34/ha-solem-blip-ble.git@v0.3.1-beta.3",
 ]
 
 [project.optional-dependencies]
