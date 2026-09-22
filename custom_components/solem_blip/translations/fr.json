@@ -215,6 +215,15 @@
     },
     "service_device_not_found": {
       "message": "Impossible de trouver le programmateur Solem BL-IP sélectionné."
+    },
+    "restore_programs_failed": {
+      "message": "Échec de la restauration des programmes sauvegardés sur le programmateur."
+    },
+    "restore_programs_no_backup": {
+      "message": "Aucune sauvegarde de programme d'arrosage n'est disponible pour ce programmateur."
+    },
+    "restore_programs_while_watering": {
+      "message": "Les programmations ne peuvent pas être restaurées lorsqu'un arrosage est en cours."
     }
   },
   "issues": {
