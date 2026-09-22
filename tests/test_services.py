@@ -252,15 +252,18 @@ async def test_restore_programs_service_replays_backup(
     }
     await coordinator.program_backup.async_save_if_non_empty(programs)
     mock_solem_client.set_irrigation_program = AsyncMock(return_value=programs)
+    mock_solem_client.get_irrigation_config = AsyncMock(return_value=programs)
 
-    await hass.services.async_call(
-        DOMAIN,
-        SERVICE_RESTORE_PROGRAMS,
-        {"device_id": device_id},
-        blocking=True,
-    )
+    with patch("custom_components.solem_blip.coordinator.asyncio.sleep", new=AsyncMock()):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RESTORE_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
 
     mock_solem_client.set_irrigation_program.assert_awaited_once_with(0, programs[0])
+    mock_solem_client.get_irrigation_config.assert_awaited_once()
 
 
 @pytest.mark.asyncio
