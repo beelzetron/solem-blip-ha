@@ -83,3 +83,37 @@ async def test_backup_property_is_defensive_copy(hass: HomeAssistant) -> None:
     programs[0]["name"] = "Changed"
 
     assert backup.programs[0]["name"] == "Morning"
+
+
+@pytest.mark.asyncio
+async def test_non_empty_programs_do_not_replace_existing_backup(
+    hass: HomeAssistant,
+) -> None:
+    """A later useful controller read cannot replace the restore snapshot."""
+    backup = ProgramBackupStore(hass, "entry")
+    assert await backup.async_save_if_non_empty(PROGRAMS)
+
+    changed = {
+        **PROGRAMS,
+        0: {
+            **PROGRAMS[0],
+            "name": "test 2",
+            "cycle": 0,
+            "week_days": 0,
+            "synchro_day": 0,
+            "start_times": [None] * 8,
+        },
+        1: {
+            **PROGRAMS[1],
+            "name": "Still scheduled",
+            "start_times": [1200, None, None, None, None, None, None, None],
+            "station_durations": [0, 1200],
+        },
+    }
+
+    assert not await backup.async_save_if_non_empty(changed)
+    assert backup.programs == PROGRAMS
+
+    restored = ProgramBackupStore(hass, "entry")
+    await restored.async_load()
+    assert restored.programs == PROGRAMS
