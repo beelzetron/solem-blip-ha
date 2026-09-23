@@ -386,8 +386,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                     if station <= self.num_stations
                 },
             }
-            if program.get("period_start_date") is not None:
-                changes["period_start_date"] = program["period_start_date"]
+            # period_start_date is controller-owned restore metadata.
+            # Real BL-IP hardware normalizes/retains the fresh controller date
+            # after a write, so replaying the backup date makes an otherwise
+            # successful restore fail the byte-for-byte revision check.
             program_frames, expected = expected.patch(
                 program_index,
                 changes,
