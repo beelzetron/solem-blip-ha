@@ -167,6 +167,26 @@ class ProgramBackupStore:
             return True
 
         if snapshot.revision != before_revision:
+            # beta.16 journal entries may differ from a successful restore
+            # only because original BL-IP firmware normalizes the
+            # period_start_date in each program header. Accept that narrowly
+            # defined controller-owned change, but keep every other divergent
+            # outcome blocked.
+            raw_expected_frames = self._pending.get("expected_frames", [])
+            if raw_expected_frames:
+                try:
+                    expected = ProgramSnapshot.from_frames(
+                        tuple(bytes.fromhex(frame) for frame in raw_expected_frames)
+                    )
+                except (ValueError, InvalidSnapshot):
+                    expected = None
+                if expected is not None and _differs_only_by_period_start_date(
+                    snapshot, expected
+                ):
+                    self._snapshot = snapshot
+                    self._pending = None
+                    await self._async_save()
+                    return True
             return False
 
         if self._snapshot is None:
@@ -202,6 +222,40 @@ class ProgramBackupStore:
             }
         )
 
+
+
+
+def _differs_only_by_period_start_date(
+    current: ProgramSnapshot, expected: ProgramSnapshot
+) -> bool:
+    """Return whether only A/B/C controller-owned start dates differ."""
+    if len(current.frames) != len(expected.frames):
+        return False
+
+    differences = [
+        (current_frame, expected_frame)
+        for current_frame, expected_frame in zip(
+            current.frames, expected.frames, strict=True
+        )
+        if current_frame != expected_frame
+    ]
+    if not differences:
+        return False
+
+    allowed_program_keys = {0x10, 0x11, 0x12}
+    for current_frame, expected_frame in differences:
+        # Program header frames are 16 bytes:
+        # 3a 0e <fragment> <program-key> ... <DD MM YYYY>
+        if (
+            len(current_frame) != 16
+            or len(expected_frame) != 16
+            or current_frame[:4] != expected_frame[:4]
+            or current_frame[3] not in allowed_program_keys
+            or current_frame[:12] != expected_frame[:12]
+            or current_frame[13:] != expected_frame[13:]
+        ):
+            return False
+    return True
 
 def _program_changes(program: IrrigationProgram) -> dict[str, Any]:
     """Return snapshot patch fields for one protected logical program."""
