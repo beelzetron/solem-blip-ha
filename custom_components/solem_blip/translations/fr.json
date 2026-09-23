@@ -130,6 +130,12 @@
       },
       "stop_sprinkle": {
         "name": "Arrêter l'arrosage"
+      },
+      "refresh_programs": {
+        "name": "Actualiser les programmes"
+      },
+      "restore_programs": {
+        "name": "Restaurer les programmes"
       }
     },
     "number": {
@@ -177,6 +183,17 @@
           "inactive": "Inactive",
           "unknown": "Inconnu"
         }
+      },
+      "program_backup_status": {
+        "name": "État de la sauvegarde des programmes",
+        "state": {
+          "ready": "Prête",
+          "pending": "Restauration en attente",
+          "unavailable": "Indisponible"
+        }
+      },
+      "program_backup_frames": {
+        "name": "Trames de la sauvegarde des programmes"
       }
     },
     "valve": {
