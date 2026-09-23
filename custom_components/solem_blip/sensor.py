@@ -136,6 +136,27 @@ class LastTimeSyncSensor(SolemSensorEntity):
         return cast(datetime | None, self._descriptor_field())
 
 
+class ProgramBackupStatusSensor(SolemSensorEntity):
+    """Protected program backup state diagnostic sensor."""
+
+    @property
+    def native_value(self) -> str | None:
+        return cast(str | None, self._descriptor_field())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        device = self.coordinator.get_device(self.device_id) or {}
+        return dict(device.get("attributes") or {})
+
+
+class ProgramBackupFramesSensor(SolemSensorEntity):
+    """Number of raw frames in the protected program snapshot."""
+
+    @property
+    def native_value(self) -> int | None:
+        return cast(int | None, self._descriptor_field())
+
+
 class ProgramSensor(SolemSensorEntity):
     """Base class for sensors refreshed by the slower schedule coordinator."""
 
@@ -184,4 +205,6 @@ SENSOR_ENTITY_CLASSES: dict[str, type[SolemSensorEntity]] = {
     "LAST_TIME_SYNC_SENSOR": LastTimeSyncSensor,
     "PROGRAM_NEXT_START_SENSOR": ProgramNextStartSensor,
     "PROGRAM_SCHEDULE_SENSOR": ProgramScheduleSensor,
+    "PROGRAM_BACKUP_STATUS_SENSOR": ProgramBackupStatusSensor,
+    "PROGRAM_BACKUP_FRAMES_SENSOR": ProgramBackupFramesSensor,
 }
