@@ -228,6 +228,15 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Mark schedule data due for the next slow-coordinator refresh."""
         self._irrigation_config_refresh_after = 0.0
 
+    async def refresh_irrigation_programs(self) -> None:
+        """Force a fresh program read and surface BLE failures to the caller."""
+        await fetch_irrigation_config(self, force=True, raise_on_error=True)
+        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        publish_descriptor_update(
+            self,
+            await self.async_update_all_sensors(fetch_status=False),
+        )
+
     async def async_init(self) -> None:
         """Build initial entity data without blocking setup on BLE availability."""
         await self.program_backup.async_load()
@@ -398,9 +407,21 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 expected,
                 before.revision,
             )
-        except Exception:
+        except UncertainWrite:
             _LOGGER.warning(
                 "%s - Program restore left unconfirmed (%s)",
+                self.controller_mac_address,
+                getattr(self.api, "program_write_diagnostics", {}),
+            )
+            raise
+        except Exception:
+            # The BLE library only returns a non-UncertainWrite failure when
+            # no program mutation was attempted (for example a preflight link
+            # drop or stale revision). The durable journal can therefore be
+            # cleared without touching the protected backup.
+            await self.program_backup.async_abort_restore()
+            _LOGGER.warning(
+                "%s - Program restore aborted before mutation (%s)",
                 self.controller_mac_address,
                 getattr(self.api, "program_write_diagnostics", {}),
             )
