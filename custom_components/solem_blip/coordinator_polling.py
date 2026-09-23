@@ -270,23 +270,42 @@ def _heavy_reads_ready(coordinator: SolemCoordinator) -> bool:
     return asyncio.get_running_loop().time() >= coordinator._metadata_ready_after
 
 
-async def fetch_irrigation_config(coordinator: SolemCoordinator) -> None:
-    """Read on-device irrigation programs without failing status polling."""
+async def fetch_irrigation_config(
+    coordinator: SolemCoordinator,
+    *,
+    force: bool = False,
+    raise_on_error: bool = False,
+) -> bool:
+    """Read on-device irrigation programs.
+
+    Background refreshes remain best-effort. Explicit user refreshes can force
+    a BLE read and request the original exception so Home Assistant never
+    reports a successful manual refresh when no fresh snapshot was obtained.
+    """
     async with coordinator._heavy_read_lock:
-        await _fetch_irrigation_config_locked(coordinator)
+        return await _fetch_irrigation_config_locked(
+            coordinator,
+            force=force,
+            raise_on_error=raise_on_error,
+        )
 
 
-async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None:
+async def _fetch_irrigation_config_locked(
+    coordinator: SolemCoordinator,
+    *,
+    force: bool = False,
+    raise_on_error: bool = False,
+) -> bool:
     """Read irrigation programs while holding the heavy-read lock."""
     if coordinator._irrigation_active:
-        return
+        return False
 
     now = asyncio.get_running_loop().time()
     has_programs = bool(coordinator.irrigation_programs)
-    if has_programs and now < coordinator._irrigation_config_refresh_after:
-        return
-    if not has_programs and now < coordinator._irrigation_config_retry_after:
-        return
+    if not force and has_programs and now < coordinator._irrigation_config_refresh_after:
+        return False
+    if not force and not has_programs and now < coordinator._irrigation_config_retry_after:
+        return False
 
     try:
         programs = await asyncio.wait_for(
@@ -305,7 +324,9 @@ async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None
         note_cycle_outcome(
             coordinator, degraded=True, reason="irrigation config read"
         )
-        return
+        if raise_on_error:
+            raise
+        return False
 
     coordinator.irrigation_programs = {
         index: programs[index] for index in (0, 1, 2) if index in programs
@@ -327,6 +348,7 @@ async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None
     )
     coordinator._irrigation_config_retry_after = 0.0
     note_cycle_outcome(coordinator, degraded=False, reason="")
+    return True
 
 
 async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
