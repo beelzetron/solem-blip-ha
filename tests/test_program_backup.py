@@ -121,6 +121,25 @@ async def test_non_empty_programs_do_not_replace_existing_backup(
 
 
 @pytest.mark.asyncio
+async def test_abort_restore_clears_only_pending_journal(hass: HomeAssistant) -> None:
+    """A confirmed preflight abort preserves the protected program backup."""
+    backup = ProgramBackupStore(hass, "entry")
+    await backup.async_save_if_non_empty(PROGRAMS)
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = ()
+    await backup.async_begin_restore(before, expected)
+
+    await backup.async_abort_restore()
+
+    assert backup.pending is None
+    assert backup.programs == PROGRAMS
+
+
+@pytest.mark.asyncio
 async def test_pending_restore_reconciles_known_revision(hass: HomeAssistant) -> None:
     """A fresh read matching before/expected clears the durable journal."""
     backup = ProgramBackupStore(hass, "entry")
