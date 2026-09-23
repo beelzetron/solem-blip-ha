@@ -13,13 +13,8 @@ from homeassistant.core import HomeAssistant
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from solem_blip_ble import (
-    IrrigationProgram,
-    SolemConnectionError,
-    irrigation_program_write_mismatches,
-)
-from solem_blip_ble.exceptions import SolemDeadlineExceeded
-from solem_blip_ble.protocol import normalize_irrigation_program_for_write
+from solem_blip_ble import IrrigationProgram
+from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 
 from .client_factory import (
     PersistentSolemClient,
@@ -71,11 +66,6 @@ from .ble_health import note_cycle_outcome
 from .bluetooth_issue import note_ble_recovery
 
 _LOGGER = logging.getLogger(__name__)
-
-# The BL-IP stops advertising briefly after a BLE session closes. Match the
-# library retry spacing before opening the next restore session so consecutive
-# program writes do not race the controller/proxy teardown.
-RESTORE_PROGRAM_WRITE_DELAY = 8.0
 
 
 class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
@@ -339,55 +329,36 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
         await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
 
-    def _restore_mismatches(
-        self,
-        actual: dict[int, IrrigationProgram],
-        expected: dict[int, IrrigationProgram],
-    ) -> dict[int, dict[str, tuple[Any, Any]]]:
-        """Return writable-field mismatches for a complete restore snapshot."""
-        mismatches: dict[int, dict[str, tuple[Any, Any]]] = {}
-        for program_index, program in expected.items():
-            normalized = normalize_irrigation_program_for_write(
-                program,
-                max_stations=self.num_stations,
-            )
-            slot_mismatches = irrigation_program_write_mismatches(
-                actual.get(program_index),
-                normalized,
-            )
-            if slot_mismatches:
-                mismatches[program_index] = slot_mismatches
-        return mismatches
-
-    @staticmethod
-    def _format_restore_mismatches(
-        mismatches: dict[int, dict[str, tuple[Any, Any]]],
-    ) -> str:
-        """Format complete-restore mismatches for diagnostics."""
-        return "; ".join(
-            f"Program {PROGRAM_LABELS[program_index]}: "
-            + ", ".join(
-                f"{field}: expected {expected!r}, got {actual!r}"
-                for field, (expected, actual) in slot_mismatches.items()
-            )
-            for program_index, slot_mismatches in sorted(mismatches.items())
-        )
-
     async def restore_irrigation_programs(self) -> None:
-        """Restore the protected backup as one acknowledged no-replay transaction."""
+        """Restore protected A/B/C programs in one acknowledged transaction."""
         programs = self.program_backup.programs
         if not programs:
             raise ValueError("No irrigation program backup is available")
         if self.program_backup.pending:
-            raise ValueError(
+            raise UncertainWrite(
                 "A previous restore is unconfirmed; refresh and reconcile it first"
             )
 
-        # Read a fresh complete twelve-slot snapshot. For backups created by
-        # beta.1-beta.11, migrate the protected A/B/C values onto these raw
-        # bytes so hidden slots 3..11 are preserved exactly as found.
+        status = await self.api.get_status()
+        if (
+            status.get("is_watering") is not False
+            or status.get("controller_state") not in ("On", "Off")
+        ):
+            raise InvalidSnapshot(
+                "Controller must report idle before restoring programs"
+            )
+        firmware = await self.api.get_firmware_version()
+        if firmware["major"] != 5:
+            raise InvalidSnapshot(
+                "Only original BL-IP firmware 5.x program restores are supported"
+            )
+
+        # Start from a fresh complete snapshot. Legacy beta.1-beta.11 backups
+        # contain A/B/C only, so the nine additional V5 slots are preserved
+        # byte-for-byte from the controller and are never written.
         before = await self.api.get_program_snapshot()
         expected = before
+        frames: list[bytes] = []
         for program_index, program in sorted(programs.items()):
             changes: dict[str, Any] = {
                 "name": program["name"],
@@ -408,17 +379,18 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             }
             if program.get("period_start_date") is not None:
                 changes["period_start_date"] = program["period_start_date"]
-            _, expected = expected.patch(
+            program_frames, expected = expected.patch(
                 program_index,
                 changes,
                 self.num_stations,
             )
+            frames.extend(program_frames)
 
-        frames = expected.write_frames()
+        if not frames:
+            await self.program_backup.async_finish_restore(before)
+            return
 
-        # The journal must reach disk before the first BLE mutation. If the
-        # transaction becomes uncertain it deliberately remains pending and
-        # another restore is blocked until the controller is reconciled.
+        # Persist the intended before/after revisions before the first mutation.
         await self.program_backup.async_begin_restore(before, expected)
         try:
             verified = await self.api.write_program_frames(
@@ -435,7 +407,11 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             raise
 
         await self.program_backup.async_finish_restore(verified)
-        self.irrigation_programs = verified.programs
+        self.irrigation_programs = {
+            index: verified.programs[index]
+            for index in (0, 1, 2)
+            if index in verified.programs
+        }
         self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
         self.async_set_updated_data(
             await self.async_update_all_sensors(fetch_status=False)
