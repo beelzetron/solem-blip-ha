@@ -23,7 +23,8 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Configure-menu editor for on-device program start times and station durations,
   using loaded program and station names when available
 - Manual start buttons for on-device programs
-- Persistent backup of the last non-empty on-device schedule, with manual restore after battery replacement
+- Protected raw backup of the first useful non-empty on-device schedule (all 12 firmware-5 slots / 84 frames), with explicit refresh and manual restore controls after battery replacement
+- Transactional program restore with idle/firmware/revision preflight, per-block acknowledgements, same-connection readback, and a durable pending journal for uncertain outcomes
 - Program run detection (`0x44` status) with per-program running binary sensors
 - Controller status attributes: active program, program name, watering origin
 - Daily controller RTC synchronization after a successful BLE poll
@@ -57,7 +58,7 @@ Setup asks only for the **Bluetooth controller** and **number of stations**.
 
 ### BLE dependency
 
-Home Assistant installs `solem-blip-ble==0.1.36` from PyPI automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
+Home Assistant installs the `solem-blip-ble` version pinned by the integration manifest automatically. Protocol notes: [solem-blip-ble docs](https://github.com/beelzetron/solem-blip-ble/blob/main/docs/ble_protocol.md).
 
 ## Entities (example: 6 stations)
 
@@ -81,6 +82,10 @@ Home Assistant installs `solem-blip-ble==0.1.36` from PyPI automatically. Protoc
 | Program next start | Per on-device program (e.g. `Siepe next start`); timestamp + schedule context attributes |
 | Program schedule | Enabled start slots, cycle, period length, synchro day, station durations |
 | Program running | `on` while that program is executing on the controller |
+| Refresh programs | Explicitly read all program slots and reconcile a pending restore when the result is known |
+| Restore programs | Manually replay the protected A/B/C backup; blocked while watering and on unsupported firmware |
+| Program backup status | Diagnostic state: `ready`, `pending`, or `unavailable`; attributes include frame count, protected program count, pending flag, and revision |
+| Program backup frames | Diagnostic raw-snapshot frame count (disabled by default; 84 for a complete firmware-5 snapshot) |
 
 Roughly **47 entities** for a 6-station controller (12 program-related entities: start, next start, schedule, and running per program).
 
@@ -204,9 +209,21 @@ on-device schedule. An entirely empty controller read does not overwrite that
 backup, so a battery replacement that clears the BL-IP programs does not also
 remove the Home Assistant copy.
 
-Use the `solem_blip.restore_programs` action for the controller device to replay
-the saved programs. Restoration is always manual and is blocked while watering
-is active; the integration never automatically overwrites the controller.
+Use the **Restore programs** button on the controller device, or the
+`solem_blip.restore_programs` action, to replay the saved programs. Use
+**Refresh programs** to force a complete controller read. Restoration is always
+manual and is blocked while watering is active; the integration never
+automatically overwrites the controller.
+
+The protected backup keeps the complete firmware-5 raw program snapshot: 12
+slots / 84 frames. Only A/B/C are user-editable and restored; the additional
+nine slots are preserved byte-for-byte. Before writing, the integration records
+a durable before/expected journal. A restore is only finalized after the BLE
+library acknowledges the writes and verifies a complete readback. If the
+transport becomes uncertain after mutation starts, automatic replay is refused
+and the backup status remains `pending` until a fresh complete read can safely
+reconcile the outcome. Controller-owned normalization of the program start-date
+day is accepted narrowly; any other unexpected raw difference remains blocked.
 
 ## Upgrading to 1.2.3+
 
