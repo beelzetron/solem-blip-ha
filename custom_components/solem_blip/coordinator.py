@@ -338,8 +338,17 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
         await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
 
+    def program_mutation_blocked(self) -> bool:
+        """Return whether local state says irrigation is currently active."""
+        return self._irrigation_active or self._is_watering
+
     async def restore_irrigation_programs(self) -> None:
         """Restore protected A/B/C programs in one acknowledged transaction."""
+        if self.program_mutation_blocked():
+            raise InvalidSnapshot(
+                "Controller must be idle before restoring programs"
+            )
+
         programs = self.program_backup.programs
         if not programs:
             raise ValueError("No irrigation program backup is available")
