@@ -233,6 +233,9 @@
     "service_device_not_found": {
       "message": "Impossibile trovare il controller Solem BL-IP selezionato."
     },
+    "refresh_programs_failed": {
+      "message": "Aggiornamento dei programmi di irrigazione non riuscito."
+    },
     "restore_programs_failed": {
       "message": "Ripristino dei programmi salvati sul controller non riuscito."
     },
