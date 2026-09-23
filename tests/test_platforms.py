@@ -327,6 +327,27 @@ async def test_button_platform_and_press_actions(
         await restore_button.async_press()
     assert exc_info.value.translation_key == "restore_programs_no_backup"
 
+    coordinator.program_backup._programs = {0: MOCK_IRRIGATION_PROGRAMS[0]}
+    coordinator.restore_irrigation_programs = AsyncMock()
+    await restore_button.async_press()
+    coordinator.restore_irrigation_programs.assert_awaited_once()
+
+    coordinator._is_watering = True
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await restore_button.async_press()
+    assert exc_info.value.translation_key == "restore_programs_while_watering"
+    coordinator._is_watering = False
+
+    coordinator.refresh_irrigation_programs = AsyncMock(side_effect=RuntimeError("fail"))
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await refresh_button.async_press()
+    assert exc_info.value.translation_key == "refresh_programs_failed"
+
+    coordinator.restore_irrigation_programs = AsyncMock(side_effect=RuntimeError("fail"))
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await restore_button.async_press()
+    assert exc_info.value.translation_key == "restore_programs_failed"
+
 
 @pytest.mark.asyncio
 async def test_valve_platform_and_station_state(
