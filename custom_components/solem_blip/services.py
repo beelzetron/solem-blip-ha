@@ -151,7 +151,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_refresh_programs(call: ServiceCall) -> None:
         coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
         coordinator.request_schedule_refresh()
-        await coordinator.schedule_coordinator.async_request_refresh()
+        try:
+            await coordinator.refresh_irrigation_programs()
+        except Exception as err:
+            _LOGGER.exception(
+                "%s - Failed to refresh irrigation programs: %s",
+                coordinator.controller_mac_address,
+                str(err) or type(err).__name__,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="refresh_programs_failed",
+            ) from err
 
     hass.services.async_register(
         DOMAIN,
