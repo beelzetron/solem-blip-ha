@@ -101,7 +101,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_set_program(call: ServiceCall) -> None:
         coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
-        if coordinator._irrigation_active or coordinator._is_watering:
+        if coordinator.program_mutation_blocked():
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="set_program_while_watering",
@@ -125,7 +125,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_restore_programs(call: ServiceCall) -> None:
         coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
-        if coordinator._irrigation_active or coordinator._is_watering:
+        if coordinator.program_mutation_blocked():
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="restore_programs_while_watering",
