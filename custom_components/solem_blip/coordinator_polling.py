@@ -310,6 +310,15 @@ async def _fetch_irrigation_config_locked(coordinator: SolemCoordinator) -> None
     coordinator.irrigation_programs = {
         index: programs[index] for index in (0, 1, 2) if index in programs
     }
+    snapshot = getattr(coordinator.api, "last_snapshot", None)
+    if snapshot is not None and coordinator.program_backup.pending:
+        reconciled = await coordinator.program_backup.async_reconcile(snapshot)
+        if not reconciled:
+            _LOGGER.warning(
+                "%s - Interrupted program restore differs from both known revisions; "
+                "further restores remain blocked",
+                coordinator.controller_mac_address,
+            )
     await coordinator.program_backup.async_save_if_non_empty(
         coordinator.irrigation_programs
     )
