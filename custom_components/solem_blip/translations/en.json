@@ -102,26 +102,60 @@
   },
   "entity": {
     "binary_sensor": {
-      "battery_low": { "name": "Battery low" },
-      "time_alarm": { "name": "Clock alarm" },
-      "program_running": { "name": "{program_name} running" }
+      "battery_low": {
+        "name": "Battery low"
+      },
+      "time_alarm": {
+        "name": "Clock alarm"
+      },
+      "program_running": {
+        "name": "{program_name} running"
+      }
     },
     "button": {
-      "controller_off": { "name": "Turn off controller" },
-      "controller_off_days": { "name": "Turn off controller for selected days" },
-      "controller_on": { "name": "Turn on controller" },
-      "start_program": { "name": "Start {program_name}" },
-      "sprinkle_station": { "name": "Sprinkle {station_name}" },
-      "stop_sprinkle": { "name": "Stop sprinkle" }
+      "controller_off": {
+        "name": "Turn off controller"
+      },
+      "controller_off_days": {
+        "name": "Turn off controller for selected days"
+      },
+      "controller_on": {
+        "name": "Turn on controller"
+      },
+      "start_program": {
+        "name": "Start {program_name}"
+      },
+      "sprinkle_station": {
+        "name": "Sprinkle {station_name}"
+      },
+      "stop_sprinkle": {
+        "name": "Stop sprinkle"
+      },
+      "refresh_programs": {
+        "name": "Refresh programs"
+      },
+      "restore_programs": {
+        "name": "Restore programs"
+      }
     },
     "number": {
-      "controller_off_days": { "name": "Controller off days" },
-      "irrigation_manual_duration": { "name": "Irrigation manual duration" }
+      "controller_off_days": {
+        "name": "Controller off days"
+      },
+      "irrigation_manual_duration": {
+        "name": "Irrigation manual duration"
+      }
     },
     "sensor": {
-      "battery": { "name": "Battery" },
-      "battery_voltage": { "name": "Battery voltage" },
-      "controller_off_days_remaining": { "name": "Controller off days remaining" },
+      "battery": {
+        "name": "Battery"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "controller_off_days_remaining": {
+        "name": "Controller off days remaining"
+      },
       "controller_status": {
         "name": "Controller status",
         "state": {
@@ -130,10 +164,18 @@
           "unknown": "Unknown"
         }
       },
-      "last_time_sync": { "name": "Last time sync" },
-      "program_next_start": { "name": "{program_name} next start" },
-      "program_schedule": { "name": "{program_name} schedule" },
-      "station_remaining_time": { "name": "{station_name} remaining time" },
+      "last_time_sync": {
+        "name": "Last time sync"
+      },
+      "program_next_start": {
+        "name": "{program_name} next start"
+      },
+      "program_schedule": {
+        "name": "{program_name} schedule"
+      },
+      "station_remaining_time": {
+        "name": "{station_name} remaining time"
+      },
       "station_status": {
         "name": "{station_name} status",
         "state": {
@@ -141,10 +183,23 @@
           "inactive": "Inactive",
           "unknown": "Unknown"
         }
+      },
+      "program_backup_status": {
+        "name": "Program backup status",
+        "state": {
+          "ready": "Ready",
+          "pending": "Restore pending",
+          "unavailable": "Unavailable"
+        }
+      },
+      "program_backup_frames": {
+        "name": "Program backup frames"
       }
     },
     "valve": {
-      "station_valve": { "name": "{station_name}" }
+      "station_valve": {
+        "name": "{station_name}"
+      }
     }
   },
   "exceptions": {
@@ -175,8 +230,20 @@
     "set_program_while_watering": {
       "message": "Program schedules cannot be changed while watering is active."
     },
+    "restore_programs_failed": {
+      "message": "Failed to restore the backed-up programs to the controller."
+    },
+    "restore_programs_no_backup": {
+      "message": "No backed-up irrigation programs are available for this controller."
+    },
+    "restore_programs_while_watering": {
+      "message": "Program schedules cannot be restored while watering is active."
+    },
     "service_device_not_found": {
       "message": "Could not find the selected Solem BL-IP controller."
+    },
+    "refresh_programs_failed": {
+      "message": "Failed to refresh irrigation programs from the controller."
     }
   },
   "issues": {

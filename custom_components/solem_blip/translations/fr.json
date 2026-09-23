@@ -130,6 +130,12 @@
       },
       "stop_sprinkle": {
         "name": "Arrêter l'arrosage"
+      },
+      "refresh_programs": {
+        "name": "Actualiser les programmes"
+      },
+      "restore_programs": {
+        "name": "Restaurer les programmes"
       }
     },
     "number": {
@@ -177,6 +183,17 @@
           "inactive": "Inactive",
           "unknown": "Inconnu"
         }
+      },
+      "program_backup_status": {
+        "name": "État de la sauvegarde des programmes",
+        "state": {
+          "ready": "Prête",
+          "pending": "Restauration en attente",
+          "unavailable": "Indisponible"
+        }
+      },
+      "program_backup_frames": {
+        "name": "Trames de la sauvegarde des programmes"
       }
     },
     "valve": {
@@ -215,6 +232,18 @@
     },
     "service_device_not_found": {
       "message": "Impossible de trouver le programmateur Solem BL-IP sélectionné."
+    },
+    "restore_programs_failed": {
+      "message": "Échec de la restauration des programmes sauvegardés sur le programmateur."
+    },
+    "restore_programs_no_backup": {
+      "message": "Aucune sauvegarde de programme d'arrosage n'est disponible pour ce programmateur."
+    },
+    "restore_programs_while_watering": {
+      "message": "Les programmations ne peuvent pas être restaurées lorsqu'un arrosage est en cours."
+    },
+    "refresh_programs_failed": {
+      "message": "Échec de l'actualisation des programmes d'arrosage depuis le programmateur."
     }
   },
   "issues": {

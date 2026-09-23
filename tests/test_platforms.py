@@ -19,6 +19,8 @@ from custom_components.solem_blip.button import (
     IrrigationStartButton,
     IrrigationStopButton,
     ProgramStartButton,
+    RefreshProgramsButton,
+    RestoreProgramsButton,
     async_setup_entry as setup_button,
 )
 from custom_components.solem_blip.entity_descriptions import (
@@ -38,6 +40,8 @@ from custom_components.solem_blip.sensor import (
     BatteryVoltageSensor,
     ControllerOffDaysRemainingSensor,
     LastTimeSyncSensor,
+    ProgramBackupFramesSensor,
+    ProgramBackupStatusSensor,
     ProgramNextStartSensor,
     ProgramScheduleSensor,
     RemainingSprinkleSensor,
@@ -85,6 +89,8 @@ async def test_sensor_platform_creates_entities(
     assert any(isinstance(entity, StateSensor) for entity in entities)
     assert any(isinstance(entity, BatterySensor) for entity in entities)
     assert any(isinstance(entity, BatteryVoltageSensor) for entity in entities)
+    assert any(isinstance(entity, ProgramBackupStatusSensor) for entity in entities)
+    assert any(isinstance(entity, ProgramBackupFramesSensor) for entity in entities)
     assert any(
         isinstance(entity, ControllerOffDaysRemainingSensor) for entity in entities
     )
@@ -264,6 +270,8 @@ async def test_button_platform_and_press_actions(
     assert ControllerOffButton in by_type
     assert ControllerOffDaysButton in by_type
     assert ProgramStartButton in by_type
+    assert RefreshProgramsButton in by_type
+    assert RestoreProgramsButton in by_type
 
     stop_button = next(entity for entity in entities if isinstance(entity, IrrigationStopButton))
     await stop_button.async_press()
@@ -304,6 +312,41 @@ async def test_button_platform_and_press_actions(
     with pytest.raises(HomeAssistantError) as exc_info:
         await start_button.async_press()
     assert exc_info.value.translation_key == "start_irrigation_failed"
+
+    refresh_button = next(
+        entity for entity in entities if isinstance(entity, RefreshProgramsButton)
+    )
+    coordinator.refresh_irrigation_programs = AsyncMock()
+    await refresh_button.async_press()
+    coordinator.refresh_irrigation_programs.assert_awaited_once()
+
+    restore_button = next(
+        entity for entity in entities if isinstance(entity, RestoreProgramsButton)
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await restore_button.async_press()
+    assert exc_info.value.translation_key == "restore_programs_no_backup"
+
+    coordinator.program_backup._programs = {0: MOCK_IRRIGATION_PROGRAMS[0]}
+    coordinator.restore_irrigation_programs = AsyncMock()
+    await restore_button.async_press()
+    coordinator.restore_irrigation_programs.assert_awaited_once()
+
+    coordinator._is_watering = True
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await restore_button.async_press()
+    assert exc_info.value.translation_key == "restore_programs_while_watering"
+    coordinator._is_watering = False
+
+    coordinator.refresh_irrigation_programs = AsyncMock(side_effect=RuntimeError("fail"))
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await refresh_button.async_press()
+    assert exc_info.value.translation_key == "refresh_programs_failed"
+
+    coordinator.restore_irrigation_programs = AsyncMock(side_effect=RuntimeError("fail"))
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await restore_button.async_press()
+    assert exc_info.value.translation_key == "restore_programs_failed"
 
 
 @pytest.mark.asyncio

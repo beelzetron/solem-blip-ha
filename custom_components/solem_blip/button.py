@@ -133,6 +133,45 @@ class ControllerOffButton(SolemButtonEntity):
         )
 
 
+class RefreshProgramsButton(SolemButtonEntity):
+    """Force a fresh read of all on-device program slots."""
+
+    async def async_press(self) -> None:
+        self.coordinator.request_schedule_refresh()
+        try:
+            await self.coordinator.refresh_irrigation_programs()
+        except Exception as err:
+            _LOGGER.exception("Failed to refresh irrigation programs")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="refresh_programs_failed",
+            ) from err
+
+
+class RestoreProgramsButton(SolemButtonEntity):
+    """Restore the protected program backup after explicit user action."""
+
+    async def async_press(self) -> None:
+        if self.coordinator.program_mutation_blocked():
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_while_watering",
+            )
+        if not self.coordinator.program_backup.programs:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_no_backup",
+            )
+        try:
+            await self.coordinator.restore_irrigation_programs()
+        except Exception as err:
+            _LOGGER.exception("Failed to restore irrigation programs")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_failed",
+            ) from err
+
+
 class ControllerOffDaysButton(SolemButtonEntity):
     """Turn the irrigation controller off for the configured number of days."""
 
@@ -150,4 +189,6 @@ BUTTON_ENTITY_CLASSES: dict[str, type[SolemButtonEntity]] = {
     "ON_BUTTON": ControllerOnButton,
     "OFF_BUTTON": ControllerOffButton,
     "OFF_DAYS_BUTTON": ControllerOffDaysButton,
+    "REFRESH_PROGRAMS_BUTTON": RefreshProgramsButton,
+    "RESTORE_PROGRAMS_BUTTON": RestoreProgramsButton,
 }

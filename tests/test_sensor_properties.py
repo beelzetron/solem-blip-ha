@@ -13,6 +13,8 @@ from custom_components.solem_blip.sensor import (
     BatteryVoltageSensor,
     ControllerOffDaysRemainingSensor,
     LastTimeSyncSensor,
+    ProgramBackupFramesSensor,
+    ProgramBackupStatusSensor,
     ProgramNextStartSensor,
     ProgramScheduleSensor,
     RemainingSprinkleSensor,
@@ -45,18 +47,23 @@ async def test_sensor_native_values_after_refresh(coordinator) -> None:
         "CONTROLLER_OFF_DAYS_REMAINING_SENSOR": ControllerOffDaysRemainingSensor,
         "REMAINING_SPRINKLE_SENSOR": RemainingSprinkleSensor,
         "LAST_TIME_SYNC_SENSOR": LastTimeSyncSensor,
+        "PROGRAM_BACKUP_STATUS_SENSOR": ProgramBackupStatusSensor,
+        "PROGRAM_BACKUP_FRAMES_SENSOR": ProgramBackupFramesSensor,
         "PROGRAM_NEXT_START_SENSOR": ProgramNextStartSensor,
         "PROGRAM_SCHEDULE_SENSOR": ProgramScheduleSensor,
     }
 
     for device_type, entity_class in samples.items():
-        device = next(item for item in coordinator.data if item["device_type"] == device_type)
+        device = next(
+            item for item in coordinator.data if item["device_type"] == device_type
+        )
         entity = entity_class(
             coordinator, device, "state", SENSOR_DESCRIPTIONS[device_type]
         )
         assert entity.native_value is not None or device_type in {
             "LAST_TIME_SYNC_SENSOR",
             "PROGRAM_NEXT_START_SENSOR",
+            "PROGRAM_BACKUP_STATUS_SENSOR",
         }
 
 
@@ -211,3 +218,27 @@ async def test_program_next_start_sensor_exposes_schedule_context(coordinator) -
     assert attrs["cycle"] == 4
     assert attrs["period_start_date"] == "2026-06-01"
     assert attrs["minutes_since_midnight"] == 270
+
+
+@pytest.mark.asyncio
+async def test_program_backup_status_sensor_attributes(coordinator) -> None:
+    """Backup status exposes compact diagnostics without raw frame payloads."""
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+    device = next(
+        item
+        for item in coordinator.data
+        if item["device_type"] == "PROGRAM_BACKUP_STATUS_SENSOR"
+    )
+    entity = ProgramBackupStatusSensor(
+        coordinator,
+        device,
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_BACKUP_STATUS_SENSOR"],
+    )
+    assert entity.native_value == "unavailable"
+    assert entity.extra_state_attributes == {
+        "frame_count": 0,
+        "protected_programs": 0,
+        "pending_restore": False,
+        "revision": None,
+    }

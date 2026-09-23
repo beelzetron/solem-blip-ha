@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from solem_blip_ble import IrrigationProgram
+from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 
 from .client_factory import (
     PersistentSolemClient,
@@ -60,6 +61,7 @@ from .coordinator_publish import publish_descriptor_update
 from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
+from .program_backup import ProgramBackupStore
 from .ble_health import note_cycle_outcome
 from .bluetooth_issue import note_ble_recovery
 
@@ -144,6 +146,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.active_program_num: int | None = None
         self.watering_origin: str | None = None
         self.irrigation_programs: dict[int, IrrigationProgram] = {}
+        self.program_backup = ProgramBackupStore(hass, config_entry.entry_id)
         self._irrigation_config_retry_after = 0.0
         self._irrigation_config_refresh_after = 0.0
         self.schedule_coordinator = SolemScheduleCoordinator(hass, config_entry, self)
@@ -225,8 +228,18 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Mark schedule data due for the next slow-coordinator refresh."""
         self._irrigation_config_refresh_after = 0.0
 
+    async def refresh_irrigation_programs(self) -> None:
+        """Force a fresh program read and surface BLE failures to the caller."""
+        await fetch_irrigation_config(self, force=True, raise_on_error=True)
+        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        publish_descriptor_update(
+            self,
+            await self.async_update_all_sensors(fetch_status=False),
+        )
+
     async def async_init(self) -> None:
         """Build initial entity data without blocking setup on BLE availability."""
+        await self.program_backup.async_load()
         self._ready = True
         self.data = await self.async_update_all_sensors(fetch_status=False)
         self.last_update_success = False
@@ -323,6 +336,118 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.request_schedule_refresh()
         self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))
         self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
+
+    def program_mutation_blocked(self) -> bool:
+        """Return whether local state says irrigation is currently active."""
+        return self._irrigation_active or self._is_watering
+
+    async def restore_irrigation_programs(self) -> None:
+        """Restore protected A/B/C programs in one acknowledged transaction."""
+        if self.program_mutation_blocked():
+            raise InvalidSnapshot(
+                "Controller must be idle before restoring programs"
+            )
+
+        programs = self.program_backup.programs
+        if not programs:
+            raise ValueError("No irrigation program backup is available")
+        if self.program_backup.pending:
+            raise UncertainWrite(
+                "A previous restore is unconfirmed; refresh and reconcile it first"
+            )
+
+        status = await self.api.get_status()
+        if (
+            status.get("is_watering") is not False
+            or status.get("controller_state") not in ("On", "Off")
+        ):
+            raise InvalidSnapshot(
+                "Controller must report idle before restoring programs"
+            )
+        firmware = await self.api.get_firmware_version()
+        if firmware["major"] != 5:
+            raise InvalidSnapshot(
+                "Only original BL-IP firmware 5.x program restores are supported"
+            )
+
+        # Start from a fresh complete snapshot. Legacy beta.1-beta.11 backups
+        # contain A/B/C only, so the nine additional V5 slots are preserved
+        # byte-for-byte from the controller and are never written.
+        before = await self.api.get_program_snapshot()
+        expected = before
+        frames: list[bytes] = []
+        for program_index, program in sorted(programs.items()):
+            changes: dict[str, Any] = {
+                "name": program["name"],
+                "inter_station_delay": program["inter_station_delay"],
+                "water_budget": program["water_budget"],
+                "cycle": program["cycle"],
+                "week_days": program["week_days"],
+                "period_length": program["period_length"],
+                "synchro_day": program["synchro_day"],
+                "start_times": list(program["start_times"]),
+                "station_durations": {
+                    station: seconds
+                    for station, seconds in enumerate(
+                        program["station_durations"], start=1
+                    )
+                    if station <= self.num_stations
+                },
+            }
+            # period_start_date is controller-owned restore metadata.
+            # Real BL-IP hardware normalizes/retains the fresh controller date
+            # after a write, so replaying the backup date makes an otherwise
+            # successful restore fail the byte-for-byte revision check.
+            program_frames, expected = expected.patch(
+                program_index,
+                changes,
+                self.num_stations,
+            )
+            frames.extend(program_frames)
+
+        if not frames:
+            await self.program_backup.async_finish_restore(before)
+            return
+
+        # Persist the intended before/after revisions before the first mutation.
+        await self.program_backup.async_begin_restore(before, expected)
+        try:
+            verified = await self.api.write_program_frames(
+                frames,
+                expected,
+                before.revision,
+            )
+        except UncertainWrite:
+            _LOGGER.warning(
+                "%s - Program restore left unconfirmed (%s)",
+                self.controller_mac_address,
+                getattr(self.api, "program_write_diagnostics", {}),
+            )
+            raise
+        except Exception:
+            # The BLE library only returns a non-UncertainWrite failure when
+            # no program mutation was attempted (for example a preflight link
+            # drop or stale revision). The durable journal can therefore be
+            # cleared without touching the protected backup.
+            await self.program_backup.async_abort_restore()
+            _LOGGER.warning(
+                "%s - Program restore aborted before mutation (%s)",
+                self.controller_mac_address,
+                getattr(self.api, "program_write_diagnostics", {}),
+            )
+            raise
+
+        await self.program_backup.async_finish_restore(verified)
+        self.irrigation_programs = {
+            index: verified.programs[index]
+            for index in (0, 1, 2)
+            if index in verified.programs
+        }
+        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        self.async_set_updated_data(
+            await self.async_update_all_sensors(fetch_status=False)
+        )
 
     async def turn_controller_on(self) -> None:
         """Turn the irrigation controller on."""

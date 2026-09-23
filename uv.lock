@@ -2429,21 +2429,21 @@ wheels = [
 
 [[package]]
 name = "solem-blip-ble"
-version = "0.3.0"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
     { name = "bleak-retry-connector" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/53/90/b44291b0b7085dfa5faca30cd901c5c5a548ca545227d756fe5b3324008b/solem_blip_ble-0.3.0.tar.gz", hash = "sha256:dfc4ba46efa756fa9948ba29dd214367b190d4bd9641ea3db0d36da94e723f99", size = 63639, upload-time = "2026-09-13T20:54:43.585Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/4c/18318a79980b54a04094cada207b2eaa1d7fe452268369d6192c17339007/solem_blip_ble-0.3.1.tar.gz", hash = "sha256:39f9948c7508cdd8e83044bec469b3376a49fc613e4807d65ef81b9ad3a1d9d6", size = 73854, upload-time = "2026-09-23T17:37:24.528Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/21/80f7bbaf5bdd0a9945f99a0f19104e161f6f8b788b36931b4dded71edeb2/solem_blip_ble-0.3.0-py3-none-any.whl", hash = "sha256:ea651e254e92cdc09bc5b1c2367cb60e98c92e612ee7e5b80c995451eaabac5c", size = 47820, upload-time = "2026-09-13T20:54:42.355Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/0d/0fbce6ac0fa9ac3ea528ab8a3f4b2219b89c7a7a9d2e08cf1b32753ef47a/solem_blip_ble-0.3.1-py3-none-any.whl", hash = "sha256:8d3f82050c4f093ec0a880fc43c4d68ab93fdc6b47d96ea7f608faba6802db4b", size = 55338, upload-time = "2026-09-23T17:37:22.934Z" },
 ]
 
 [[package]]
 name = "solem-blip-ha"
-version = "1.3.2"
+version = "1.3.3"
 source = { editable = "." }
 dependencies = [
     { name = "solem-blip-ble" },
@@ -2465,7 +2465,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-homeassistant-custom-component", marker = "extra == 'dev'", specifier = "==0.13.365" },
-    { name = "solem-blip-ble", specifier = "==0.3.0" },
+    { name = "solem-blip-ble", specifier = "==0.3.1" },
 ]
 provides-extras = ["dev"]
 

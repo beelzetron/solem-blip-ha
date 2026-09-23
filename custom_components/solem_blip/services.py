@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
@@ -18,7 +19,10 @@ from .const import DOMAIN, PROGRAM_LABELS
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
 
+_LOGGER = logging.getLogger(__name__)
+
 SERVICE_REFRESH_PROGRAMS = "refresh_programs"
+SERVICE_RESTORE_PROGRAMS = "restore_programs"
 SERVICE_SET_PROGRAM = "set_program"
 
 ATTR_CYCLE = "cycle"
@@ -97,7 +101,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_set_program(call: ServiceCall) -> None:
         coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
-        if coordinator._irrigation_active or coordinator._is_watering:
+        if coordinator.program_mutation_blocked():
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="set_program_while_watering",
@@ -119,16 +123,58 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 },
             ) from err
 
+    async def handle_restore_programs(call: ServiceCall) -> None:
+        coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
+        if coordinator.program_mutation_blocked():
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_while_watering",
+            )
+        if not coordinator.program_backup.programs:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_no_backup",
+            )
+        try:
+            await coordinator.restore_irrigation_programs()
+        except Exception as err:
+            _LOGGER.exception(
+                "%s - Failed to restore irrigation programs: %s",
+                coordinator.controller_mac_address,
+                str(err) or type(err).__name__,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="restore_programs_failed",
+            ) from err
+
     async def handle_refresh_programs(call: ServiceCall) -> None:
         coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
         coordinator.request_schedule_refresh()
-        await coordinator.schedule_coordinator.async_request_refresh()
+        try:
+            await coordinator.refresh_irrigation_programs()
+        except Exception as err:
+            _LOGGER.exception(
+                "%s - Failed to refresh irrigation programs: %s",
+                coordinator.controller_mac_address,
+                str(err) or type(err).__name__,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="refresh_programs_failed",
+            ) from err
 
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_PROGRAM,
         handle_set_program,
         schema=_SET_PROGRAM_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESTORE_PROGRAMS,
+        handle_restore_programs,
+        schema=_COMMON_SERVICE_SCHEMA,
     )
     hass.services.async_register(
         DOMAIN,
@@ -140,7 +186,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
 def async_unload_services(hass: HomeAssistant) -> None:
     """Remove Solem BL-IP services."""
-    for service in (SERVICE_SET_PROGRAM, SERVICE_REFRESH_PROGRAMS):
+    for service in (
+        SERVICE_SET_PROGRAM,
+        SERVICE_RESTORE_PROGRAMS,
+        SERVICE_REFRESH_PROGRAMS,
+    ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
 
