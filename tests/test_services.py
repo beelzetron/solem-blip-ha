@@ -296,6 +296,8 @@ async def test_restore_programs_service_transaction(
     )
 
     before.patch.assert_called_once()
+    restore_changes = before.patch.call_args.args[1]
+    assert "period_start_date" not in restore_changes
     mock_solem_client.write_program_frames.assert_awaited_once_with(
         [b"program-a-frame"], expected, "before"
     )
