@@ -279,3 +279,70 @@ async def test_pending_restore_keeps_unknown_revision_blocked(
     assert not await backup.async_reconcile(current)
     assert backup.pending is not None
     assert backup.snapshot is None
+
+
+@pytest.mark.asyncio
+async def test_pending_restore_reconciles_controller_normalized_dates(
+    hass: HomeAssistant,
+) -> None:
+    """A beta.16 journal accepts only controller-normalized A/B/C dates."""
+    backup = ProgramBackupStore(hass, "normalized")
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+
+    expected_frame = bytes.fromhex("3a0e431200000064047f0705160907ea")
+    current_frame = bytes.fromhex("3a0e431200000064047f0705170907ea")
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = (expected_frame,)
+    await backup.async_begin_restore(before, expected)
+
+    current = MagicMock()
+    current.revision = "normalized"
+    current.frames = (current_frame,)
+    parsed_expected = MagicMock()
+    parsed_expected.frames = expected.frames
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "custom_components.solem_blip.program_backup.ProgramSnapshot.from_frames",
+            lambda frames: parsed_expected,
+        )
+        assert await backup.async_reconcile(current)
+
+    assert backup.pending is None
+    assert backup.snapshot is current
+
+
+@pytest.mark.asyncio
+async def test_pending_restore_rejects_other_normalized_divergence(
+    hass: HomeAssistant,
+) -> None:
+    """A beta.16 journal stays blocked when any non-date byte differs."""
+    backup = ProgramBackupStore(hass, "normalized-other")
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+
+    expected_frame = bytes.fromhex("3a0e431200000064047f0705160907ea")
+    current_frame = bytes.fromhex("3a0e431200000064047f0705170907eb")
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = (expected_frame,)
+    await backup.async_begin_restore(before, expected)
+
+    current = MagicMock()
+    current.revision = "different"
+    current.frames = (current_frame,)
+    parsed_expected = MagicMock()
+    parsed_expected.frames = expected.frames
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "custom_components.solem_blip.program_backup.ProgramSnapshot.from_frames",
+            lambda frames: parsed_expected,
+        )
+        assert not await backup.async_reconcile(current)
+
+    assert backup.pending is not None
