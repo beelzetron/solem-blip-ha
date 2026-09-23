@@ -104,16 +104,42 @@ class ProgramBackupStore:
         await self._async_save()
 
     async def async_reconcile(self, snapshot: ProgramSnapshot) -> bool:
-        """Clear a pending restore only when a fresh read has a known outcome."""
+        """Clear a pending restore only when a fresh read has a known outcome.
+
+        A read matching the expected revision confirms the mutation and becomes
+        the protected raw snapshot. A read matching the before revision proves
+        that the controller stayed at its pre-restore state: clear the journal,
+        but never replace a protected snapshot with that potentially degraded
+        controller state. If no protected raw snapshot exists yet, recover the
+        intended protected snapshot from the journal's expected frames.
+        """
         if self._pending is None:
             return True
-        known_revisions = {
-            self._pending.get("before_revision"),
-            self._pending.get("expected_revision"),
-        }
-        if snapshot.revision not in known_revisions:
+
+        before_revision = self._pending.get("before_revision")
+        expected_revision = self._pending.get("expected_revision")
+
+        if snapshot.revision == expected_revision:
+            self._snapshot = snapshot
+            self._pending = None
+            await self._async_save()
+            return True
+
+        if snapshot.revision != before_revision:
             return False
-        self._snapshot = snapshot
+
+        if self._snapshot is None:
+            raw_expected_frames = self._pending.get("expected_frames", [])
+            if raw_expected_frames:
+                try:
+                    self._snapshot = ProgramSnapshot.from_frames(
+                        tuple(bytes.fromhex(frame) for frame in raw_expected_frames)
+                    )
+                except (ValueError, InvalidSnapshot):
+                    # The legacy program backup remains authoritative even when
+                    # an old/broken journal cannot reconstruct its raw snapshot.
+                    self._snapshot = None
+
         self._pending = None
         await self._async_save()
         return True
