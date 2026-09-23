@@ -79,6 +79,11 @@ class ProgramBackupStore:
             repaired = self._snapshot
             try:
                 for program_index, program in sorted(self._programs.items()):
+                    # Patch only logical programs that actually differ from
+                    # the raw snapshot. Matching program blocks must remain
+                    # byte-for-byte untouched during the beta.12 migration.
+                    if repaired.programs.get(program_index) == program:
+                        continue
                     changes = _program_changes(program)
                     _, repaired = repaired.patch(
                         program_index,
