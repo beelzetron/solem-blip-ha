@@ -130,6 +130,12 @@
       },
       "stop_sprinkle": {
         "name": "Interrompi irrigazione"
+      },
+      "refresh_programs": {
+        "name": "Aggiorna programmi"
+      },
+      "restore_programs": {
+        "name": "Ripristina programmi"
       }
     },
     "number": {
@@ -177,6 +183,17 @@
           "inactive": "Inattiva",
           "unknown": "Sconosciuto"
         }
+      },
+      "program_backup_status": {
+        "name": "Stato backup programmi",
+        "state": {
+          "ready": "Pronto",
+          "pending": "Ripristino in sospeso",
+          "unavailable": "Non disponibile"
+        }
+      },
+      "program_backup_frames": {
+        "name": "Frame backup programmi"
       }
     },
     "valve": {
