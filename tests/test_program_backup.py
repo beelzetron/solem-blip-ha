@@ -346,3 +346,40 @@ async def test_pending_restore_rejects_other_normalized_divergence(
         assert not await backup.async_reconcile(current)
 
     assert backup.pending is not None
+
+
+def test_normalized_date_match_requires_same_complete_frame_shape() -> None:
+    """Normalized-date reconciliation rejects incomplete or identical snapshots."""
+    from custom_components.solem_blip.program_backup import (
+        _differs_only_by_period_start_date,
+    )
+
+    frame = bytes.fromhex("3a0e431200000064047f0705160907ea")
+    current = MagicMock()
+    expected = MagicMock()
+
+    current.frames = (frame,)
+    expected.frames = (frame,)
+    assert not _differs_only_by_period_start_date(current, expected)
+
+    current.frames = (frame, frame)
+    expected.frames = (frame,)
+    assert not _differs_only_by_period_start_date(current, expected)
+
+
+def test_normalized_date_match_rejects_non_header_and_non_abc_frames() -> None:
+    """Only A/B/C program header day bytes may be normalized."""
+    from custom_components.solem_blip.program_backup import (
+        _differs_only_by_period_start_date,
+    )
+
+    current = MagicMock()
+    expected = MagicMock()
+
+    expected.frames = (bytes.fromhex("3a12421204b005a005a005a005a005a005a005a0"),)
+    current.frames = (bytes.fromhex("3a12421205a005a005a005a005a005a005a005a0"),)
+    assert not _differs_only_by_period_start_date(current, expected)
+
+    expected.frames = (bytes.fromhex("3a0e3c1300000064007f0200160907ea"),)
+    current.frames = (bytes.fromhex("3a0e3c1300000064007f0200170907ea"),)
+    assert not _differs_only_by_period_start_date(current, expected)
