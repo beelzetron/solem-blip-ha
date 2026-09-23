@@ -115,7 +115,7 @@ def build_controller_and_battery_descriptors(
                 "software_version": "1.0",
                 "state": backup_status,
                 "attributes": {
-                    "frame_count": len(backup_snapshot.frames) if backup_snapshot else 0,
+                    "frame_count": (\n                        len(backup_snapshot.frames) if backup_snapshot else 0\n                    ),
                     "protected_programs": len(coordinator.program_backup.programs),
                     "pending_restore": backup_pending,
                     "revision": backup_snapshot.revision if backup_snapshot else None,
