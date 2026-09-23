@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -117,3 +118,45 @@ async def test_non_empty_programs_do_not_replace_existing_backup(
     restored = ProgramBackupStore(hass, "entry")
     await restored.async_load()
     assert restored.programs == PROGRAMS
+
+
+@pytest.mark.asyncio
+async def test_pending_restore_reconciles_known_revision(hass: HomeAssistant) -> None:
+    """A fresh read matching before/expected clears the durable journal."""
+    backup = ProgramBackupStore(hass, "entry")
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = ()
+    await backup.async_begin_restore(before, expected)
+
+    current = MagicMock()
+    current.revision = "expected"
+    current.frames = ()
+    assert await backup.async_reconcile(current)
+    assert backup.pending is None
+    assert backup.snapshot is current
+
+
+@pytest.mark.asyncio
+async def test_pending_restore_keeps_unknown_revision_blocked(
+    hass: HomeAssistant,
+) -> None:
+    """A divergent fresh read cannot silently resolve an uncertain write."""
+    backup = ProgramBackupStore(hass, "entry")
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = ()
+    await backup.async_begin_restore(before, expected)
+
+    current = MagicMock()
+    current.revision = "different"
+    current.frames = ()
+    assert not await backup.async_reconcile(current)
+    assert backup.pending is not None
+    assert backup.snapshot is None
