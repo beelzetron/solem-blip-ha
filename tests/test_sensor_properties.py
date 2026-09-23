@@ -218,9 +218,10 @@ async def test_program_next_start_sensor_exposes_schedule_context(coordinator) -
     assert attrs["minutes_since_midnight"] == 270
 
 
-def test_program_backup_status_sensor_attributes(coordinator) -> None:
+@pytest.mark.asyncio
+async def test_program_backup_status_sensor_attributes(coordinator) -> None:
     """Backup status exposes compact diagnostics without raw frame payloads."""
-    coordinator.data = __import__("asyncio").run(coordinator.async_update_all_sensors(fetch_status=False))
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
     device = next(
         item for item in coordinator.data if item["device_type"] == "PROGRAM_BACKUP_STATUS_SENSOR"
     )
