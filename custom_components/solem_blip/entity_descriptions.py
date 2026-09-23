@@ -129,6 +129,22 @@ SENSOR_DESCRIPTIONS: dict[str, SolemSensorEntityDescription] = {
         translation_key="program_schedule",
         has_entity_name=True,
     ),
+    "PROGRAM_BACKUP_STATUS_SENSOR": SolemSensorEntityDescription(
+        key="program_backup_status",
+        device_type="PROGRAM_BACKUP_STATUS_SENSOR",
+        translation_key="program_backup_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        has_entity_name=True,
+    ),
+    "PROGRAM_BACKUP_FRAMES_SENSOR": SolemSensorEntityDescription(
+        key="program_backup_frames",
+        device_type="PROGRAM_BACKUP_FRAMES_SENSOR",
+        translation_key="program_backup_frames",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        has_entity_name=True,
+    ),
 }
 
 BINARY_SENSOR_DESCRIPTIONS: dict[str, SolemBinarySensorEntityDescription] = {
@@ -197,6 +213,20 @@ BUTTON_DESCRIPTIONS: dict[str, SolemButtonEntityDescription] = {
         key="controller_off_days",
         device_type="OFF_DAYS_BUTTON",
         translation_key="controller_off_days",
+        entity_category=EntityCategory.CONFIG,
+        has_entity_name=True,
+    ),
+    "REFRESH_PROGRAMS_BUTTON": SolemButtonEntityDescription(
+        key="refresh_programs",
+        device_type="REFRESH_PROGRAMS_BUTTON",
+        translation_key="refresh_programs",
+        entity_category=EntityCategory.CONFIG,
+        has_entity_name=True,
+    ),
+    "RESTORE_PROGRAMS_BUTTON": SolemButtonEntityDescription(
+        key="restore_programs",
+        device_type="RESTORE_PROGRAMS_BUTTON",
+        translation_key="restore_programs",
         entity_category=EntityCategory.CONFIG,
         has_entity_name=True,
     ),
