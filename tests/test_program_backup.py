@@ -121,6 +121,47 @@ async def test_non_empty_programs_do_not_replace_existing_backup(
 
 
 @pytest.mark.asyncio
+async def test_load_repairs_mixed_raw_snapshot_without_ble(
+    hass: HomeAssistant,
+) -> None:
+    """A beta.12 mixed store is repaired from its protected logical programs."""
+    backup = ProgramBackupStore(hass, "mixed")
+    await backup.async_save_if_non_empty(PROGRAMS)
+
+    degraded_programs = {
+        index: dict(program) for index, program in PROGRAMS.items()
+    }
+    degraded_programs[0] = {
+        **PROGRAMS[0],
+        "start_times": [None] * 8,
+        "station_durations": [0, 0],
+    }
+    degraded = MagicMock()
+    degraded.programs = degraded_programs
+    degraded.frames = (b"raw-hidden-slots",)
+    degraded.revision = "degraded"
+    await backup.async_finish_restore(degraded)
+
+    repaired = MagicMock()
+    repaired.programs = PROGRAMS
+    repaired.frames = (b"repaired-hidden-slots",)
+    repaired.revision = "repaired"
+    degraded.patch.return_value = ([b"write"], repaired)
+
+    loaded = ProgramBackupStore(hass, "mixed")
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "custom_components.solem_blip.program_backup.ProgramSnapshot.from_frames",
+            lambda frames: degraded,
+        )
+        await loaded.async_load()
+
+    assert loaded.programs == PROGRAMS
+    assert loaded.snapshot is repaired
+    degraded.patch.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_abort_restore_clears_only_pending_journal(hass: HomeAssistant) -> None:
     """A confirmed preflight abort preserves the protected program backup."""
     backup = ProgramBackupStore(hass, "entry")
