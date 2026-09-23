@@ -54,7 +54,9 @@ async def test_sensor_native_values_after_refresh(coordinator) -> None:
     }
 
     for device_type, entity_class in samples.items():
-        device = next(\n            item for item in coordinator.data if item["device_type"] == device_type\n        )
+        device = next(
+            item for item in coordinator.data if item["device_type"] == device_type
+        )
         entity = entity_class(
             coordinator, device, "state", SENSOR_DESCRIPTIONS[device_type]
         )
@@ -223,10 +225,15 @@ async def test_program_backup_status_sensor_attributes(coordinator) -> None:
     """Backup status exposes compact diagnostics without raw frame payloads."""
     coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
     device = next(
-        item\n        for item in coordinator.data\n        if item["device_type"] == "PROGRAM_BACKUP_STATUS_SENSOR"
+        item
+        for item in coordinator.data
+        if item["device_type"] == "PROGRAM_BACKUP_STATUS_SENSOR"
     )
     entity = ProgramBackupStatusSensor(
-        coordinator,\n        device,\n        "state",\n        SENSOR_DESCRIPTIONS["PROGRAM_BACKUP_STATUS_SENSOR"],
+        coordinator,
+        device,
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_BACKUP_STATUS_SENSOR"],
     )
     assert entity.native_value == "unavailable"
     assert entity.extra_state_attributes == {
