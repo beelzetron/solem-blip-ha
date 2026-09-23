@@ -9,6 +9,7 @@ from typing import Any, cast
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from solem_blip_ble import IrrigationProgram
+from solem_blip_ble.snapshot import InvalidSnapshot, ProgramSnapshot
 
 from .const import DOMAIN
 
@@ -26,6 +27,18 @@ class ProgramBackupStore:
             f"{_STORAGE_KEY}.{entry_id}",
         )
         self._programs: dict[int, IrrigationProgram] = {}
+        self._snapshot: ProgramSnapshot | None = None
+        self._pending: dict[str, Any] | None = None
+
+    @property
+    def snapshot(self) -> ProgramSnapshot | None:
+        """Return the confirmed complete raw snapshot, when available."""
+        return self._snapshot
+
+    @property
+    def pending(self) -> dict[str, Any] | None:
+        """Return an unconfirmed restore journal entry."""
+        return deepcopy(self._pending)
 
     @property
     def programs(self) -> dict[int, IrrigationProgram]:
@@ -42,6 +55,15 @@ class ProgramBackupStore:
             int(index): _deserialize_program(program)
             for index, program in raw_programs.items()
         }
+        self._pending = data.get("pending")
+        raw_frames = data.get("frames", [])
+        if raw_frames:
+            try:
+                self._snapshot = ProgramSnapshot.from_frames(
+                    tuple(bytes.fromhex(frame) for frame in raw_frames)
+                )
+            except (ValueError, InvalidSnapshot):
+                self._snapshot = None
 
     async def async_save_if_non_empty(
         self, programs: dict[int, IrrigationProgram]
@@ -55,15 +77,44 @@ class ProgramBackupStore:
         if self._programs or not _has_scheduled_program(programs):
             return False
         self._programs = deepcopy(programs)
+        await self._async_save()
+        return True
+
+    async def async_begin_restore(
+        self, before: ProgramSnapshot, expected: ProgramSnapshot
+    ) -> None:
+        """Durably journal an intended restore before any BLE mutation."""
+        self._pending = {
+            "before_revision": before.revision,
+            "expected_revision": expected.revision,
+            "before_frames": [frame.hex() for frame in before.frames],
+            "expected_frames": [frame.hex() for frame in expected.frames],
+        }
+        await self._async_save()
+
+    async def async_finish_restore(self, snapshot: ProgramSnapshot) -> None:
+        """Persist a verified raw snapshot and clear the restore journal."""
+        self._snapshot = snapshot
+        self._pending = None
+        await self._async_save()
+
+    async def _async_save(self) -> None:
+        """Persist legacy programs, raw snapshot and pending journal together."""
         await self._store.async_save(
             {
                 "programs": {
                     str(index): _serialize_program(program)
                     for index, program in self._programs.items()
-                }
+                },
+                "frames": (
+                    [frame.hex() for frame in self._snapshot.frames]
+                    if self._snapshot is not None
+                    else []
+                ),
+                "pending": self._pending,
             }
         )
-        return True
+
 
 def _has_scheduled_program(programs: dict[int, IrrigationProgram]) -> bool:
     """Return whether at least one program has a start and a station duration."""
