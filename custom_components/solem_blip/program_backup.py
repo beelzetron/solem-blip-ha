@@ -92,6 +92,11 @@ class ProgramBackupStore:
         }
         await self._async_save()
 
+    async def async_abort_restore(self) -> None:
+        """Clear a journal when the BLE layer confirms no mutation was attempted."""
+        self._pending = None
+        await self._async_save()
+
     async def async_finish_restore(self, snapshot: ProgramSnapshot) -> None:
         """Persist a verified raw snapshot and clear the restore journal."""
         self._snapshot = snapshot
