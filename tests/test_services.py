@@ -385,6 +385,46 @@ async def test_restore_programs_service_rejects_non_v5_firmware(
 
 
 @pytest.mark.asyncio
+async def test_restore_programs_service_clears_safe_preflight_journal(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A transport failure before mutation clears the recovery journal."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    programs = {
+        1: {
+            "name": "Evening", "inter_station_delay": 0, "water_budget": 100,
+            "cycle": 0, "week_days": 0x7F, "period_length": 1,
+            "synchro_day": 0, "period_start_date": None,
+            "start_times": [1200, None, None, None, None, None, None, None],
+            "station_durations": [0, 120],
+        }
+    }
+    await coordinator.program_backup.async_save_if_non_empty(programs)
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = ()
+    before.patch.return_value = ([b"program-b-frame"], expected)
+    mock_solem_client.get_program_snapshot = AsyncMock(return_value=before)
+    mock_solem_client.write_program_frames = AsyncMock(
+        side_effect=SolemConnectionError("preflight link drop")
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN, SERVICE_RESTORE_PROGRAMS, {"device_id": device_id}, blocking=True
+        )
+
+    assert coordinator.program_backup.pending is None
+
+
+@pytest.mark.asyncio
 async def test_restore_programs_service_preserves_uncertain_journal(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
