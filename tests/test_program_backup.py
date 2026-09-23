@@ -140,8 +140,10 @@ async def test_abort_restore_clears_only_pending_journal(hass: HomeAssistant) ->
 
 
 @pytest.mark.asyncio
-async def test_pending_restore_reconciles_known_revision(hass: HomeAssistant) -> None:
-    """A fresh read matching before/expected clears the durable journal."""
+async def test_pending_restore_reconciles_expected_revision(
+    hass: HomeAssistant,
+) -> None:
+    """A fresh expected read confirms and stores the restored raw snapshot."""
     backup = ProgramBackupStore(hass, "entry")
     before = MagicMock()
     before.revision = "before"
@@ -157,6 +159,33 @@ async def test_pending_restore_reconciles_known_revision(hass: HomeAssistant) ->
     assert await backup.async_reconcile(current)
     assert backup.pending is None
     assert backup.snapshot is current
+
+
+@pytest.mark.asyncio
+async def test_pending_restore_before_revision_preserves_protected_snapshot(
+    hass: HomeAssistant,
+) -> None:
+    """A fresh before read clears the journal without replacing the backup."""
+    backup = ProgramBackupStore(hass, "entry")
+    protected = MagicMock()
+    protected.revision = "protected"
+    protected.frames = ()
+    await backup.async_finish_restore(protected)
+
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = ()
+    await backup.async_begin_restore(before, expected)
+
+    current = MagicMock()
+    current.revision = "before"
+    current.frames = ()
+    assert await backup.async_reconcile(current)
+    assert backup.pending is None
+    assert backup.snapshot is protected
 
 
 @pytest.mark.asyncio
