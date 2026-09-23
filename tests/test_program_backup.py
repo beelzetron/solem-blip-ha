@@ -189,6 +189,36 @@ async def test_pending_restore_before_revision_preserves_protected_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_pending_restore_before_revision_recovers_expected_raw_snapshot(
+    hass: HomeAssistant,
+) -> None:
+    """A legacy store without raw frames recovers them from the restore journal."""
+    backup = ProgramBackupStore(hass, "entry")
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = (b"before",)
+    expected = MagicMock()
+    expected.revision = "expected"
+    expected.frames = (b"expected",)
+    await backup.async_begin_restore(before, expected)
+
+    recovered = MagicMock()
+    recovered.frames = expected.frames
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "custom_components.solem_blip.program_backup.ProgramSnapshot.from_frames",
+            lambda frames: recovered,
+        )
+        current = MagicMock()
+        current.revision = "before"
+        current.frames = before.frames
+        assert await backup.async_reconcile(current)
+
+    assert backup.pending is None
+    assert backup.snapshot is recovered
+
+
+@pytest.mark.asyncio
 async def test_pending_restore_keeps_unknown_revision_blocked(
     hass: HomeAssistant,
 ) -> None:
