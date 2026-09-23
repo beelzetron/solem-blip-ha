@@ -65,6 +65,42 @@ class ProgramBackupStore:
             except (ValueError, InvalidSnapshot):
                 self._snapshot = None
 
+        # beta.12 could persist a mixed store after reconciling an unchanged
+        # controller: the logical A/B/C backup stayed protected while the raw
+        # 84-frame snapshot was replaced by the degraded live state. Repair
+        # that inconsistency locally. This never talks to BLE and preserves
+        # all additional V5 slots byte-for-byte from the stored snapshot.
+        if (
+            self._pending is None
+            and self._snapshot is not None
+            and self._programs
+            and self._snapshot_programs_differ()
+        ):
+            repaired = self._snapshot
+            try:
+                for program_index, program in sorted(self._programs.items()):
+                    changes = _program_changes(program)
+                    _, repaired = repaired.patch(
+                        program_index,
+                        changes,
+                        len(program.get("station_durations", [])),
+                    )
+            except (KeyError, ValueError, InvalidSnapshot):
+                # Keep the logical backup authoritative if an old snapshot
+                # cannot be repaired safely.
+                return
+            self._snapshot = repaired
+            await self._async_save()
+
+    def _snapshot_programs_differ(self) -> bool:
+        """Return whether protected logical A/B/C differ from raw frames."""
+        if self._snapshot is None:
+            return False
+        return any(
+            self._snapshot.programs.get(index) != program
+            for index, program in self._programs.items()
+        )
+
     async def async_save_if_non_empty(
         self, programs: dict[int, IrrigationProgram]
     ) -> bool:
@@ -160,6 +196,27 @@ class ProgramBackupStore:
                 "pending": self._pending,
             }
         )
+
+
+def _program_changes(program: IrrigationProgram) -> dict[str, Any]:
+    """Return snapshot patch fields for one protected logical program."""
+    changes: dict[str, Any] = {
+        "name": program["name"],
+        "inter_station_delay": program["inter_station_delay"],
+        "water_budget": program["water_budget"],
+        "cycle": program["cycle"],
+        "week_days": program["week_days"],
+        "period_length": program["period_length"],
+        "synchro_day": program["synchro_day"],
+        "start_times": list(program["start_times"]),
+        "station_durations": {
+            station: seconds
+            for station, seconds in enumerate(program["station_durations"], start=1)
+        },
+    }
+    if program.get("period_start_date") is not None:
+        changes["period_start_date"] = program["period_start_date"]
+    return changes
 
 
 def _has_scheduled_program(programs: dict[int, IrrigationProgram]) -> bool:
