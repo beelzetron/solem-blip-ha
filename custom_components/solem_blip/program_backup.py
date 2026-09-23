@@ -98,6 +98,21 @@ class ProgramBackupStore:
         self._pending = None
         await self._async_save()
 
+    async def async_reconcile(self, snapshot: ProgramSnapshot) -> bool:
+        """Clear a pending restore only when a fresh read has a known outcome."""
+        if self._pending is None:
+            return True
+        known_revisions = {
+            self._pending.get("before_revision"),
+            self._pending.get("expected_revision"),
+        }
+        if snapshot.revision not in known_revisions:
+            return False
+        self._snapshot = snapshot
+        self._pending = None
+        await self._async_save()
+        return True
+
     async def _async_save(self) -> None:
         """Persist legacy programs, raw snapshot and pending journal together."""
         await self._store.async_save(
