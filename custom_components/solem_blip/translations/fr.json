@@ -224,6 +224,9 @@
     },
     "restore_programs_while_watering": {
       "message": "Les programmations ne peuvent pas être restaurées lorsqu'un arrosage est en cours."
+    },
+    "refresh_programs_failed": {
+      "message": "Échec de l'actualisation des programmes d'arrosage depuis le programmateur."
     }
   },
   "issues": {
