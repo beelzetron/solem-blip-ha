@@ -152,7 +152,7 @@ class RestoreProgramsButton(SolemButtonEntity):
     """Restore the protected program backup after explicit user action."""
 
     async def async_press(self) -> None:
-        if self.coordinator._irrigation_active or self.coordinator._is_watering:
+        if self.coordinator.program_mutation_blocked():
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="restore_programs_while_watering",
