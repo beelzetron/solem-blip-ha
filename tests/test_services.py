@@ -153,7 +153,7 @@ async def test_refresh_programs_service_requests_schedule_refresh(
     coordinator, device_id = await _setup_service_target(
         hass, mock_config_entry, mock_solem_client
     )
-    coordinator.schedule_coordinator.async_request_refresh = AsyncMock()
+    coordinator.refresh_irrigation_programs = AsyncMock()
 
     await hass.services.async_call(
         DOMAIN,
@@ -163,7 +163,30 @@ async def test_refresh_programs_service_requests_schedule_refresh(
     )
 
     assert coordinator._irrigation_config_refresh_after == 0.0
-    coordinator.schedule_coordinator.async_request_refresh.assert_awaited_once()
+    coordinator.refresh_irrigation_programs.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_programs_service_surfaces_read_failure(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A manual refresh cannot report success when the BLE read failed."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    coordinator.refresh_irrigation_programs = AsyncMock(
+        side_effect=SolemConnectionError("read failed")
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_REFRESH_PROGRAMS,
+            {"device_id": device_id},
+            blocking=True,
+        )
 
 
 @pytest.mark.asyncio
