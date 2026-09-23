@@ -130,6 +130,12 @@
       },
       "stop_sprinkle": {
         "name": "Stop sprinkle"
+      },
+      "refresh_programs": {
+        "name": "Refresh programs"
+      },
+      "restore_programs": {
+        "name": "Restore programs"
       }
     },
     "number": {
@@ -177,6 +183,17 @@
           "inactive": "Inactive",
           "unknown": "Unknown"
         }
+      },
+      "program_backup_status": {
+        "name": "Program backup status",
+        "state": {
+          "ready": "Ready",
+          "pending": "Restore pending",
+          "unavailable": "Unavailable"
+        }
+      },
+      "program_backup_frames": {
+        "name": "Program backup frames"
       }
     },
     "valve": {
