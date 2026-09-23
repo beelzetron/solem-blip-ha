@@ -374,42 +374,72 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
 
     async def restore_irrigation_programs(self) -> None:
-        """Queue backed-up programs with write-only BLE operations.
-
-        Restore deliberately does not perform an immediate full schedule read.
-        The controller and Bluetooth link are allowed to settle, and the normal
-        schedule coordinator verifies the persisted state on a later refresh.
-        """
+        """Restore the protected backup as one acknowledged no-replay transaction."""
         programs = self.program_backup.programs
         if not programs:
             raise ValueError("No irrigation program backup is available")
-
-        # Restore useful scheduled slots first so the meaningful schedules are
-        # sent before empty/default slots if the BLE link later degrades.
-        ordered_indexes = sorted(
-            programs,
-            key=lambda index: (
-                not (
-                    any(start is not None for start in programs[index]["start_times"])
-                    and any(
-                        duration > 0
-                        for duration in programs[index]["station_durations"]
-                    )
-                ),
-                index,
-            ),
-        )
-
-        for program_index in ordered_indexes:
-            await self.api.write_irrigation_program(
-                program_index,
-                programs[program_index],
+        if self.program_backup.pending:
+            raise ValueError(
+                "A previous restore is unconfirmed; refresh and reconcile it first"
             )
-            await asyncio.sleep(RESTORE_PROGRAM_WRITE_DELAY)
 
-        # Do not force a heavy read-back here. Mark schedules due so the normal
-        # coordinator performs the next verification after the BLE link settles.
-        self.request_schedule_refresh()
+        # Read a fresh complete twelve-slot snapshot. For backups created by
+        # beta.1-beta.11, migrate the protected A/B/C values onto these raw
+        # bytes so hidden slots 3..11 are preserved exactly as found.
+        before = await self.api.get_program_snapshot()
+        expected = before
+        for program_index, program in sorted(programs.items()):
+            changes: dict[str, Any] = {
+                "name": program["name"],
+                "inter_station_delay": program["inter_station_delay"],
+                "water_budget": program["water_budget"],
+                "cycle": program["cycle"],
+                "week_days": program["week_days"],
+                "period_length": program["period_length"],
+                "synchro_day": program["synchro_day"],
+                "start_times": list(program["start_times"]),
+                "station_durations": {
+                    station: seconds
+                    for station, seconds in enumerate(
+                        program["station_durations"], start=1
+                    )
+                    if station <= self.num_stations
+                },
+            }
+            if program.get("period_start_date") is not None:
+                changes["period_start_date"] = program["period_start_date"]
+            _, expected = expected.patch(
+                program_index,
+                changes,
+                self.num_stations,
+            )
+
+        frames = expected.write_frames()
+
+        # The journal must reach disk before the first BLE mutation. If the
+        # transaction becomes uncertain it deliberately remains pending and
+        # another restore is blocked until the controller is reconciled.
+        await self.program_backup.async_begin_restore(before, expected)
+        try:
+            verified = await self.api.write_program_frames(
+                frames,
+                expected,
+                before.revision,
+            )
+        except Exception:
+            _LOGGER.warning(
+                "%s - Program restore left unconfirmed (%s)",
+                self.controller_mac_address,
+                getattr(self.api, "program_write_diagnostics", {}),
+            )
+            raise
+
+        await self.program_backup.async_finish_restore(verified)
+        self.irrigation_programs = verified.programs
+        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        self.async_set_updated_data(
+            await self.async_update_all_sensors(fetch_status=False)
+        )
 
     async def turn_controller_on(self) -> None:
         """Turn the irrigation controller on."""
