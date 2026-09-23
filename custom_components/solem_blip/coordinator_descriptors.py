@@ -100,6 +100,40 @@ def build_controller_and_battery_descriptors(
         }
     )
     counter += 1
+    backup_snapshot = coordinator.program_backup.snapshot
+    backup_pending = coordinator.program_backup.pending is not None
+    backup_status = (
+        "pending" if backup_pending else "ready" if coordinator.program_backup.programs else "unavailable"
+    )
+    data.extend(
+        [
+            {
+                "device_id": f"{coordinator.controller_mac_address}_program_backup_status",
+                "device_type": "PROGRAM_BACKUP_STATUS_SENSOR",
+                "device_name": "Program backup status",
+                "device_uid": mac_to_uuid(coordinator.controller_mac_address, 1503),
+                "software_version": "1.0",
+                "state": backup_status,
+                "attributes": {
+                    "frame_count": len(backup_snapshot.frames) if backup_snapshot else 0,
+                    "protected_programs": len(coordinator.program_backup.programs),
+                    "pending_restore": backup_pending,
+                    "revision": backup_snapshot.revision if backup_snapshot else None,
+                },
+                "last_reboot": None,
+            },
+            {
+                "device_id": f"{coordinator.controller_mac_address}_program_backup_frames",
+                "device_type": "PROGRAM_BACKUP_FRAMES_SENSOR",
+                "device_name": "Program backup frames",
+                "device_uid": mac_to_uuid(coordinator.controller_mac_address, 1504),
+                "software_version": "1.0",
+                "state": len(backup_snapshot.frames) if backup_snapshot else 0,
+                "last_reboot": None,
+            },
+        ]
+    )
+
     data.append(
         {
             "device_id": f"{coordinator.controller_mac_address}_controller_off_days_remaining",
@@ -289,6 +323,22 @@ def build_control_descriptors(
                 "device_uid": mac_to_uuid(
                     coordinator.controller_mac_address, counter + 4
                 ),
+                "software_version": "1.0",
+                "last_reboot": None,
+            },
+            {
+                "device_id": f"{coordinator.controller_mac_address}_refresh_programs",
+                "device_type": "REFRESH_PROGRAMS_BUTTON",
+                "device_name": "Refresh programs",
+                "device_uid": mac_to_uuid(coordinator.controller_mac_address, 1501),
+                "software_version": "1.0",
+                "last_reboot": None,
+            },
+            {
+                "device_id": f"{coordinator.controller_mac_address}_restore_programs",
+                "device_type": "RESTORE_PROGRAMS_BUTTON",
+                "device_name": "Restore programs",
+                "device_uid": mac_to_uuid(coordinator.controller_mac_address, 1502),
                 "software_version": "1.0",
                 "last_reboot": None,
             },
