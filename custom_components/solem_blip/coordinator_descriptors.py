@@ -103,7 +103,11 @@ def build_controller_and_battery_descriptors(
     backup_snapshot = coordinator.program_backup.snapshot
     backup_pending = coordinator.program_backup.pending is not None
     backup_status = (
-        "pending" if backup_pending else "ready" if coordinator.program_backup.programs else "unavailable"
+        "pending"
+        if backup_pending
+        else "ready"
+        if coordinator.program_backup.programs
+        else "unavailable"
     )
     data.extend(
         [
@@ -115,7 +119,9 @@ def build_controller_and_battery_descriptors(
                 "software_version": "1.0",
                 "state": backup_status,
                 "attributes": {
-                    "frame_count": (\n                        len(backup_snapshot.frames) if backup_snapshot else 0\n                    ),
+                    "frame_count": (
+                        len(backup_snapshot.frames) if backup_snapshot else 0
+                    ),
                     "protected_programs": len(coordinator.program_backup.programs),
                     "pending_restore": backup_pending,
                     "revision": backup_snapshot.revision if backup_snapshot else None,
