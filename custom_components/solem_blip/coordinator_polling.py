@@ -22,6 +22,7 @@ from .const import (
     PROGRAM_LABELS,
     SET_TIME_MIN_INTERVAL,
     STATION_NAMES_READ_TIMEOUT,
+    TIME_SYNC_RETRY_INTERVAL,
 )
 from .util import normalize_entity_state
 from .ble_health import note_cycle_outcome
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
 # - SolemTimeSyncBusy: controller busy (watering) — normal, retry next poll
 # - SolemTimeSyncRejected: controller explicitly refused the sync
 # - SolemTimeSyncVerificationFailed: ack arrived but the clock alarm stayed set
+# (become isinstance checks once the solem-blip-ble pin lifts).
 _TIME_SYNC_BUSY_CLASS = "SolemTimeSyncBusy"
 _TIME_SYNC_REJECTED_CLASS = "SolemTimeSyncRejected"
 _TIME_SYNC_VERIFICATION_FAILED_CLASS = "SolemTimeSyncVerificationFailed"
@@ -136,7 +138,9 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
 
     Triggers: a pending sync flag, the 24h throttle expiry, or the device
     clock alarm (time_alarm bypasses the 24h throttle so a drifted clock is
-    corrected as soon as it is observed).
+    corrected as soon as it is observed). An alarm-triggered attempt only
+    runs once the post-failure cooldown has elapsed, and any failed attempt
+    arms that cooldown so a long outage does not warn on every poll.
     """
     if coordinator.solem_api_mock or coordinator.api.mock:
         return
@@ -145,6 +149,12 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
 
     now = asyncio.get_running_loop().time()
     alarm_set = coordinator.time_alarm is True
+    if (
+        alarm_set
+        and not coordinator._set_time_pending
+        and now < coordinator._time_sync_retry_after
+    ):
+        return
     if (
         not coordinator._set_time_pending
         and not alarm_set
@@ -158,9 +168,13 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
         await coordinator.api.set_time(moment)
     except Exception as err:
         err_class = type(err).__name__
+        # Any failure path defers the next alarm-triggered attempt: during a
+        # long outage the device would otherwise Busy/warn on every poll.
+        coordinator._time_sync_retry_after = now + TIME_SYNC_RETRY_INTERVAL
         if err_class == _TIME_SYNC_BUSY_CLASS:
             # Normal while the controller waters (or otherwise busy);
-            # keep the throttle untouched so the sync retries next poll.
+            # keep the throttle untouched so the sync retries after the
+            # time-sync cooldown.
             _LOGGER.debug(
                 "%s - Time sync deferred: controller busy (%s)",
                 coordinator.controller_mac_address,
@@ -189,9 +203,12 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
 
     coordinator._set_time_pending = False
     coordinator._last_set_time_at = now
+    coordinator._time_sync_retry_after = 0.0
     coordinator._last_set_time_sync = moment
     # A verified success means the library saw the clock alarm clear;
-    # optimistically reflect it so the entity is not stale for a poll.
+    # optimistically reflect it so the entity is not stale for a poll. When
+    # the alarm comes back on the next status read this prevents a duplicate
+    # alarm-triggered sync that a failed get_status would otherwise allow.
     coordinator.time_alarm = False
     _LOGGER.debug(
         "%s - Device time synced to %s",
