@@ -30,6 +30,17 @@ from .coordinator_publish import publish_descriptor_update
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
 
+# solem-blip-ble 0.3.1 does not export the dedicated time-sync outcome classes
+# yet (they arrive with 0.3.2-beta.1; the manifest pin must not move). Outcomes
+# are therefore classified by exception class name, which is stable across
+# versions and needs no import that could fail statically or at runtime:
+# - SolemTimeSyncBusy: controller busy (watering) — normal, retry next poll
+# - SolemTimeSyncRejected: controller explicitly refused the sync
+# - SolemTimeSyncVerificationFailed: ack arrived but the clock alarm stayed set
+_TIME_SYNC_BUSY_CLASS = "SolemTimeSyncBusy"
+_TIME_SYNC_REJECTED_CLASS = "SolemTimeSyncRejected"
+_TIME_SYNC_VERIFICATION_FAILED_CLASS = "SolemTimeSyncVerificationFailed"
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -121,15 +132,22 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
 
 
 async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
-    """Push HA local time to the device when throttling allows."""
+    """Push HA local time to the device when throttling allows.
+
+    Triggers: a pending sync flag, the 24h throttle expiry, or the device
+    clock alarm (time_alarm bypasses the 24h throttle so a drifted clock is
+    corrected as soon as it is observed).
+    """
     if coordinator.solem_api_mock or coordinator.api.mock:
         return
     if coordinator._irrigation_active:
         return
 
     now = asyncio.get_running_loop().time()
+    alarm_set = coordinator.time_alarm is True
     if (
         not coordinator._set_time_pending
+        and not alarm_set
         and coordinator._last_set_time_at
         and now - coordinator._last_set_time_at < SET_TIME_MIN_INTERVAL
     ):
@@ -139,16 +157,42 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
     try:
         await coordinator.api.set_time(moment)
     except Exception as err:
-        _LOGGER.warning(
-            "%s - Failed to sync device time: %s",
-            coordinator.controller_mac_address,
-            str(err) or type(err).__name__,
-        )
+        err_class = type(err).__name__
+        if err_class == _TIME_SYNC_BUSY_CLASS:
+            # Normal while the controller waters (or otherwise busy);
+            # keep the throttle untouched so the sync retries next poll.
+            _LOGGER.debug(
+                "%s - Time sync deferred: controller busy (%s)",
+                coordinator.controller_mac_address,
+                str(err) or err_class,
+            )
+        elif err_class in (
+            _TIME_SYNC_REJECTED_CLASS,
+            _TIME_SYNC_VERIFICATION_FAILED_CLASS,
+        ):
+            _LOGGER.warning(
+                "%s - Failed to sync device time: %s",
+                coordinator.controller_mac_address,
+                (
+                    "controller refused the sync"
+                    if err_class == _TIME_SYNC_REJECTED_CLASS
+                    else "device acknowledged but clock alarm is still set"
+                ),
+            )
+        else:
+            _LOGGER.warning(
+                "%s - Failed to sync device time: %s",
+                coordinator.controller_mac_address,
+                str(err) or err_class,
+            )
         return
 
     coordinator._set_time_pending = False
     coordinator._last_set_time_at = now
     coordinator._last_set_time_sync = moment
+    # A verified success means the library saw the clock alarm clear;
+    # optimistically reflect it so the entity is not stale for a poll.
+    coordinator.time_alarm = False
     _LOGGER.debug(
         "%s - Device time synced to %s",
         coordinator.controller_mac_address,

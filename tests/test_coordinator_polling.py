@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -386,6 +387,176 @@ async def test_set_time_retriggers_after_cycle_recovery(
 
     assert mock_solem_client.set_time.await_count == 2
     assert coordinator._set_time_pending is False
+
+
+def _make_sync_test_entry(mock_config_entry: MockConfigEntry) -> MockConfigEntry:
+    """Build the un-mocked-API config entry used by time-sync tests."""
+    return MockConfigEntry(
+        domain=mock_config_entry.domain,
+        data=mock_config_entry.data,
+        options={
+            **mock_config_entry.options,
+            SOLEM_API_MOCK: "false",
+        },
+        unique_id=mock_config_entry.unique_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_set_time_time_alarm_bypasses_throttle(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A set clock alarm re-triggers time sync even within the 24h throttle."""
+    config_entry = _make_sync_test_entry(mock_config_entry)
+    mock_solem_client.mock = False
+
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+        assert mock_solem_client.set_time.await_count == 1
+
+        # Alarm observed on the next poll, well inside the 24h throttle:
+        # the sync must still run.
+        coordinator.time_alarm = True
+        await coordinator._fetch_device_status()
+
+    assert mock_solem_client.set_time.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_set_time_alarm_success_clears_alarm_and_throttles(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """An alarm-triggered sync clears the alarm and does not re-trigger immediately."""
+    config_entry = _make_sync_test_entry(mock_config_entry)
+    mock_solem_client.mock = False
+
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+
+        coordinator.time_alarm = True
+        await coordinator._fetch_device_status()
+        assert mock_solem_client.set_time.await_count == 2
+        # Verified success: the alarm cleared and the throttle was updated.
+        assert coordinator.time_alarm is False
+
+        # The device may take a poll or two to confirm; the throttle must
+        # still suppress an immediate re-sync.
+        await coordinator._fetch_device_status()
+
+    assert mock_solem_client.set_time.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_set_time_time_alarm_none_keeps_existing_behavior(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """time_alarm=None (never seen) keeps the pre-alarm trigger behavior."""
+    config_entry = _make_sync_test_entry(mock_config_entry)
+    mock_solem_client.mock = False
+
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        await coordinator._fetch_device_status()
+        await coordinator._fetch_device_status()
+
+    mock_solem_client.set_time.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("exc_class_name", "expected_level", "throttle_updated"),
+    [
+        ("SolemTimeSyncBusy", logging.DEBUG, False),
+        ("SolemTimeSyncRejected", logging.WARNING, False),
+        ("SolemTimeSyncVerificationFailed", logging.WARNING, False),
+    ],
+)
+async def test_set_time_outcome_classes(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+    exc_class_name: str,
+    expected_level: int,
+    throttle_updated: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """New time-sync outcome classes are logged distinctly and defer, not sync.
+
+    A deferred sync (Busy) or a failed one must not update the throttle, so
+    the sync can retry on the next poll. Classification is by exception class
+    name because the pinned solem-blip-ble 0.3.1 does not export the classes
+    yet.
+    """
+
+    class _Stub(Exception):
+        pass
+
+    _Stub.__name__ = exc_class_name
+
+    config_entry = _make_sync_test_entry(mock_config_entry)
+    mock_solem_client.mock = False
+
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ), caplog.at_level(logging.DEBUG):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+        mock_solem_client.set_time.reset_mock()
+        mock_solem_client.set_time.side_effect = _Stub("controller says no")
+        coordinator._set_time_pending = False
+        coordinator._last_set_time_at = (
+            asyncio.get_running_loop().time() - 24 * 60 * 60
+        )
+        await coordinator._fetch_device_status()
+
+        matching = [
+            record
+            for record in caplog.records
+            if record.name == "custom_components.solem_blip.coordinator_polling"
+            and "time" in record.getMessage().lower()
+        ]
+        assert matching
+        assert all(record.levelno == expected_level for record in matching)
+
+        # Throttle untouched: the next poll retries the sync.
+        if not throttle_updated:
+            assert coordinator._last_set_time_at < (
+                asyncio.get_running_loop().time() - 24 * 60 * 60
+            )
+        mock_solem_client.set_time.reset_mock(side_effect=True)
+        mock_solem_client.set_time.side_effect = None
+        await coordinator._fetch_device_status()
+
+    assert mock_solem_client.set_time.await_count == 1
 
 
 @pytest.mark.asyncio
