@@ -1,6 +1,9 @@
 {
   "domain": "solem_blip",
   "name": "Solem BL-IP",
+  "after_dependencies": [
+    "logbook"
+  ],
   "bluetooth": [
     {
       "connectable": true,
@@ -13,9 +16,6 @@
   "config_flow": true,
   "dependencies": [
     "bluetooth_adapters"
-  ],
-  "after_dependencies": [
-    "logbook"
   ],
   "documentation": "https://github.com/beelzetron/solem-blip-ha",
   "homekit": {},
