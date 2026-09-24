@@ -29,6 +29,7 @@ class ProgramBackupStore:
         self._programs: dict[int, IrrigationProgram] = {}
         self._snapshot: ProgramSnapshot | None = None
         self._pending: dict[str, Any] | None = None
+        self.last_read: str | None = None
 
     @property
     def snapshot(self) -> ProgramSnapshot | None:

@@ -102,7 +102,7 @@ class StationValve(SolemValveEntity):
         station = self.station_num
         await self._run_action(
             "start_irrigation_failed",
-            self.coordinator.start_irrigation(station),
+            self.coordinator.start_irrigation(station, context=self._context),
             translation_placeholders={"station": str(station)},
         )
 

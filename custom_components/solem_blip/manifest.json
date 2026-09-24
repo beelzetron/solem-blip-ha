@@ -14,6 +14,9 @@
   "dependencies": [
     "bluetooth_adapters"
   ],
+  "after_dependencies": [
+    "logbook"
+  ],
   "documentation": "https://github.com/beelzetron/solem-blip-ha",
   "homekit": {},
   "integration_type": "device",

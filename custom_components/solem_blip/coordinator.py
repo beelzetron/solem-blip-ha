@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 from homeassistant.const import CONF_SCAN_INTERVAL
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -62,6 +62,7 @@ from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
 from .program_backup import ProgramBackupStore
+from .activity import WateringActivity
 from .ble_health import note_cycle_outcome
 from .bluetooth_issue import note_ble_recovery
 
@@ -165,6 +166,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._metadata_ready_after = float("inf")
         self._schedule_ready_after = float("inf")
         self._schedule_gate = asyncio.Event()
+        self.activity = WateringActivity(self)
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -223,6 +225,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 )
         self._clear_irrigation_idle_state()
         await self.schedule_coordinator.async_shutdown()
+        await self.activity.shutdown()
 
     def request_schedule_refresh(self) -> None:
         """Mark schedule data due for the next slow-coordinator refresh."""
@@ -240,6 +243,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     async def async_init(self) -> None:
         """Build initial entity data without blocking setup on BLE availability."""
         await self.program_backup.async_load()
+        await self.activity.load()
         self._ready = True
         self.data = await self.async_update_all_sensors(fetch_status=False)
         self.last_update_success = False
@@ -247,6 +251,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     def _apply_status(self, status: dict[str, Any]) -> None:
         """Update coordinator state from a BLE status dict."""
         apply_status(self, status)
+        self.activity.observe(status)
 
     async def _fetch_device_status(self) -> dict[str, Any]:
         """Poll device and update controller/station states from BLE status."""
@@ -306,14 +311,25 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
     async def start_irrigation(
-        self, station: int, minutes: int | None = None
+        self,
+        station: int,
+        minutes: int | None = None,
+        context: Context | None = None,
     ) -> None:
         """Send a start command, then monitor watering in the background."""
-        await irrigation_start(self, station, minutes)
+        async with self.activity.command(
+            station=station, context=context
+        ):
+            await irrigation_start(self, station, minutes)
 
-    async def start_program(self, program_num: int) -> None:
+    async def start_program(
+        self, program_num: int, context: Context | None = None
+    ) -> None:
         """Start one on-device irrigation program."""
-        await irrigation_start_program(self, program_num)
+        async with self.activity.command(
+            program=program_num, context=context
+        ):
+            await irrigation_start_program(self, program_num)
 
     async def _run_irrigation_monitor(self, station: int, duration: int) -> None:
         """Monitor active watering until completion, stop, or safety timeout."""
