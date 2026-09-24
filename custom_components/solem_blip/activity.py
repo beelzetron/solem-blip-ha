@@ -106,7 +106,10 @@ class WateringActivity:
         await self.store.async_save(self._stored())
         # Failed/cancelled commands stay uncertain, never attributed externally.
         yield
-        self.pending["confirmed"] = True
+        # The observer may have already consumed the intent (the run started
+        # and a poll classified it); only mark confirmed if it is still ours.
+        if self.pending is not None:
+            self.pending["confirmed"] = True
         self._save()
 
     def _log(self, message: str, run: dict[str, Any]) -> None:
