@@ -34,6 +34,10 @@ PROGRAM_LABELS = ("A", "B", "C")
 
 SET_TIME_MIN_INTERVAL = 24 * 60 * 60
 
+# Cooldown for alarm-triggered time-sync retries after a failed attempt,
+# matching the metadata retry cadence.
+TIME_SYNC_RETRY_INTERVAL = 15 * 60
+
 # Defer heavy GATT reads until status polling has been stable for this long.
 HEAVY_READ_DEFER_SECONDS = 60
 

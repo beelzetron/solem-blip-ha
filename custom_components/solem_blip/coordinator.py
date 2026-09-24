@@ -152,6 +152,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._irrigation_config_refresh_after = 0.0
         self.schedule_coordinator = SolemScheduleCoordinator(hass, config_entry, self)
         self._last_set_time_at = 0.0
+        self._time_sync_retry_after = 0.0
         self._last_set_time_sync: datetime | None = None
         self._set_time_pending = True
         self._ble_cycle_degraded_streak = 0
