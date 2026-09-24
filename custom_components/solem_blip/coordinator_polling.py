@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -347,6 +348,7 @@ async def _fetch_irrigation_config_locked(
         now + IRRIGATION_CONFIG_REFRESH_INTERVAL
     )
     coordinator._irrigation_config_retry_after = 0.0
+    coordinator.program_backup.last_read = dt_util.utcnow().isoformat()
     note_cycle_outcome(coordinator, degraded=False, reason="")
     return True
 

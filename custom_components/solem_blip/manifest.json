@@ -1,6 +1,9 @@
 {
   "domain": "solem_blip",
   "name": "Solem BL-IP",
+  "after_dependencies": [
+    "logbook"
+  ],
   "bluetooth": [
     {
       "connectable": true,

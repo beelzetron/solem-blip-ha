@@ -83,7 +83,7 @@ class IrrigationStartButton(SolemButtonEntity):
         station = int(self.device_id.rsplit("_", 1)[-1])
         await self._press(
             "start_irrigation_failed",
-            self.coordinator.start_irrigation(station),
+            self.coordinator.start_irrigation(station, context=self._context),
             translation_placeholders={"station": str(station)},
         )
 
@@ -98,7 +98,9 @@ class ProgramStartButton(SolemButtonEntity):
         )
         await self._press(
             "start_program_failed",
-            self.coordinator.start_program(program_num),
+            self.coordinator.start_program(
+                program_num, context=self._context
+            ),
             translation_placeholders={"program_name": program_name},
         )
 
