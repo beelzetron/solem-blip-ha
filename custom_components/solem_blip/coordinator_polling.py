@@ -46,6 +46,7 @@ def apply_status(coordinator: SolemCoordinator, status: dict[str, Any]) -> None:
     coordinator.controller.state = normalize_entity_state(
         status.get("controller_state")
     )
+    coordinator.activity.observe(status)
     coordinator.battery_voltage = status.get("battery_voltage")
     coordinator.battery_level = status.get("battery_level")
     coordinator.battery_low = bool(status.get("battery_low", False))

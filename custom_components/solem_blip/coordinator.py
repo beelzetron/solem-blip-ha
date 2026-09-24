@@ -251,7 +251,6 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     def _apply_status(self, status: dict[str, Any]) -> None:
         """Update coordinator state from a BLE status dict."""
         apply_status(self, status)
-        self.activity.observe(status)
 
     async def _fetch_device_status(self) -> dict[str, Any]:
         """Poll device and update controller/station states from BLE status."""

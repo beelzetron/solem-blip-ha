@@ -354,3 +354,22 @@ async def test_gap_matching_skips_disabled_zones_and_uses_local_midnight(
         assert activity.current["source"] == "Scheduled"
     finally:
         dt_util.set_default_time_zone(old_zone)
+
+
+async def test_command_succeeds_after_observer_consumed_intent(activity, freezer):
+    """The command context must not crash when a poll already consumed the intent.
+
+    Real sequence (hardware, minimicro34's report): start_irrigation journals
+    intent, the command's BLE call succeeds, and the post-start status poll
+    observes the run and consumes the intent before the command context exits.
+    """
+    activity.observe(IDLE)
+    async with activity.command(station=1):
+        # Simulate the post-start poll observing the manual run while the
+        # command context is still open: intent consumed as not-yet-confirmed.
+        activity.observe({"is_watering": True, "station_num": 1})
+        assert activity.current["source"] == "Unknown"
+        assert activity.pending is None
+    # Exiting the context after consumption is a no-op, not a crash.
+    assert activity.current["source"] == "Unknown"
+    assert activity.current["outcome"] == "Running"
