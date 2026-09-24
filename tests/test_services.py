@@ -432,7 +432,7 @@ async def test_restore_programs_service_preserves_uncertain_journal(
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """An uncertain BLE outcome remains journalled and blocks replay."""
+    """An explicit retry resumes safely from a divergent uncertain outcome."""
     coordinator, device_id = await _setup_service_target(
         hass, mock_config_entry, mock_solem_client
     )
@@ -453,9 +453,24 @@ async def test_restore_programs_service_preserves_uncertain_journal(
     expected.revision = "expected"
     expected.frames = ()
     before.patch.return_value = ([b"program-b-frame"], expected)
-    mock_solem_client.get_program_snapshot = AsyncMock(return_value=before)
+    partial = MagicMock()
+    partial.revision = "partial"
+    partial.frames = ()
+    resumed_expected = MagicMock()
+    resumed_expected.revision = "resumed-expected"
+    resumed_expected.frames = ()
+    resumed_expected.programs = programs
+    partial.patch.return_value = ([b"remaining-program-b-frame"], resumed_expected)
+    verified = MagicMock()
+    verified.revision = "resumed-expected"
+    verified.frames = ()
+    verified.programs = programs
+
+    mock_solem_client.get_program_snapshot = AsyncMock(
+        side_effect=[before, partial]
+    )
     mock_solem_client.write_program_frames = AsyncMock(
-        side_effect=UncertainWrite("unknown outcome")
+        side_effect=[UncertainWrite("unknown outcome"), verified]
     )
 
     with pytest.raises(HomeAssistantError):
@@ -467,6 +482,21 @@ async def test_restore_programs_service_preserves_uncertain_journal(
     assert pending is not None
     assert pending["before_revision"] == "before"
     assert pending["expected_revision"] == "expected"
+
+    # A second explicit Restore starts from a fresh complete read. Because the
+    # controller is neither the original before nor the original expected
+    # revision, it resumes from that observed partial state instead of blindly
+    # replaying the interrupted transaction.
+    await hass.services.async_call(
+        DOMAIN, SERVICE_RESTORE_PROGRAMS, {"device_id": device_id}, blocking=True
+    )
+
+    partial.patch.assert_called_once()
+    mock_solem_client.write_program_frames.assert_awaited_with(
+        [b"remaining-program-b-frame"], resumed_expected, "partial"
+    )
+    assert coordinator.program_backup.pending is None
+    assert coordinator.program_backup.snapshot is verified
 
 
 def test_program_service_data_validation_errors() -> None:

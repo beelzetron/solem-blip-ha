@@ -352,10 +352,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         programs = self.program_backup.programs
         if not programs:
             raise ValueError("No irrigation program backup is available")
-        if self.program_backup.pending:
-            raise UncertainWrite(
-                "A previous restore is unconfirmed; refresh and reconcile it first"
-            )
+        pending_restore = self.program_backup.pending
 
         status = await self.api.get_status()
         if (
@@ -375,6 +372,14 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         # contain A/B/C only, so the nine additional V5 slots are preserved
         # byte-for-byte from the controller and are never written.
         before = await self.api.get_program_snapshot()
+        if pending_restore:
+            # A previous uncertain write may have left the controller partially
+            # mutated. A fresh complete snapshot is authoritative for the retry:
+            # first reconcile a known outcome, otherwise explicitly resume from
+            # the observed partial state. The new before/expected journal below
+            # replaces the old one before any further mutation.
+            await self.program_backup.async_reconcile(before)
+
         expected = before
         frames: list[bytes] = []
         for program_index, program in sorted(programs.items()):
