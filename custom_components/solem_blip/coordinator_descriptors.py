@@ -341,6 +341,14 @@ def build_control_descriptors(
                 "last_reboot": None,
             },
             {
+                "device_id": f"{coordinator.controller_mac_address}_update_program_backup",
+                "device_type": "UPDATE_PROGRAM_BACKUP_BUTTON",
+                "device_name": "Update protected program backup",
+                "device_uid": mac_to_uuid(coordinator.controller_mac_address, 1503),
+                "software_version": "1.0",
+                "last_reboot": None,
+            },
+            {
                 "device_id": f"{coordinator.controller_mac_address}_restore_programs",
                 "device_type": "RESTORE_PROGRAMS_BUTTON",
                 "device_name": "Restore programs",
