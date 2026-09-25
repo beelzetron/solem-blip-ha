@@ -537,3 +537,110 @@ def test_program_service_data_validation_errors() -> None:
     ):
         with pytest.raises(vol.Invalid):
             _program_from_service_data(bad_data, num_stations=1)
+
+
+@pytest.mark.asyncio
+async def test_update_protected_backup_reads_and_replaces_fresh_snapshot(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Explicit backup update validates live state and promotes one fresh snapshot."""
+    coordinator, _ = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    snapshot = MagicMock()
+    mock_solem_client.get_program_snapshot = AsyncMock(return_value=snapshot)
+    coordinator.program_backup.async_replace = AsyncMock()
+    coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
+    coordinator.async_set_updated_data = MagicMock()
+    coordinator.async_update_all_sensors = AsyncMock(return_value={})
+
+    await coordinator.update_protected_program_backup()
+
+    mock_solem_client.get_status.assert_awaited()
+    mock_solem_client.get_firmware_version.assert_awaited()
+    mock_solem_client.get_program_snapshot.assert_awaited_once()
+    coordinator.program_backup.async_replace.assert_awaited_once_with(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_update_protected_backup_read_failure_preserves_backup(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A failed fresh snapshot read never reaches protected storage replacement."""
+    coordinator, _ = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    mock_solem_client.get_program_snapshot = AsyncMock(
+        side_effect=SolemConnectionError("read failed")
+    )
+    coordinator.program_backup.async_replace = AsyncMock()
+
+    with pytest.raises(SolemConnectionError):
+        await coordinator.update_protected_program_backup()
+
+    coordinator.program_backup.async_replace.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_protected_backup_rejects_live_watering(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A fresh watering status blocks backup replacement before snapshot read."""
+    coordinator, _ = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    mock_solem_client.get_status = AsyncMock(
+        return_value={"is_watering": True, "controller_state": "On"}
+    )
+    mock_solem_client.get_program_snapshot = AsyncMock()
+
+    with pytest.raises(Exception, match="must report idle"):
+        await coordinator.update_protected_program_backup()
+
+    mock_solem_client.get_program_snapshot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_protected_backup_rejects_pending_restore(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A pending restore blocks the explicit update before any BLE read."""
+    coordinator, _ = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    coordinator.program_backup._pending = {"expected_revision": "pending"}
+    mock_solem_client.get_program_snapshot = AsyncMock()
+
+    with pytest.raises(Exception, match="restore is pending"):
+        await coordinator.update_protected_program_backup()
+
+    mock_solem_client.get_program_snapshot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_protected_backup_rejects_non_v5_firmware(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Only original BL-IP firmware 5.x may replace the protected snapshot."""
+    coordinator, _ = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    mock_solem_client.get_firmware_version = AsyncMock(
+        return_value={"major": 6, "minor": 0, "patch": 0, "raw_hex": "6.0.0"}
+    )
+    mock_solem_client.get_program_snapshot = AsyncMock()
+
+    with pytest.raises(Exception, match="firmware 5.x"):
+        await coordinator.update_protected_program_backup()
+
+    mock_solem_client.get_program_snapshot.assert_not_awaited()

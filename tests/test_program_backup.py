@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from solem_blip_ble.snapshot import InvalidSnapshot
 
 from custom_components.solem_blip.program_backup import ProgramBackupStore
 
@@ -383,3 +384,117 @@ def test_normalized_date_match_rejects_non_header_and_non_abc_frames() -> None:
     expected.frames = (bytes.fromhex("3a0e3c1300000064007f0200160907ea"),)
     current.frames = (bytes.fromhex("3a0e3c1300000064007f0200170907ea"),)
     assert not _differs_only_by_period_start_date(current, expected)
+
+
+@pytest.mark.asyncio
+async def test_explicit_replace_updates_logical_and_raw_backup(
+    hass: HomeAssistant,
+) -> None:
+    """An explicit valid snapshot replaces programs and raw frames together."""
+    backup = ProgramBackupStore(hass, "replace")
+    await backup.async_save_if_non_empty(PROGRAMS)
+
+    changed = {
+        **PROGRAMS,
+        0: {**PROGRAMS[0], "name": "Updated"},
+        2: {**PROGRAMS[1], "name": "Program C"},
+    }
+    requested = MagicMock()
+    requested.frames = (b"complete-new-snapshot",)
+    validated = MagicMock()
+    validated.frames = requested.frames
+    validated.programs = changed
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "custom_components.solem_blip.program_backup.ProgramSnapshot.from_frames",
+            lambda frames: validated,
+        )
+        await backup.async_replace(requested)
+
+    assert backup.programs == changed
+    assert backup.snapshot is validated
+
+
+@pytest.mark.asyncio
+async def test_explicit_replace_invalid_snapshot_preserves_backup(
+    hass: HomeAssistant,
+) -> None:
+    """A snapshot validation failure leaves the protected backup untouched."""
+    backup = ProgramBackupStore(hass, "replace-invalid")
+    await backup.async_save_if_non_empty(PROGRAMS)
+    old_programs = backup.programs
+    old_snapshot = backup.snapshot
+
+    requested = MagicMock()
+    requested.frames = (b"partial",)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        def _invalid(frames):
+            raise InvalidSnapshot("partial snapshot")
+
+        monkeypatch.setattr(
+            "custom_components.solem_blip.program_backup.ProgramSnapshot.from_frames",
+            _invalid,
+        )
+        with pytest.raises(InvalidSnapshot):
+            await backup.async_replace(requested)
+
+    assert backup.programs == old_programs
+    assert backup.snapshot is old_snapshot
+
+
+@pytest.mark.asyncio
+async def test_explicit_replace_pending_restore_preserves_backup(
+    hass: HomeAssistant,
+) -> None:
+    """A pending restore blocks explicit protected-backup replacement."""
+    backup = ProgramBackupStore(hass, "replace-pending")
+    await backup.async_save_if_non_empty(PROGRAMS)
+    old_programs = backup.programs
+
+    before = MagicMock(revision="before", frames=())
+    expected = MagicMock(revision="expected", frames=())
+    await backup.async_begin_restore(before, expected)
+
+    requested = MagicMock(frames=(b"complete",))
+    with pytest.raises(InvalidSnapshot):
+        await backup.async_replace(requested)
+
+    assert backup.programs == old_programs
+    assert backup.pending is not None
+
+
+@pytest.mark.asyncio
+async def test_explicit_replace_persistence_failure_rolls_back_memory(
+    hass: HomeAssistant,
+) -> None:
+    """A failed durable save keeps the previous in-memory restore point."""
+    backup = ProgramBackupStore(hass, "replace-save-failure")
+    await backup.async_save_if_non_empty(PROGRAMS)
+    old_programs = backup.programs
+    old_snapshot = backup.snapshot
+
+    changed = {
+        **PROGRAMS,
+        0: {**PROGRAMS[0], "name": "Updated"},
+        2: {**PROGRAMS[1], "name": "Program C"},
+    }
+    requested = MagicMock(frames=(b"complete",))
+    validated = MagicMock(frames=requested.frames, programs=changed)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "custom_components.solem_blip.program_backup.ProgramSnapshot.from_frames",
+            lambda frames: validated,
+        )
+        monkeypatch.setattr(
+            backup._store,
+            "async_save",
+            AsyncMock(side_effect=RuntimeError("disk failure")),
+        )
+        with pytest.raises(RuntimeError, match="disk failure"):
+            await backup.async_replace(requested)
+
+    assert backup.programs == old_programs
+    assert backup.snapshot is old_snapshot

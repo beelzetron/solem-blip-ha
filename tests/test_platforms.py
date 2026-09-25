@@ -21,6 +21,7 @@ from custom_components.solem_blip.button import (
     ProgramStartButton,
     RefreshProgramsButton,
     RestoreProgramsButton,
+    UpdateProtectedBackupButton,
     async_setup_entry as setup_button,
 )
 from custom_components.solem_blip.entity_descriptions import (
@@ -272,6 +273,7 @@ async def test_button_platform_and_press_actions(
     assert ProgramStartButton in by_type
     assert RefreshProgramsButton in by_type
     assert RestoreProgramsButton in by_type
+    assert UpdateProtectedBackupButton in by_type
 
     stop_button = next(entity for entity in entities if isinstance(entity, IrrigationStopButton))
     await stop_button.async_press()
@@ -320,6 +322,13 @@ async def test_button_platform_and_press_actions(
     await refresh_button.async_press()
     coordinator.refresh_irrigation_programs.assert_awaited_once()
 
+    update_backup_button = next(
+        entity for entity in entities if isinstance(entity, UpdateProtectedBackupButton)
+    )
+    coordinator.update_protected_program_backup = AsyncMock()
+    await update_backup_button.async_press()
+    coordinator.update_protected_program_backup.assert_awaited_once()
+
     restore_button = next(
         entity for entity in entities if isinstance(entity, RestoreProgramsButton)
     )
@@ -337,6 +346,25 @@ async def test_button_platform_and_press_actions(
         await restore_button.async_press()
     assert exc_info.value.translation_key == "restore_programs_while_watering"
     coordinator._is_watering = False
+
+    coordinator.program_backup._pending = {"expected_revision": "pending"}
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await update_backup_button.async_press()
+    assert exc_info.value.translation_key == "update_program_backup_restore_pending"
+    coordinator.program_backup._pending = None
+
+    coordinator._is_watering = True
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await update_backup_button.async_press()
+    assert exc_info.value.translation_key == "update_program_backup_while_watering"
+    coordinator._is_watering = False
+
+    coordinator.update_protected_program_backup = AsyncMock(
+        side_effect=RuntimeError("fail")
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await update_backup_button.async_press()
+    assert exc_info.value.translation_key == "update_program_backup_failed"
 
     coordinator.refresh_irrigation_programs = AsyncMock(side_effect=RuntimeError("fail"))
     with pytest.raises(HomeAssistantError) as exc_info:

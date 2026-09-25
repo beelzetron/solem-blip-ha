@@ -136,6 +136,9 @@
       },
       "restore_programs": {
         "name": "Ripristina programmi"
+      },
+      "update_program_backup": {
+        "name": "Aggiorna il backup protetto dei programmi"
       }
     },
     "number": {
@@ -244,6 +247,15 @@
     },
     "restore_programs_while_watering": {
       "message": "Non è possibile ripristinare le programmazioni mentre l'irrigazione è attiva."
+    },
+    "update_program_backup_failed": {
+      "message": "Impossibile aggiornare il backup protetto dei programmi dal controller."
+    },
+    "update_program_backup_while_watering": {
+      "message": "Il backup protetto dei programmi non può essere aggiornato durante l'irrigazione."
+    },
+    "update_program_backup_restore_pending": {
+      "message": "Il backup protetto dei programmi non può essere aggiornato mentre è in attesa un ripristino."
     }
   },
   "issues": {

@@ -136,6 +136,9 @@
       },
       "restore_programs": {
         "name": "Restaurer les programmes"
+      },
+      "update_program_backup": {
+        "name": "Mettre à jour la sauvegarde protégée des programmes"
       }
     },
     "number": {
@@ -244,6 +247,15 @@
     },
     "refresh_programs_failed": {
       "message": "Échec de l'actualisation des programmes d'arrosage depuis le programmateur."
+    },
+    "update_program_backup_failed": {
+      "message": "Échec de la mise à jour de la sauvegarde protégée des programmes depuis le programmateur."
+    },
+    "update_program_backup_while_watering": {
+      "message": "La sauvegarde protégée des programmes ne peut pas être mise à jour lorsqu'un arrosage est en cours."
+    },
+    "update_program_backup_restore_pending": {
+      "message": "La sauvegarde protégée des programmes ne peut pas être mise à jour lorsqu'une restauration est en attente."
     }
   },
   "issues": {
