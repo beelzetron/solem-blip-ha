@@ -122,6 +122,51 @@ class ProgramBackupStore:
         await self._async_save()
         return True
 
+    async def async_replace(self, snapshot: ProgramSnapshot) -> None:
+        """Replace the protected backup from an explicitly selected snapshot.
+
+        This is intentionally separate from async_save_if_non_empty(): normal
+        observations must never promote themselves to the protected restore
+        point. Validate the complete raw snapshot before changing either the
+        logical or raw backup, and never replace a backup while a restore
+        journal is pending.
+        """
+        if self._pending is not None:
+            raise InvalidSnapshot(
+                "Cannot replace the protected backup while a restore is pending"
+            )
+
+        # Re-parse the raw frames so callers cannot promote a partial or
+        # internally inconsistent snapshot merely because it has the expected
+        # object type.
+        validated = ProgramSnapshot.from_frames(tuple(snapshot.frames))
+        programs = {
+            index: validated.programs[index]
+            for index in (0, 1, 2)
+            if index in validated.programs
+        }
+        if len(programs) != 3:
+            raise InvalidSnapshot(
+                "Protected backup requires complete program slots A, B and C"
+            )
+        if not _has_scheduled_program(programs):
+            raise InvalidSnapshot(
+                "Refusing to replace the protected backup with empty programs"
+            )
+
+        old_programs = self._programs
+        old_snapshot = self._snapshot
+        self._programs = deepcopy(programs)
+        self._snapshot = validated
+        try:
+            await self._async_save()
+        except Exception:
+            # Keep the in-memory restore point aligned with the last durable
+            # store if persistence itself fails.
+            self._programs = old_programs
+            self._snapshot = old_snapshot
+            raise
+
     async def async_begin_restore(
         self, before: ProgramSnapshot, expected: ProgramSnapshot
     ) -> None:
