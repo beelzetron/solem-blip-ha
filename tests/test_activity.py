@@ -7,7 +7,7 @@ integration's fixtures.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,6 +15,7 @@ from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
 
 from custom_components.solem_blip.activity import WateringActivity
+from custom_components.solem_blip.schedule import day_matches_cycle
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
 
 IDLE = {"is_watering": False, "active_program": None, "station_num": None}
@@ -98,7 +99,10 @@ async def test_ambiguous_runs_are_unknown(activity, freezer, cause):
     if cause == "gap":
         freezer.tick(timedelta(minutes=10))
     if cause == "interval":
-        activity.c.irrigation_programs[0]["cycle"] = 4
+        # Unanchored multi-day period: a matching slot is not verifiable.
+        activity.c.irrigation_programs[0].update(
+            cycle=4, period_length=3, period_start_date=None
+        )
     if cause == "no_program":
         activity.c.irrigation_programs = {}
     if cause == "stale":
@@ -332,9 +336,65 @@ async def test_scheduled_start_after_missed_poll(activity, freezer, cause):
     activity.c.api.run_program_x.assert_not_awaited()
 
 
-async def test_gap_matching_skips_disabled_zones_and_uses_local_midnight(
-    activity, freezer
-):
+def anchored_interval_program(activity, freezer, *, gap):
+    """Configure program A as an anchored multi-day interval program."""
+    day = dt_util.now()
+    program = activity.c.irrigation_programs[0]
+    start_minutes = day.hour * 60 + day.minute
+    program.update(
+        cycle=4,
+        period_length=3,
+        synchro_day=day.day % 3,
+        period_start_date=day.date(),
+        start_times=[start_minutes + 1] + [None] * 7,
+        station_durations=[600, 600, 600, 900, 600, 900],
+        water_budget=100,
+        inter_station_delay=0,
+    )
+    assert day_matches_cycle(
+        4, 3, 0x7F, day, period_start_date=day.date(), synchro_day=day.day % 3
+    )
+    return program, start_minutes
+
+
+@pytest.mark.parametrize("gap", [False, True])
+async def test_anchored_interval_run_is_scheduled(activity, freezer, gap):
+    """An anchored multi-day period matching the cycle phase can be attributed."""
+    freezer.move_to("2026-09-25T05:59:00+00:00")
+    activity.c.program_backup.last_read = dt_util.utcnow().isoformat()
+    program, start_minutes = anchored_interval_program(activity, freezer, gap=gap)
+    activity.observe(IDLE)
+    if gap:
+        # Miss the poll at the start slot; the first-station countdown bridges it.
+        freezer.move_to("2026-09-25T06:01:05+00:00")
+        status = {**RUN, "remaining_seconds": 60}
+    else:
+        freezer.tick(timedelta(seconds=60))
+        status = RUN
+    activity.observe(status)
+    assert activity.current["source"] == "Scheduled"
+    assert activity.current["program"] == 1
+    assert activity.c.api.run_program_x.assert_not_awaited() is None
+
+
+async def test_unanchored_interval_run_is_unknown(activity, freezer):
+    """Unanchored multi-day periods stay Unknown even with a matching slot."""
+    program = activity.c.irrigation_programs[0]
+    program.update(
+        cycle=4,
+        period_length=3,
+        start_times=[360] + [None] * 7,
+        period_start_date=None,
+    )
+    activity.c.program_backup.last_read = dt_util.utcnow().isoformat()
+    freezer.move_to("2026-09-25T05:59:00+00:00")
+    activity.observe(IDLE)
+    freezer.tick(timedelta(seconds=60))
+    activity.observe(RUN)
+    assert activity.current["source"] == "Unknown"
+
+
+async def test_gap_matching_skips_disabled_zones_and_uses_local_midnight(activity, freezer):
     old_zone = dt_util.DEFAULT_TIME_ZONE
     dt_util.set_default_time_zone(dt_util.get_time_zone("Europe/Lisbon"))
     try:
