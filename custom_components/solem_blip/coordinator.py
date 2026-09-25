@@ -358,6 +358,51 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Return whether local state says irrigation is currently active."""
         return self._irrigation_active or self._is_watering
 
+    async def update_protected_program_backup(self) -> None:
+        """Replace the protected restore point after explicit user action only."""
+        if self.program_mutation_blocked():
+            raise InvalidSnapshot(
+                "Controller must be idle before updating the protected backup"
+            )
+        if self.program_backup.pending is not None:
+            raise InvalidSnapshot(
+                "Cannot update the protected backup while a restore is pending"
+            )
+
+        async with self._heavy_read_lock:
+            # Re-check the controller itself immediately before the heavy read;
+            # cached HA state alone is not sufficient for a destructive backup
+            # replacement decision.
+            status = await self.api.get_status()
+            if (
+                status.get("is_watering") is not False
+                or status.get("controller_state") not in ("On", "Off")
+            ):
+                raise InvalidSnapshot(
+                    "Controller must report idle before updating the protected backup"
+                )
+            firmware = await self.api.get_firmware_version()
+            if firmware["major"] != 5:
+                raise InvalidSnapshot(
+                    "Only original BL-IP firmware 5.x program backups are supported"
+                )
+
+            snapshot = await self.api.get_program_snapshot()
+            # async_replace reparses and validates all raw frames before it
+            # changes the durable restore point.
+            await self.program_backup.async_replace(snapshot)
+
+        self.irrigation_programs = {
+            index: self.program_backup.programs[index]
+            for index in (0, 1, 2)
+            if index in self.program_backup.programs
+        }
+        self.program_backup.last_read = datetime.now().astimezone().isoformat()
+        self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
+        self.async_set_updated_data(
+            await self.async_update_all_sensors(fetch_status=False)
+        )
+
     async def restore_irrigation_programs(self) -> None:
         """Restore protected A/B/C programs in one acknowledged transaction."""
         if self.program_mutation_blocked():
