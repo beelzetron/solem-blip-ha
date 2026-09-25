@@ -225,6 +225,13 @@ BUTTON_DESCRIPTIONS: dict[str, SolemButtonEntityDescription] = {
         entity_category=EntityCategory.CONFIG,
         has_entity_name=True,
     ),
+    "UPDATE_PROGRAM_BACKUP_BUTTON": SolemButtonEntityDescription(
+        key="update_program_backup",
+        device_type="UPDATE_PROGRAM_BACKUP_BUTTON",
+        translation_key="update_program_backup",
+        entity_category=EntityCategory.CONFIG,
+        has_entity_name=True,
+    ),
     "RESTORE_PROGRAMS_BUTTON": SolemButtonEntityDescription(
         key="restore_programs",
         device_type="RESTORE_PROGRAMS_BUTTON",
