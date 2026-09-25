@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -486,7 +486,7 @@ async def test_explicit_replace_persistence_failure_rolls_back_memory(
         monkeypatch.setattr(
             backup._store,
             "async_save",
-            MagicMock(side_effect=RuntimeError("disk failure")),
+            AsyncMock(side_effect=RuntimeError("disk failure")),
         )
         with pytest.raises(RuntimeError, match="disk failure"):
             await backup.async_replace(requested)
