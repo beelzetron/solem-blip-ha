@@ -140,7 +140,7 @@ class ProgramBackupStore:
         # internally inconsistent snapshot merely because it has the expected
         # object type.
         validated = ProgramSnapshot.from_frames(tuple(snapshot.frames))
-        programs = {
+        programs: dict[int, IrrigationProgram] = {
             index: validated.programs[index]
             for index in (0, 1, 2)
             if index in validated.programs
