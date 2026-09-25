@@ -136,6 +136,9 @@
       },
       "restore_programs": {
         "name": "Restore programs"
+      },
+      "update_program_backup": {
+        "name": "Update protected program backup"
       }
     },
     "number": {
@@ -244,6 +247,15 @@
     },
     "refresh_programs_failed": {
       "message": "Failed to refresh irrigation programs from the controller."
+    },
+    "update_program_backup_failed": {
+      "message": "Failed to update the protected program backup from the controller."
+    },
+    "update_program_backup_while_watering": {
+      "message": "The protected program backup cannot be updated while watering is active."
+    },
+    "update_program_backup_restore_pending": {
+      "message": "The protected program backup cannot be updated while a restore is pending."
     }
   },
   "issues": {
