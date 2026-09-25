@@ -397,6 +397,7 @@ async def test_explicit_replace_updates_logical_and_raw_backup(
     changed = {
         **PROGRAMS,
         0: {**PROGRAMS[0], "name": "Updated"},
+        2: {**PROGRAMS[1], "name": "Program C"},
     }
     requested = MagicMock()
     requested.frames = (b"complete-new-snapshot",)
@@ -474,7 +475,11 @@ async def test_explicit_replace_persistence_failure_rolls_back_memory(
     old_programs = backup.programs
     old_snapshot = backup.snapshot
 
-    changed = {**PROGRAMS, 0: {**PROGRAMS[0], "name": "Updated"}}
+    changed = {
+        **PROGRAMS,
+        0: {**PROGRAMS[0], "name": "Updated"},
+        2: {**PROGRAMS[1], "name": "Program C"},
+    }
     requested = MagicMock(frames=(b"complete",))
     validated = MagicMock(frames=requested.frames, programs=changed)
 
