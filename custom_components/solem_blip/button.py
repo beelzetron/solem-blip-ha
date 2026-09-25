@@ -150,6 +150,30 @@ class RefreshProgramsButton(SolemButtonEntity):
             ) from err
 
 
+class UpdateProtectedBackupButton(SolemButtonEntity):
+    """Replace the protected program backup after explicit user action."""
+
+    async def async_press(self) -> None:
+        if self.coordinator.program_mutation_blocked():
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="update_program_backup_while_watering",
+            )
+        if self.coordinator.program_backup.pending is not None:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="update_program_backup_restore_pending",
+            )
+        try:
+            await self.coordinator.update_protected_program_backup()
+        except Exception as err:
+            _LOGGER.exception("Failed to update protected program backup")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="update_program_backup_failed",
+            ) from err
+
+
 class RestoreProgramsButton(SolemButtonEntity):
     """Restore the protected program backup after explicit user action."""
 
@@ -192,5 +216,6 @@ BUTTON_ENTITY_CLASSES: dict[str, type[SolemButtonEntity]] = {
     "OFF_BUTTON": ControllerOffButton,
     "OFF_DAYS_BUTTON": ControllerOffDaysButton,
     "REFRESH_PROGRAMS_BUTTON": RefreshProgramsButton,
+    "UPDATE_PROGRAM_BACKUP_BUTTON": UpdateProtectedBackupButton,
     "RESTORE_PROGRAMS_BUTTON": RestoreProgramsButton,
 }
