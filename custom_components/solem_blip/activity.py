@@ -169,12 +169,18 @@ class WateringActivity:
         read_at = dt_util.parse_datetime(self.c.program_backup.last_read or "")
         if (
             not program
-            or program["cycle"] == 4
             or status.get("time_alarm")
             or self.c.program_backup.pending
             or self.last_revision != self._current_revision()
             or read_at is None
             or not 0 <= (now - read_at).total_seconds() <= 7200
+            # Interval programs without a verifiable phase anchor cannot be
+            # matched to a start slot: keep them Unknown instead of guessing.
+            or (
+                program["cycle"] == 4
+                and program["period_length"] > 1
+                and program.get("period_start_date") is None
+            )
         ):
             return UNKNOWN_SOURCE
         assert self.last_seen is not None
