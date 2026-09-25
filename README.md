@@ -23,7 +23,7 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Configure-menu editor for on-device program start times and station durations,
   using loaded program and station names when available
 - Manual start buttons for on-device programs
-- Protected raw backup of the first useful non-empty on-device schedule (all 12 firmware-5 slots / 84 frames), with explicit refresh and manual restore controls after battery replacement
+- Protected raw backup of the first useful non-empty on-device schedule (all 12 firmware-5 slots / 84 frames), with explicit manual replacement of the restore point and manual restore controls after battery replacement
 - Transactional program restore with idle/firmware/revision preflight, per-block acknowledgements, same-connection readback, and a durable pending journal for uncertain outcomes
 - Program run detection (`0x44` status) with per-program running binary sensors
 - Controller status attributes: active program, program name, watering origin
@@ -216,8 +216,16 @@ manual and is blocked while watering is active; the integration never
 automatically overwrites the controller.
 
 The protected backup keeps the complete firmware-5 raw program snapshot: 12
-slots / 84 frames. Only A/B/C are user-editable and restored; the additional
-nine slots are preserved byte-for-byte. Before writing, the integration records
+slots / 84 frames. Normal polling, **Refresh programs**, and schedule writes do
+not silently replace this restore point. To deliberately adopt the controller's
+current configuration as the new restore point, press **Update protected program
+backup**. The integration first checks that the controller is idle, no restore is
+pending, and firmware 5.x is in use, then reads and validates a fresh complete
+snapshot before replacing the protected backup. If that read or validation fails,
+the previous protected backup is kept unchanged.
+
+Only A/B/C are user-editable and restored; the additional nine slots are
+preserved byte-for-byte. Before writing, the integration records
 a durable before/expected journal. A restore is only finalized after the BLE
 library acknowledges the writes and verifies a complete readback. If the
 transport becomes uncertain after mutation starts, automatic replay is refused
