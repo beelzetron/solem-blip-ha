@@ -197,6 +197,16 @@
       },
       "program_backup_frames": {
         "name": "Program backup frames"
+      },
+      "watering_activity": {
+        "name": "Watering activity",
+        "state": {
+          "idle": "Idle",
+          "Manual Home Assistant": "Manual Home Assistant",
+          "Scheduled": "Scheduled",
+          "Manual Bluetooth": "Manual Bluetooth",
+          "Unknown": "Unknown"
+        }
       }
     },
     "valve": {

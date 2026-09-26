@@ -73,6 +73,15 @@
       "station_remaining_time": {
         "default": "mdi:timer-outline"
       },
+      "watering_activity": {
+        "default": "mdi:water",
+        "state": {
+          "idle": "mdi:water-off",
+          "Scheduled": "mdi:calendar-clock",
+          "Manual Home Assistant": "mdi:home",
+          "Manual Bluetooth": "mdi:bluetooth"
+        }
+      },
       "station_status": {
         "default": "mdi:help-circle",
         "state": {

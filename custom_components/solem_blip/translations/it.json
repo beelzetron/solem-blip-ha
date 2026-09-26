@@ -197,6 +197,16 @@
       },
       "program_backup_frames": {
         "name": "Frame backup programmi"
+      },
+      "watering_activity": {
+        "name": "Attività di irrigazione",
+        "state": {
+          "idle": "Inattiva",
+          "Manual Home Assistant": "Manuale da Home Assistant",
+          "Scheduled": "Programmata",
+          "Manual Bluetooth": "Manuale via Bluetooth",
+          "Unknown": "Sconosciuta"
+        }
       }
     },
     "valve": {

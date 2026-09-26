@@ -22,6 +22,7 @@ from homeassistant.components.valve import (
 from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, UnitOfTime
 from homeassistant.helpers.entity import EntityCategory
 
+from .activity import WATERING_ACTIVITY_STATES
 from .const import MAX_CONTROLLER_OFF_DAYS
 
 
@@ -145,6 +146,15 @@ SENSOR_DESCRIPTIONS: dict[str, SolemSensorEntityDescription] = {
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         entity_registry_enabled_default=False,
+        has_entity_name=True,
+    ),
+    "WATERING_ACTIVITY_SENSOR": SolemSensorEntityDescription(
+        key="watering_activity",
+        device_type="WATERING_ACTIVITY_SENSOR",
+        translation_key="watering_activity",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(WATERING_ACTIVITY_STATES),
+        entity_category=EntityCategory.DIAGNOSTIC,
         has_entity_name=True,
     ),
 }

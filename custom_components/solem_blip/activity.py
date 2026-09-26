@@ -33,6 +33,16 @@ BLUETOOTH_SOURCE = "Manual Bluetooth"
 UNKNOWN_SOURCE = "Unknown"
 HISTORY_LIMIT = 30
 START_GAP_LIMIT_SECONDS = 600
+# Native values of the dedicated watering-activity diagnostic sensor (#103):
+# the tracker's current-run source, or "idle" when no run is in progress.
+IDLE_STATE = "idle"
+WATERING_ACTIVITY_STATES: tuple[str, ...] = (
+    IDLE_STATE,
+    HA_SOURCE,
+    SCHEDULE_SOURCE,
+    BLUETOOTH_SOURCE,
+    UNKNOWN_SOURCE,
+)
 
 
 class WateringActivity:
