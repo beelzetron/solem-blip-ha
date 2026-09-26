@@ -185,6 +185,42 @@ async def test_expired_and_mismatched_commands(activity, freezer):
     assert activity.pending is None
 
 
+async def test_lost_ack_with_signature_match_attributes_manual_ha(
+    activity, freezer
+):
+    """A write ack lost mid-flight does not hide an unambiguous HA start.
+
+    Real sequence: the BLE link drops while waiting for the command write
+    response, the controller still executes the command, and the first
+    post-reconnect poll matches the pending intent (station/program
+    signature, manual origin, inside the command window).
+    """
+    activity.observe(IDLE)
+    with pytest.raises(RuntimeError):
+        async with activity.command(program=1):
+            # Ack lost mid-write: the context exits via an exception path.
+            raise RuntimeError("BLE link dropped during operation")
+    activity.observe(
+        {**RUN, "watering_origin": "manual"}
+    )
+    assert activity.current["source"] == "Manual Home Assistant"
+    assert activity.pending is None
+
+
+async def test_unmatched_pending_intent_stays_unknown(activity, freezer):
+    """An intent that never matches a run keeps the Unknown behavior."""
+    activity.observe(IDLE)
+    async with activity.command(program=1):
+        pass
+    activity.observe(
+        {"is_watering": True, "station_num": 3, "watering_origin": "manual"}
+    )
+    assert activity.current["source"] == "Unknown"
+    assert activity.current["actor"] is None
+    assert activity.current["user_id"] is None
+    assert activity.current["context_id"] is None
+
+
 async def test_program_replacement_bounded_history_and_copy(activity, freezer):
     activity.observe(RUN)
     activity.observe({**RUN, "active_program": 2})
