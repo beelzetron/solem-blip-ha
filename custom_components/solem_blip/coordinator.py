@@ -375,10 +375,16 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     ) -> None:
         """Rename one onboard output through the safety-checked manager.
 
-        On success the coordinator's cached station labels are refreshed
-        from the verified snapshot so entity names follow immediately.
+        Runs under the heavy-read lock so the idle preflight and the
+        write cannot interleave with a metadata read or a program
+        operation touching the same connection. On success the
+        coordinator's cached station labels are refreshed from the
+        verified snapshot so entity names follow immediately.
         """
-        snapshot = await self.station_name_manager.update(station, name, revision)
+        async with self._heavy_read_lock:
+            snapshot = await self.station_name_manager.update(
+                station, name, revision
+            )
         self.station_names.update(
             {
                 station_id: name_text.strip() or f"Station {station_id}"
