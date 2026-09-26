@@ -39,13 +39,19 @@
       "invalid_program": "Controlla i valori della programmazione e riprova.",
       "not_loaded": "L'integrazione non è ancora caricata.",
       "set_program_failed": "Aggiornamento del programma selezionato non riuscito.",
-      "set_program_while_watering": "Non è possibile modificare le programmazioni mentre l'irrigazione è attiva."
+      "set_program_while_watering": "Non è possibile modificare le programmazioni mentre l'irrigazione è attiva.",
+      "invalid_station_name": "Inserisci un nome non vuoto di al massimo 32 byte UTF-8, senza caratteri NUL.",
+      "stale_station_name": "I nomi sul dispositivo sono cambiati da quando hai aperto l'editor. Riapri l'editor e riprova.",
+      "station_name_busy": "Il controller è occupato o non supporta la rinomina in questo momento.",
+      "station_name_uncertain": "L'esito dell'ultimo salvataggio è sconosciuto. Verifica i nomi attuali e confermali per continuare.",
+      "station_name_failed": "Lettura o scrittura dei nomi delle uscite non riuscita."
     },
     "step": {
       "init": {
         "menu_options": {
           "settings": "Opzioni integrazione",
-          "program_select": "Modifica programma sul dispositivo"
+          "program_select": "Modifica programma sul dispositivo",
+          "station_select": "Rinomina uscite"
         },
         "description": "Modifica polling, opzioni BLE e programmi sul dispositivo.",
         "title": "Opzioni Solem BL-IP"
@@ -97,7 +103,26 @@
         },
         "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.",
         "title": "Modifica programmazione sul dispositivo"
+      },
+      "station_select": {
+        "data": {
+          "station": "Uscita",
+          "accept_current": "Ho verificato i nomi attuali sul dispositivo e li accetto"
+        },
+        "description": "Un salvataggio precedente non è stato verificato. Verifica i nomi attuali sul controller, poi accettali per continuare.",
+        "title": "Rinomina uscite"
+      },
+      "station_name": {
+        "data": {
+          "name": "Nome uscita"
+        },
+        "description": "Fino a 32 byte UTF-8. Il controller viene scritto solo dopo l'invio del modulo.",
+        "title": "Rinomina uscita"
       }
+    },
+    "abort": {
+      "not_loaded": "L'integrazione non è ancora caricata.",
+      "station_names_read_failed": "Prima di modificare è richiesta una lettura completa dei nomi delle uscite. Verifica la connessione e riprova."
     }
   },
   "entity": {

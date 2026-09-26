@@ -51,6 +51,8 @@ from .const import (
     SOLEM_API_MOCK,
 )
 from .config_entry import MyConfigEntry
+from .exceptions_map import flow_error_for_exception
+from .station_names import StationNameManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,6 +71,10 @@ MAX_PROGRAM_DURATION_MINUTES = MAX_PROGRAM_DURATION_SECONDS / SECONDS_PER_MINUTE
 
 MENU_SETTINGS = "settings"
 MENU_EDIT_PROGRAM = "program_select"
+MENU_EDIT_STATION_NAMES = "station_select"
+
+ATTR_ACCEPT_CURRENT = "accept_current"
+ATTR_STATION = "station"
 
 _CYCLES = {
     "custom": 0,
@@ -343,7 +349,11 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
 
         return self.async_show_menu(
             step_id="init",
-            menu_options=[MENU_SETTINGS, MENU_EDIT_PROGRAM],
+            menu_options=[
+                MENU_SETTINGS,
+                MENU_EDIT_PROGRAM,
+                MENU_EDIT_STATION_NAMES,
+            ],
         )
 
     async def async_step_settings(
@@ -494,6 +504,117 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         if runtime_data is None:
             return None
         return runtime_data.coordinator
+
+    def _station_name_manager(self) -> StationNameManager | None:
+        """Return the coordinator's station-name manager, when loaded."""
+        coordinator = self._coordinator
+        manager = getattr(coordinator, "station_name_manager", None)
+        return manager if isinstance(manager, StationNameManager) else None
+
+    async def async_step_station_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose which output to rename, after a fresh snapshot read.
+
+        A pending journal (an earlier save with unknown outcome) blocks
+        selection until the user explicitly accepts the current on-device
+        names; the journal itself is never replayed.
+        """
+        coordinator = self._coordinator
+        manager = self._station_name_manager()
+        if coordinator is None or manager is None:
+            return self.async_abort(reason="not_loaded")
+        if user_input is not None and user_input.get(ATTR_ACCEPT_CURRENT):
+            try:
+                await manager.refresh(accept_current=True)
+            except Exception:
+                _LOGGER.exception(
+                    "Failed to reconcile pending station-name journal"
+                )
+                return self.async_abort(reason="station_names_read_failed")
+        pending = manager.pending is not None
+        if user_input is not None and not pending:
+            selected = int(user_input[ATTR_STATION])
+            if not 1 <= selected <= coordinator.num_stations:
+                return self.async_abort(reason="station_names_read_failed")
+            self._selected_station = selected
+            return await self.async_step_station_name()
+        try:
+            await manager.refresh()
+        except Exception:
+            _LOGGER.exception("Failed to read onboard station names")
+            return self.async_abort(reason="station_names_read_failed")
+        pending = manager.pending is not None
+        options = [
+            {
+                "value": str(station),
+                "label": manager.snapshot.names.get(station, f"Station {station}")
+                if manager.snapshot
+                else f"Station {station}",
+            }
+            for station in range(1, coordinator.num_stations + 1)
+        ]
+        schema: dict[Any, Any] = {
+            vol.Required(ATTR_STATION, default="1"): selector(
+                {"select": {"options": options, "mode": "dropdown"}}
+            )
+        }
+        if pending:
+            schema[
+                vol.Required(ATTR_ACCEPT_CURRENT, default=False)
+            ] = selector({"boolean": {}})
+        return self.async_show_form(
+            step_id="station_select",
+            data_schema=vol.Schema(schema),
+            errors={"base": "station_name_uncertain"} if pending else None,
+        )
+
+    async def async_step_station_name(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Enter a new name for the selected output and save it."""
+        coordinator = self._coordinator
+        manager = self._station_name_manager()
+        if coordinator is None or manager is None or manager.snapshot is None:
+            return self.async_abort(reason="station_names_read_failed")
+        station = getattr(self, "_selected_station", 1)
+        errors: dict[str, str] = {}
+        draft_name: str | None = None
+        if user_input is not None:
+            name = str(user_input.get(ATTR_NAME, ""))
+            draft_name = name
+            try:
+                await coordinator.rename_station(
+                    station, name, manager.snapshot.revision
+                )
+            except ValueError:
+                errors["base"] = "invalid_station_name"
+            except vol.Invalid:
+                errors["base"] = "invalid_station_name"
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.exception(
+                    "Failed to rename station %s", station
+                )
+                errors["base"] = flow_error_for_exception(exc)
+                if manager.pending is not None:
+                    errors["base"] = "station_name_uncertain"
+            else:
+                return self.async_create_entry(
+                    title="", data=dict(self.config_entry.options)
+                )
+        current = draft_name
+        if current is None and manager.snapshot is not None:
+            current = manager.snapshot.names.get(station, "")
+        default = current if current is not None else ""
+        return self.async_show_form(
+            step_id="station_name",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(ATTR_NAME, default=default): str,
+                }
+            ),
+            errors=errors,
+        )
 
     def _program_schema(
         self,

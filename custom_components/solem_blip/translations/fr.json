@@ -39,13 +39,19 @@
       "invalid_program": "Vérifiez les valeurs de la programmation et réessayez.",
       "not_loaded": "L'intégration n'est pas encore chargée.",
       "set_program_failed": "Échec de la mise à jour du programme sélectionné.",
-      "set_program_while_watering": "Les programmations ne peuvent pas être modifiées lorsqu'un arrosage est en cours."
+      "set_program_while_watering": "Les programmations ne peuvent pas être modifiées lorsqu'un arrosage est en cours.",
+      "invalid_station_name": "Saisissez un nom non vide de 32 octets UTF-8 maximum, sans caractère NUL.",
+      "stale_station_name": "Les noms sur l'appareil ont changé depuis l'ouverture de l'éditeur. Rouvrez l'éditeur et réessayez.",
+      "station_name_busy": "Le contrôleur est occupé ou ne prend pas en charge le renommage pour le moment.",
+      "station_name_uncertain": "L'issue de la dernière sauvegarde est inconnue. Vérifiez les noms actuels et confirmez-les pour continuer.",
+      "station_name_failed": "Échec de lecture ou d'écriture des noms des sorties."
     },
     "step": {
       "init": {
         "menu_options": {
           "settings": "Options de l'intégration",
-          "program_select": "Modifier un programme sur l'appareil"
+          "program_select": "Modifier un programme sur l'appareil",
+          "station_select": "Renommer les sorties"
         },
         "description": "Réglez l'interrogation, les options Bluetooth et les programmes enregistrés sur l'appareil.",
         "title": "Options Solem BL-IP"
@@ -97,7 +103,26 @@
         },
         "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.",
         "title": "Modifier une programmation sur l'appareil"
+      },
+      "station_select": {
+        "data": {
+          "station": "Sortie",
+          "accept_current": "J'ai vérifié les noms actuels sur l'appareil et les accepte"
+        },
+        "description": "Une sauvegarde précédente n'a pas pu être vérifiée. Vérifiez les noms actuels sur le contrôleur, puis acceptez-les pour continuer.",
+        "title": "Renommer les sorties"
+      },
+      "station_name": {
+        "data": {
+          "name": "Nom de la sortie"
+        },
+        "description": "Jusqu'à 32 octets UTF-8. Le contrôleur n'est écrit qu'après la soumission du formulaire.",
+        "title": "Renommer la sortie"
       }
+    },
+    "abort": {
+      "not_loaded": "L'intégration n'est pas encore chargée.",
+      "station_names_read_failed": "Une lecture complète des noms des sorties est requise avant modification. Vérifiez la connexion et réessayez."
     }
   },
   "entity": {
