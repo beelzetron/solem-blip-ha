@@ -65,6 +65,10 @@ from .program_backup import ProgramBackupStore
 from .activity import WateringActivity
 from .ble_health import note_cycle_outcome
 from .bluetooth_issue import note_ble_recovery
+from .stuck_recovery import (
+    attach_stuck_adapter_detector,
+    detach_stuck_adapter_detector,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -168,6 +172,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._schedule_ready_after = float("inf")
         self._schedule_gate = asyncio.Event()
         self.activity = WateringActivity(self)
+        self.stuck_adapter_detector = attach_stuck_adapter_detector(self)
 
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
@@ -227,6 +232,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._clear_irrigation_idle_state()
         await self.schedule_coordinator.async_shutdown()
         await self.activity.shutdown()
+        detach_stuck_adapter_detector(self.stuck_adapter_detector)
 
     def request_schedule_refresh(self) -> None:
         """Mark schedule data due for the next slow-coordinator refresh."""
@@ -308,6 +314,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             return data
         except Exception as err:
             note_cycle_outcome(self, degraded=True, reason="status poll failed")
+            self.stuck_adapter_detector.note_cycle_outcome(degraded=True)
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
     async def start_irrigation(
