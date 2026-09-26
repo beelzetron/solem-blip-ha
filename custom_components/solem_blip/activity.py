@@ -5,6 +5,14 @@ Source attribution design proven out upstream in a community fork
 integration's architecture: the stateless client needs no transaction
 wrapper here because the command journal itself records intent before the
 BLE call and marks it confirmed only after success.
+
+A pending intent that is consumed by a signature-matched run (station or
+program, within the command window) is treated as its own confirmation at
+classification time: when the command write ack is lost mid-flight the
+controller may still execute the command, and the first post-reconnect
+poll then carries the same station/program signature. Like the Scheduled
+path, this is honest inference, not proof — a MySOLEM/phone start on the
+same station inside the window is indistinguishable.
 """
 
 from __future__ import annotations
@@ -165,7 +173,11 @@ class WateringActivity:
         intent: dict[str, Any] | None,
     ) -> str:
         if intent:
-            if intent["confirmed"]:
+            # A signature-matched consumption (station/program, manual origin,
+            # within the command window) confirms the pending intent here, even
+            # if the write ack was lost mid-flight: the controller executing
+            # the command is the strongest available evidence it was received.
+            if intent["confirmed"] or status.get("watering_origin") == "manual":
                 return HA_SOURCE
             return UNKNOWN_SOURCE
         if self.last_seen is None:
