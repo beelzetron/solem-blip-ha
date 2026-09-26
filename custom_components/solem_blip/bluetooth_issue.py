@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 ISSUE_BLUETOOTH_UNAVAILABLE = "bluetooth_unavailable"
+ISSUE_BLUETOOTH_STUCK_ADAPTER = "bluetooth_stuck_adapter"
 WINDOW_SECONDS = 30 * 60
 WINDOW_FAILURE_THRESHOLD = 4
 RECOVERY_CLEAR_SECONDS = 10 * 60
@@ -46,6 +47,33 @@ def async_create_bluetooth_unavailable_issue(
         is_fixable=False,
         severity=ir.IssueSeverity.WARNING,
         translation_key=ISSUE_BLUETOOTH_UNAVAILABLE,
+        translation_placeholders={
+            "mac": coordinator.controller_mac_address,
+        },
+    )
+
+
+def async_create_bluetooth_stuck_adapter_issue(
+    coordinator: SolemCoordinator,
+) -> None:
+    """Create the stuck-adapter repair issue (Layer B, solem-blip-ble #51).
+
+    Raised once the stuck-recovery signature is complete: a long streak of
+    fully degraded poll cycles combined with a cleanup-exhausted warning
+    from the library. Unlike the sliding-window issue this one is raised
+    once per detection and is not cleared by transient recovery — only a
+    config-entry reload or restart clears it, because the adapter state it
+    describes survives anything shorter.
+    """
+    entry = coordinator.config_entry
+    assert entry is not None
+    ir.async_create_issue(
+        coordinator.hass,
+        DOMAIN,
+        f"{ISSUE_BLUETOOTH_STUCK_ADAPTER}_{entry.entry_id}",
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key=ISSUE_BLUETOOTH_STUCK_ADAPTER,
         translation_placeholders={
             "mac": coordinator.controller_mac_address,
         },

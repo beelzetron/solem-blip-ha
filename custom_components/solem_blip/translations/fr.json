@@ -262,6 +262,10 @@
     "bluetooth_unavailable": {
       "title": "Connexion Bluetooth indisponible",
       "description": "Home Assistant n'a pas pu interroger le programmateur {mac} via Bluetooth de manière fiable. Vérifiez que le programmateur est allumé, à portée et qu'il n'est pas connecté à une autre application. S'il est connecté via un proxy Bluetooth, redémarrer le proxy résout généralement le problème ; sinon, redémarrer Home Assistant recharge l'adaptateur Bluetooth."
+    },
+    "bluetooth_stuck_adapter": {
+      "title": "L'adaptateur Bluetooth est peut-être bloqué",
+      "description": "La connexion Bluetooth au programmateur {mac} échoue en continu et la bibliothèque Bluetooth signale qu'elle n'a pas pu libérer une connexion obsolète. L'adaptateur Bluetooth est peut-être bloqué. Si le problème persiste après quelques autres interrogations, redémarrez l'hôte (Paramètres -> Système -> Redémarrer), pas seulement le cœur de Home Assistant."
     }
   },
   "selector": {

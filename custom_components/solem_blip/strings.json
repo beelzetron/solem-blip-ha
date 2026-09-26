@@ -262,6 +262,10 @@
     "bluetooth_unavailable": {
       "title": "Bluetooth connection unavailable",
       "description": "Home Assistant could not reliably poll controller {mac} over Bluetooth. Check that the controller is powered on, in range, and not connected to another app. If it connects through a Bluetooth proxy, rebooting the proxy typically resolves it; otherwise restarting Home Assistant reloads the Bluetooth adapter."
+    },
+    "bluetooth_stuck_adapter": {
+      "title": "Bluetooth adapter may be stuck",
+      "description": "The Bluetooth connection to controller {mac} has been failing continuously, and the Bluetooth library reports it could not release a stale connection. The Bluetooth adapter may be stuck. If the problem persists across a few more polls, restart the host (Settings -> System -> Restart), not just Home Assistant core."
     }
   },
   "selector": {

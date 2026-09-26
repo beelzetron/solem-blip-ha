@@ -262,6 +262,10 @@
     "bluetooth_unavailable": {
       "title": "Connessione Bluetooth non disponibile",
       "description": "Home Assistant non riesce a interrogare in modo affidabile il controller {mac} via Bluetooth. Verifica che sia acceso, nel raggio e non connesso ad altre app. Se è connesso tramite un proxy Bluetooth, riavviare il proxy di solito risolve il problema; in alternativa, riavviare Home Assistant ricarica l'adattatore Bluetooth."
+    },
+    "bluetooth_stuck_adapter": {
+      "title": "L'adattatore Bluetooth potrebbe essere bloccato",
+      "description": "La connessione Bluetooth al controller {mac} non riesce in modo continuo e la libreria Bluetooth segnala di non essere riuscita a rilasciare una connessione obsoleta. L'adattatore Bluetooth potrebbe essere bloccato. Se il problema persiste per alcuni sondaggi ancora, riavviare l'host (Impostazioni -> Sistema -> Riavvia), non solo il core di Home Assistant."
     }
   },
   "selector": {
