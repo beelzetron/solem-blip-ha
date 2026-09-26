@@ -26,6 +26,7 @@ from .const import (
     BLUETOOTH_DEFAULT_TIMEOUT,
     BLUETOOTH_TIMEOUT,
     CONTROLLER_MAC_ADDRESS,
+    CONTROLLER_NAME,
     DEFAULT_CONTROLLER_OFF_DAYS,
     DEFAULT_MANUAL_DURATION,
     DEFAULT_SCAN_INTERVAL,
@@ -117,6 +118,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
         self.station_names: dict[int, str] = {}
         self.firmware_version: str | None = None
+        # Confirmed onboard name from the identification record. Restored
+        # from entry data so offline startup labels correctly; a fresh
+        # read overwrites it via controller_name.apply_controller_name.
+        self.controller_name: str | None = config_entry.data.get(CONTROLLER_NAME)
         self._firmware_retry_after = 0.0
         self._station_names_retry_after = 0.0
         self.stations = self._build_stations()
