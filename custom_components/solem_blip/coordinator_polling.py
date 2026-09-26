@@ -278,8 +278,15 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                 )
 
     now = asyncio.get_running_loop().time()
+    # A cache-restore may already satisfy the count: force one refresh after
+    # a restart so on-device renames made while HA was down are picked up
+    # (criterion 2 of issue #118). After that first read, the count check
+    # restores the previous read-once-per-session behavior.
     if (
-        len(coordinator.station_names) < coordinator.num_stations
+        (
+            coordinator._station_names_restored
+            or len(coordinator.station_names) < coordinator.num_stations
+        )
         and now >= coordinator._station_names_retry_after
     ):
         station_names_attempted = True
@@ -303,6 +310,10 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                     for station_id, name in station_names.items()
                     if 1 <= station_id <= coordinator.num_stations
                 }
+            )
+            coordinator._station_names_restored = False
+            await coordinator.display_names.async_save(
+                station_names=dict(coordinator.station_names)
             )
             for station in coordinator.stations:
                 station.device_name = (
@@ -428,6 +439,15 @@ async def _fetch_irrigation_config_locked(
     )
     coordinator._irrigation_config_retry_after = 0.0
     coordinator.program_backup.last_read = dt_util.utcnow().isoformat()
+    # Persist the freshly observed program display names so a restart does
+    # not fall back to the slot labels until the next config read succeeds.
+    await coordinator.display_names.async_save(
+        program_names={
+            index: str(program.get("name", "")).strip()
+            for index, program in coordinator.irrigation_programs.items()
+            if str(program.get("name", "")).strip()
+        }
+    )
     note_cycle_outcome(coordinator, degraded=False, reason="")
     return True
 

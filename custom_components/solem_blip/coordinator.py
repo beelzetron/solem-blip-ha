@@ -59,6 +59,7 @@ from .coordinator_polling import (
     remaining_minutes_for_station,
 )
 from .coordinator_publish import publish_descriptor_update
+from .display_names import DisplayNamesStore
 from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
@@ -161,6 +162,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.station_name_manager = StationNameManager(
             hass, config_entry.entry_id, self.api
         )
+        self.display_names = DisplayNamesStore(hass, config_entry.entry_id)
+        # Last successfully observed program display names; consulted only
+        # when the live irrigation-config read has not produced a name.
+        self.program_names: dict[int, str] = {}
         self._irrigation_config_retry_after = 0.0
         self._irrigation_config_refresh_after = 0.0
         self.schedule_coordinator = SolemScheduleCoordinator(hass, config_entry, self)
@@ -175,6 +180,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_successful_poll_at: float | None = None
         self._is_watering = False
         self._metadata_task: asyncio.Task[None] | None = None
+        self._station_names_restored = False
         self._heavy_read_lock = asyncio.Lock()
         self._first_successful_status_at: float | None = None
         self._metadata_ready_after = float("inf")
@@ -193,10 +199,17 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         return self.station_names.get(station_id) or f"Station {station_id}"
 
     def _program_display_name(self, program_index: int) -> str:
-        """Return the on-device program name or a stable slot fallback."""
+        """Return the on-device program name or a stable slot fallback.
+
+        Resolution order: the live irrigation-config read, the cached
+        last-observed name restored across restarts, then the slot label.
+        """
         program = self.irrigation_programs.get(program_index)
         if program and (name := program.get("name", "").strip()):
             return name
+        cached = self.program_names.get(program_index)
+        if cached:
+            return cached
         return f"Program {PROGRAM_LABELS[program_index]}"
 
     def _build_stations(self) -> list[IrrigationStation]:
@@ -261,6 +274,25 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         await self.program_backup.async_load()
         await self.station_name_manager.async_load()
         await self.activity.load()
+        # Seed the display-name caches with the last successfully observed
+        # onboard names so a restart (including an offline one) shows no
+        # "Station N"/"Program X" window. The device remains the source of
+        # truth: the first successful metadata read refreshes the cache,
+        # picking up renames made outside this integration. Descriptor
+        # rebuild and publish are intentionally skipped here: setup builds
+        # and renders entities right after async_init.
+        await self.display_names.async_load()
+        if restored_names := dict(self.display_names.station_names):
+            self.station_names.update(
+                {
+                    station_id: name
+                    for station_id, name in restored_names.items()
+                    if 1 <= station_id <= self.num_stations
+                }
+            )
+            self._station_names_restored = True
+        if restored_programs := dict(self.display_names.program_names):
+            self.program_names.update(restored_programs)
         self._ready = True
         self.data = await self.async_update_all_sensors(fetch_status=False)
         self.last_update_success = False
@@ -370,6 +402,16 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))
         self.schedule_coordinator.async_set_updated_data(self.irrigation_programs)
         await self.program_backup.async_save_if_non_empty(self.irrigation_programs)
+        # The program editor's write returned the observed post-write state:
+        # refresh the program-name cache in the same success path so a
+        # restart cannot resurrect the pre-rename name (issue #118).
+        await self.display_names.async_save(
+            program_names={
+                index: str(program.get("name", "")).strip()
+                for index, program in self.irrigation_programs.items()
+                if str(program.get("name", "")).strip()
+            }
+        )
 
     def program_mutation_blocked(self) -> bool:
         """Return whether local state says irrigation is currently active."""
@@ -396,6 +438,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 for station_id, name_text in snapshot.names.items()
                 if 1 <= station_id <= self.num_stations
             }
+        )
+        # The editor's readback just verified the onboard names: refresh the
+        # cache from that snapshot in the same success path so a restart
+        # cannot resurrect the pre-rename name for a full read cycle.
+        await self.display_names.async_save(
+            station_names=dict(self.station_names)
         )
         for station_model in self.stations:
             station_model.device_name = (
