@@ -68,12 +68,15 @@ def apply_controller_name(coordinator: SolemCoordinator, name: str) -> None:
             ),
         )
     registry = dr.async_get(coordinator.hass)
+    device = None
     if entry is not None:
-        device = registry.async_get_device_by_identifier(
-            (DOMAIN, coordinator.controller_mac_address),
-            config_entry_id=entry.entry_id,
-        )
-    else:
-        device = None
+        try:
+            device = registry.async_get_device_by_identifier(
+                (DOMAIN, coordinator.controller_mac_address),
+                config_entry_id=entry.entry_id,
+            )
+        except (TypeError, ValueError):
+            # A malformed cached address must never break the poll cycle.
+            device = None
     if device is not None and device.name != name:
         registry.async_update_device(device.id, name=name)

@@ -253,10 +253,20 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                 station.software_version = coordinator.firmware_version
             # The identification name record is optional metadata: a
             # missing or malformed record must never invalidate the
-            # firmware read, so it is applied only when present.
+            # firmware read, so it is applied only when present. Even a
+            # failure inside the labeling update itself (registry or
+            # config entry rejected the change) must not discard the
+            # otherwise successful firmware read.
             name = firmware.get("controller_name")
             if isinstance(name, str) and name:
-                apply_controller_name(coordinator, name)
+                try:
+                    apply_controller_name(coordinator, name)
+                except Exception:
+                    _LOGGER.exception(
+                        "%s - Failed to apply controller name record",
+                        coordinator.controller_mac_address,
+                    )
+                    coordinator.controller_name = None
             device_registry = dr.async_get(coordinator.hass)
             device = device_registry.async_get_device_by_identifier(
                 (DOMAIN, coordinator.controller_mac_address),
