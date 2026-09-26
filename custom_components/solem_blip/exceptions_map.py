@@ -29,7 +29,3 @@ def flow_error_for_exception(exc: Exception) -> str:
         return "station_name_failed"
     return "station_name_failed"
 
-
-def is_journal_exception(exc: BaseException) -> bool:
-    """Return True when an exception must leave the pending journal set."""
-    return isinstance(exc, (UncertainWrite, asyncio.CancelledError))
