@@ -39,16 +39,41 @@
       "invalid_program": "Check the schedule values and try again.",
       "not_loaded": "The integration is not loaded yet.",
       "set_program_failed": "Failed to update the selected program.",
-      "set_program_while_watering": "Program schedules cannot be changed while watering is active."
+      "set_program_while_watering": "Program schedules cannot be changed while watering is active.",
+      "invalid_station_name": "Enter a non-empty name of at most 32 UTF-8 bytes without NUL characters.",
+      "stale_station_name": "The onboard names changed since the editor was opened. Reopen the editor and try again.",
+      "station_name_busy": "The controller is busy or does not support renaming right now.",
+      "station_name_uncertain": "The outcome of the last save is unknown. Review the current names and confirm them to continue.",
+      "station_name_failed": "Failed to read or write the onboard station names."
+    },
+    "abort": {
+      "not_loaded": "The integration is not loaded yet.",
+      "station_names_read_failed": "A complete read of the onboard station names is required before editing. Check the connection and try again."
     },
     "step": {
       "init": {
         "menu_options": {
           "settings": "Integration options",
-          "program_select": "Edit on-device program"
+          "program_select": "Edit on-device program",
+          "station_select": "Rename outputs"
         },
         "description": "Adjust polling, BLE options, and on-device programs.",
         "title": "Solem BL-IP options"
+      },
+      "station_select": {
+        "data": {
+          "station": "Output",
+          "accept_current": "I reviewed the current onboard names and accept them"
+        },
+        "description": "A previous save could not be verified. Review the current names on the controller, then accept them to continue.",
+        "title": "Rename outputs"
+      },
+      "station_name": {
+        "data": {
+          "name": "Output name"
+        },
+        "description": "Up to 32 UTF-8 bytes. The controller is written only after you submit this form.",
+        "title": "Rename output"
       },
       "settings": {
         "data": {

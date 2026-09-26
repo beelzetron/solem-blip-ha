@@ -20,6 +20,7 @@ from custom_components.solem_blip.config_flow import (
     CannotConnect,
     CannotConnectSlots,
     MENU_EDIT_PROGRAM,
+    MENU_EDIT_STATION_NAMES,
     MENU_SETTINGS,
     SolemConfigFlow,
     SolemOptionsFlowHandler,
@@ -415,7 +416,11 @@ async def test_options_flow_shows_menu(
 
     assert result["type"] == "menu"
     assert result["step_id"] == "init"
-    assert result["menu_options"] == [MENU_SETTINGS, MENU_EDIT_PROGRAM]
+    assert result["menu_options"] == [
+        MENU_SETTINGS,
+        MENU_EDIT_PROGRAM,
+        MENU_EDIT_STATION_NAMES,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -435,6 +440,7 @@ def test_options_flow_menu_translations_exist(
 
     assert menu_options[MENU_SETTINGS]
     assert menu_options[MENU_EDIT_PROGRAM]
+    assert menu_options[MENU_EDIT_STATION_NAMES]
 
 
 def test_options_flow_uses_automatic_reload() -> None:

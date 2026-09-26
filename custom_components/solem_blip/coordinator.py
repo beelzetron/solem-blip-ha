@@ -62,6 +62,7 @@ from .bluetooth import async_get_connectable_device
 
 from .models import IrrigationController, IrrigationStation
 from .program_backup import ProgramBackupStore
+from .station_names import StationNameManager
 from .activity import WateringActivity
 from .ble_health import note_cycle_outcome
 from .bluetooth_issue import note_ble_recovery
@@ -152,6 +153,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.watering_origin: str | None = None
         self.irrigation_programs: dict[int, IrrigationProgram] = {}
         self.program_backup = ProgramBackupStore(hass, config_entry.entry_id)
+        self.station_name_manager = StationNameManager(
+            hass, config_entry.entry_id, self.api
+        )
         self._irrigation_config_retry_after = 0.0
         self._irrigation_config_refresh_after = 0.0
         self.schedule_coordinator = SolemScheduleCoordinator(hass, config_entry, self)
@@ -250,6 +254,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     async def async_init(self) -> None:
         """Build initial entity data without blocking setup on BLE availability."""
         await self.program_backup.async_load()
+        await self.station_name_manager.async_load()
         await self.activity.load()
         self._ready = True
         self.data = await self.async_update_all_sensors(fetch_status=False)
@@ -364,6 +369,30 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     def program_mutation_blocked(self) -> bool:
         """Return whether local state says irrigation is currently active."""
         return self._irrigation_active or self._is_watering
+
+    async def rename_station(
+        self, station: int, name: str, revision: str
+    ) -> None:
+        """Rename one onboard output through the safety-checked manager.
+
+        On success the coordinator's cached station labels are refreshed
+        from the verified snapshot so entity names follow immediately.
+        """
+        snapshot = await self.station_name_manager.update(station, name, revision)
+        self.station_names.update(
+            {
+                station_id: name_text.strip() or f"Station {station_id}"
+                for station_id, name_text in snapshot.names.items()
+                if 1 <= station_id <= self.num_stations
+            }
+        )
+        for station_model in self.stations:
+            station_model.device_name = (
+                f"{self._station_name(station_model.station_number)} Status"
+            )
+        publish_descriptor_update(
+            self, await self.async_update_all_sensors(fetch_status=False)
+        )
 
     async def update_protected_program_backup(self) -> None:
         """Replace the protected restore point after explicit user action only."""
