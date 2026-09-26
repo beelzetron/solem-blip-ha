@@ -74,13 +74,7 @@
         "default": "mdi:timer-outline"
       },
       "watering_activity": {
-        "default": "mdi:water",
-        "state": {
-          "idle": "mdi:water-off",
-          "Scheduled": "mdi:calendar-clock",
-          "Manual Home Assistant": "mdi:home",
-          "Manual Bluetooth": "mdi:bluetooth"
-        }
+        "default": "mdi:water"
       },
       "station_status": {
         "default": "mdi:help-circle",

@@ -199,14 +199,7 @@
         "name": "Trames de la sauvegarde des programmes"
       },
       "watering_activity": {
-        "name": "Activité d'arrosage",
-        "state": {
-          "idle": "Inactif",
-          "Manual Home Assistant": "Manuel depuis Home Assistant",
-          "Scheduled": "Programmé",
-          "Manual Bluetooth": "Manuel via Bluetooth",
-          "Unknown": "Inconnu"
-        }
+        "name": "Activité d'arrosage"
       }
     },
     "valve": {
