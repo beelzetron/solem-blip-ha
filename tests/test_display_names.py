@@ -122,6 +122,12 @@ async def test_restore_on_async_init_seeds_names_without_ble(
     assert coordinator.program_names == {0: "Prato", 2: "Fiori"}
     assert coordinator._station_name(1) == "Orto"
     assert coordinator._station_name(2) == "Giardino"
+    # The status models' device_name snapshot (taken in __init__, before
+    # the restore) must be rebuilt from the cache too.
+    assert [s.device_name for s in coordinator.stations] == [
+        "Orto Status",
+        "Giardino Status",
+    ]
     assert coordinator._program_display_name(0) == "Prato"
     assert coordinator._program_display_name(1) == "Program B"
     assert coordinator._program_display_name(2) == "Fiori"
