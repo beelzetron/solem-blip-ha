@@ -27,6 +27,7 @@ from .const import (
 from .util import normalize_entity_state
 from .ble_health import note_cycle_outcome
 from .coordinator_publish import publish_descriptor_update
+from .controller_name import apply_controller_name
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
@@ -250,6 +251,12 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             coordinator.controller.software_version = coordinator.firmware_version
             for station in coordinator.stations:
                 station.software_version = coordinator.firmware_version
+            # The identification name record is optional metadata: a
+            # missing or malformed record must never invalidate the
+            # firmware read, so it is applied only when present.
+            name = firmware.get("controller_name")
+            if isinstance(name, str) and name:
+                apply_controller_name(coordinator, name)
             device_registry = dr.async_get(coordinator.hass)
             device = device_registry.async_get_device_by_identifier(
                 (DOMAIN, coordinator.controller_mac_address),

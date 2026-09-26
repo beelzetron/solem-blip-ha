@@ -138,7 +138,8 @@ class SolemBaseEntity(CoordinatorEntity[SolemCoordinator]):
     def device_info(self) -> DeviceInfo:
         """Return device information."""
         return DeviceInfo(
-            name=self.coordinator.controller_mac_address,
+            name=self.coordinator.controller_name
+            or self.coordinator.controller_mac_address,
             manufacturer="Solem",
             model="BL-IP",
             sw_version=self.coordinator.firmware_version,
