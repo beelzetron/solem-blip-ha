@@ -321,6 +321,37 @@ async def test_corrupt_cache_payload_is_ignored(
     assert coordinator._program_display_name(0) == "Program A"
 
 
+async def test_blank_name_entry_discards_whole_map(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A blank name implies external corruption: the whole map is discarded.
+
+    This pins the all-or-nothing discard in _validated_names (as opposed
+    to a skip-and-keep semantics) so a future edit cannot flip it
+    silently.
+    """
+    storage: dict[str, Any] = {
+        _DISPLAY_KEY.format(entry_id=mock_config_entry.entry_id): {
+            "version": 1,
+            "data": _payload(
+                station_names={"1": "Orto", "2": "   "},
+                program_names={"0": "Prato"},
+            ),
+        }
+    }
+    with _mock_hass_storage(storage):
+        coordinator = await _make_coordinator(
+            hass, mock_config_entry, mock_solem_client
+        )
+    assert coordinator.station_names == {}
+    # Only the blank station entry is corrupted, but the discard is
+    # all-or-nothing: program names in the same payload are untouched,
+    # per-map validation.
+    assert coordinator.program_names == {0: "Prato"}
+
+
 async def test_non_dict_cache_payload_is_ignored(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
