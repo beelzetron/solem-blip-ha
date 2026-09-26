@@ -291,6 +291,14 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 }
             )
             self._station_names_restored = True
+            # The status models carry a snapshot of the name taken in
+            # __init__, before the restore; rebuild it from the cache so
+            # the "X Status" device names also skip the default window
+            # (issue #118).
+            for station_model in self.stations:
+                station_model.device_name = (
+                    f"{self._station_name(station_model.station_number)} Status"
+                )
         if restored_programs := dict(self.display_names.program_names):
             self.program_names.update(restored_programs)
         self._ready = True
