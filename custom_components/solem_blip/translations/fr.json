@@ -197,6 +197,9 @@
       },
       "program_backup_frames": {
         "name": "Trames de la sauvegarde des programmes"
+      },
+      "watering_activity": {
+        "name": "Activité d'arrosage"
       }
     },
     "valve": {

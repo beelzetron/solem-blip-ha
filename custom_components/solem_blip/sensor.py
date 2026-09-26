@@ -9,6 +9,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .activity import IDLE_STATE, WATERING_ACTIVITY_STATES
 from .config_entry import MyConfigEntry
 from .entity import SolemBaseEntity
 from .coordinator import SolemCoordinator
@@ -160,6 +161,28 @@ class ProgramBackupFramesSensor(SolemSensorEntity):
         return cast(int | None, self._descriptor_field())
 
 
+class WateringActivitySensor(SolemSensorEntity):
+    """Watering-activity diagnostic sensor: live source plus run history.
+
+    Read-only view of the coordinator's WateringActivityTracker: the native
+    value doubles as a generic "watering in progress" signal ("idle" when
+    nothing runs), and the attributes carry the current run and the
+    newest-first history exactly as the tracker maintains them.
+    """
+
+    @property
+    def native_value(self) -> str:
+        current = self.coordinator.activity.current
+        if current is None:
+            return IDLE_STATE
+        source = current["source"]
+        return source if source in WATERING_ACTIVITY_STATES else IDLE_STATE
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return dict(self.coordinator.activity.state)
+
+
 class ProgramSensor(SolemSensorEntity):
     """Base class for sensors refreshed by the slower schedule coordinator."""
 
@@ -210,4 +233,5 @@ SENSOR_ENTITY_CLASSES: dict[str, type[SolemSensorEntity]] = {
     "PROGRAM_SCHEDULE_SENSOR": ProgramScheduleSensor,
     "PROGRAM_BACKUP_STATUS_SENSOR": ProgramBackupStatusSensor,
     "PROGRAM_BACKUP_FRAMES_SENSOR": ProgramBackupFramesSensor,
+    "WATERING_ACTIVITY_SENSOR": WateringActivitySensor,
 }

@@ -197,6 +197,9 @@
       },
       "program_backup_frames": {
         "name": "Frame backup programmi"
+      },
+      "watering_activity": {
+        "name": "Attività di irrigazione"
       }
     },
     "valve": {

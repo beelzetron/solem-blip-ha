@@ -197,6 +197,9 @@
       },
       "program_backup_frames": {
         "name": "Program backup frames"
+      },
+      "watering_activity": {
+        "name": "Watering activity"
       }
     },
     "valve": {

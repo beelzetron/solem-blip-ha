@@ -151,6 +151,17 @@ def build_controller_and_battery_descriptors(
             "last_reboot": None,
         }
     )
+    data.append(
+        {
+            "device_id": f"{coordinator.controller_mac_address}_watering_activity",
+            "device_type": "WATERING_ACTIVITY_SENSOR",
+            "device_name": "Watering activity",
+            "device_uid": mac_to_uuid(coordinator.controller_mac_address, 1402),
+            "software_version": "1.0",
+            "state": None,
+            "last_reboot": None,
+        }
+    )
     return data, counter
 
 

@@ -73,6 +73,9 @@
       "station_remaining_time": {
         "default": "mdi:timer-outline"
       },
+      "watering_activity": {
+        "default": "mdi:water"
+      },
       "station_status": {
         "default": "mdi:help-circle",
         "state": {
