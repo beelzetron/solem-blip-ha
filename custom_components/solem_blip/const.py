@@ -8,6 +8,7 @@ MIN_SCAN_INTERVAL = 10
 MAX_SCAN_INTERVAL = 3600
 
 CONTROLLER_MAC_ADDRESS = "controller_mac_address"
+CONTROLLER_NAME = "controller_name"
 NUM_STATIONS = "num_stations"
 MIN_NUM_STATIONS = 1
 MAX_NUM_STATIONS = 8
