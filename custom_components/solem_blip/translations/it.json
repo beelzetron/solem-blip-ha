@@ -296,8 +296,8 @@
       "description": "La connessione Bluetooth al controller {mac} non riesce in modo continuo e la libreria Bluetooth segnala di non essere riuscita a rilasciare una connessione obsoleta. L'adattatore Bluetooth potrebbe essere bloccato. Se il problema persiste per alcuni sondaggi ancora, riavviare l'host (Impostazioni -> Sistema -> Riavvia), non solo il core di Home Assistant."
     },
     "station_count_mismatch": {
-      "title": "Il numero di vie configurato differisce dal dispositivo",
-      "description": "Il controller segnala {reported} vie tramite l'elenco dei nomi delle vie integrato. Il valore num_stations configurato ({configured}) viene ignorato per questa sessione e viene utilizzato il numero segnalato dal dispositivo. Aggiorna o rimuovi l'impostazione num_stations nelle opzioni dell'integrazione per risolvere questo avviso."
+      "title": "Il dispositivo ha più vie di quante configurate",
+      "description": "Il controller ha accertato {reported} vie tramite l'elenco dei nomi delle vie integrato, più del valore num_stations configurato ({configured}). Viene utilizzato il numero più ampio segnalato dal dispositivo (una lettura dei nomi può aumentare la larghezza delle vie ma mai ridurla). Aggiorna l'impostazione num_stations nelle opzioni dell'integrazione per adattarla al dispositivo e risolvere questo avviso."
     }
   },
   "selector": {

@@ -112,17 +112,24 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         )
 
         self._config_num_stations = int(config_entry.data.get(NUM_STATIONS, 2))
-        # Device-derived station width (issue #122): None until the first
-        # successful station-name read, then adopted from the device-reported
-        # snapshot. num_stations is a property that prefers this value and
-        # falls back to the user-configured knob.
-        self.device_station_count: int | None = None
+        # Device-derived station width (issue #122), UPWARD-ONLY. The
+        # device always reports every configured slot in a name read (real
+        # captures: 12 slots at every physical width), so the highest named
+        # output is a LOWER bound on the physical width, never an upper
+        # bound: stations can exist physically but carry no onboard name
+        # (fresh installs keep their names HA-side). The count therefore
+        # starts at the configured num_stations — the config knob is a
+        # trustworthy floor — and a name read can only RAISE it (a rename
+        # naming a higher slot proves that output exists). Adopting a
+        # narrower derived count would drop live status for the unnamed
+        # higher stations (apply_status bounds-checks by num_stations) —
+        # the same defect the library fixed upward-only in 0.3.2b6.
+        self.device_station_count: int = self._config_num_stations
         self._device_count_notice_created = False
         # Constructor width the BLE client was built with; a client
         # station_count equal to this has not been refreshed by a validated
         # snapshot read yet, so it carries no device information.
         self._client_initial_station_count = self._config_num_stations
-        self._last_derived_station_count: int | None = None
         self.config_entry = config_entry
         self.entity_translations: dict[str, Any] = {}
 
@@ -210,57 +217,58 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     @property
     def num_stations(self) -> int:
-        """Active station width: device-reported when known, config knob otherwise.
+        """Active station width: device-derived floor, config knob at start.
 
-        The device-derived count from the station-name read (#122) is the
-        authority once available; the user-configured ``num_stations`` entry
-        data remains the migration/startup fallback for entries created
-        before device derivation existed.
+        The width starts at the user-configured ``num_stations`` entry data
+        and is then adopted upward-only from device name reads (#122, see
+        ``maybe_adopt_device_station_count``): a name read can raise the
+        count but never lower it.
         """
-        if self.device_station_count is not None:
-            return self.device_station_count
-        return self._config_num_stations
+        return self.device_station_count
 
     def adopt_device_station_count(self, count: int | None) -> bool:
-        """Adopt a device-reported station count (issue #122).
+        """Adopt a device-reported station count, upward-only (issue #122).
 
-        Returns True when the count changed the active station width and a
-        repair notice was created. ``None`` means the client does not expose
-        a device-derived count (e.g. mock mode): the config knob stays in
-        effect.
+        Mirrors the library invariant (solem-blip-ble 0.3.2b6): the device
+        always reports every configured slot in name reads, so the highest
+        named output is a lower bound on the physical width — a read can
+        RAISE the count but never lower it. Shrinking to a narrower derived
+        count would drop live status for unnamed higher stations.
+
+        Returns True when the count grew and a repair notice was created.
+        ``None`` means the client does not expose a device-derived count
+        (e.g. mock mode): the current floor stays in effect.
         """
         if count is None or count < 1:
             return False
-        if count == self.device_station_count:
+        if count <= self.device_station_count:
             return False
-        previous = self.num_stations
+        previous = self.device_station_count
         self.device_station_count = count
         _LOGGER.info(
-            "%s - Device reports %d station(s); the configured num_stations "
-            "value (%d) is ignored for this session",
+            "%s - Device reports %d station(s); station width raised from %d "
+            "(upward-only adoption)",
             self.controller_mac_address,
             count,
             previous,
         )
-        if count != previous:
-            # Keep the in-memory station models in sync with the physical
-            # width: stations are first built from the config value at setup
-            # (entities must exist before BLE connects), so the device count
-            # can only arrive afterwards. Shrinking drops trailing models and
-            # growing appends fresh ones; entity/device registry entries are
-            # keyed by device_id/unique_id, so an added station gains its
-            # entities on the next descriptor publish and removed ones simply
-            # stop being published (issue #122).
-            self.stations = self._build_stations()
-            self._create_station_count_mismatch_issue(previous)
-            return True
-        return False
+        # Keep the in-memory station models in sync with the wider width:
+        # stations are first built from the config value at setup (entities
+        # must exist before BLE connects), so growth appends fresh models.
+        # Entity/device registry entries are keyed by device_id/unique_id,
+        # so an added station gains its entities on the next descriptor
+        # publish (issue #122).
+        self.stations = self._build_stations()
+        self._create_station_count_mismatch_issue(previous)
+        return True
 
     def _create_station_count_mismatch_issue(self, configured: int) -> None:
-        """Create a repair notice when the config knob disagrees with the device.
+        """Create a repair notice when the device proved a wider width.
 
         Raised once per entry per session and only when the user explicitly
-        configured ``num_stations`` (not when running on the default).
+        configured ``num_stations`` (not when running on the default). With
+        upward-only adoption the notice means the configured value is
+        stale/too low: the device proved more stations than configured.
         """
         if self._device_count_notice_created:
             return
@@ -527,10 +535,12 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             snapshot = await self.station_name_manager.update(
                 station, name, revision
             )
-        # The validated snapshot read/write path re-adopts the
-        # device-reported width inside the library; mirror it coordinator-
-        # side so entity models follow a device count that the filtered
-        # dict reads cannot express (issue #122).
+        # The validated snapshot read/write path adopts the device-reported
+        # width upward-only inside the library (0.3.2b6); mirror it
+        # coordinator-side so entity models follow a wider count that the
+        # filtered dict reads cannot express (issue #122). Upward-only on
+        # both sides: the library floor + the coordinator floor compose via
+        # max, so a mirrored count can only grow the width here too.
         client_count = getattr(self.api, "station_count", None)
         self.adopt_device_station_count(
             client_count if isinstance(client_count, int) else None

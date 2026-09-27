@@ -296,8 +296,8 @@
       "description": "The Bluetooth connection to controller {mac} has been failing continuously, and the Bluetooth library reports it could not release a stale connection. The Bluetooth adapter may be stuck. If the problem persists across a few more polls, restart the host (Settings -> System -> Restart), not just Home Assistant core."
     },
     "station_count_mismatch": {
-      "title": "Configured station count differs from the device",
-      "description": "The controller reports {reported} station(s) via its onboard station-name list. The configured num_stations value ({configured}) is ignored this session and the device-reported count is used instead. Update or remove the num_stations setting in the integration options to resolve this notice."
+      "title": "Device has more stations than configured",
+      "description": "The controller proved {reported} station(s) via its onboard station-name list, more than the configured num_stations value ({configured}). The wider device-reported count is used (a name read can raise the station width but never lower it). Update the num_stations setting in the integration options to match the device and resolve this notice."
     }
   },
   "selector": {

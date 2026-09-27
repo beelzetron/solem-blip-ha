@@ -1,10 +1,12 @@
 """Device-derived station count tests (issue #122).
 
-The coordinator must adopt the station width from the device's
-station-name read instead of trusting the user-configured num_stations
-entry data. num_stations remains the migration fallback, and a repair
-notice is raised once when the configured value disagrees with the
-device-reported count.
+The coordinator derives the station width from the device's station-name
+reads with the same UPWARD-ONLY invariant as solem-blip-ble 0.3.2b6:
+the device always reports every configured slot, so the highest named
+output is a lower bound on the physical width — a name read can raise
+the width but never lower it. num_stations starts as the configured
+knob (a trustworthy floor) and a repair notice is raised once when a
+name read proves the configured value stale/too low.
 """
 
 from __future__ import annotations
@@ -108,32 +110,28 @@ def test_derive_station_count_from_names_snapshot_semantics() -> None:
     assert derive_station_count_from_names({}) is None
 
 
-def test_maybe_adopt_grows_immediately_and_shrinks_after_two_reads() -> None:
-    """A wider read adopts at once; a narrower one needs two agreeing reads."""
+def test_maybe_adopt_is_upward_only() -> None:
+    """Growth adopts on a single read; a narrower read never shrinks."""
     coordinator = MagicMock()
     coordinator.api = MagicMock()
     coordinator.api.station_count = 2
     coordinator._client_initial_station_count = 2
     coordinator.device_station_count = 2
-    coordinator.num_stations = 2
-    coordinator._last_derived_station_count = None
 
-    # Wider: adopted immediately.
+    # A single wider read adopts immediately (rename names a higher slot).
     maybe_adopt_device_station_count(coordinator, {1: "A", 2: "B", 3: "C"})
     coordinator.adopt_device_station_count.assert_called_once_with(3)
 
-    # Narrower first sight: deferred.
+    # A narrower read (unnamed higher slots / partial dict) keeps the
+    # adopted width: max(3, 1) — never a downward adoption.
     coordinator.adopt_device_station_count.reset_mock()
     coordinator.device_station_count = 3
-    coordinator.num_stations = 3
-    coordinator._last_derived_station_count = None
     maybe_adopt_device_station_count(coordinator, {1: "A"})
-    coordinator.adopt_device_station_count.assert_not_called()
-    assert coordinator._last_derived_station_count == 1
+    coordinator.adopt_device_station_count.assert_called_once_with(3)
 
-    # Second agreeing narrower read: adopted.
-    maybe_adopt_device_station_count(coordinator, {1: "A"})
-    coordinator.adopt_device_station_count.assert_called_once_with(1)
+    # An equal read is a no-op through the same max path.
+    maybe_adopt_device_station_count(coordinator, {1: "A", 2: "B", 3: "C"})
+    coordinator.adopt_device_station_count.assert_called_with(3)
 
 
 def test_maybe_adopt_ignores_unrefreshed_client_attribute() -> None:
@@ -142,16 +140,12 @@ def test_maybe_adopt_ignores_unrefreshed_client_attribute() -> None:
     coordinator.api = MagicMock()
     coordinator.api.station_count = 2
     coordinator._client_initial_station_count = 2
-    coordinator.device_station_count = None
-    coordinator.num_stations = 2
-    coordinator._last_derived_station_count = None
+    coordinator.device_station_count = 2
 
-    # Derived count 1 is below the effective width 2: the client value
-    # (stale constructor mirror) must not override it, and a narrower
-    # first sight is deferred (partial-read guard).
+    # The stale constructor mirror must not be passed through: the dict
+    # read path derives the count instead.
     maybe_adopt_device_station_count(coordinator, {1: "A"})
-    coordinator.adopt_device_station_count.assert_not_called()
-    assert coordinator._last_derived_station_count == 1
+    coordinator.adopt_device_station_count.assert_called_once_with(2)
 
     # A refreshed client attribute (differs from the constructor width)
     # is authoritative even when the dict read saw fewer outputs.
@@ -167,38 +161,166 @@ def test_maybe_adopt_ignores_unrefreshed_client_attribute() -> None:
 async def test_device_station_count_adopted_after_name_read(
     hass: HomeAssistant,
 ) -> None:
-    """A successful name read adopts the device count from the client."""
+    """A single successful name read adopts the device count immediately."""
     entry = _entry(num_stations=2)
     client = MagicMock()
     client.mock = True
     client.max_station_num = 2
-    # Mock-mode get_station_names returns one fewer station than configured.
-    client.get_station_names = AsyncMock(return_value={1: "Zone 1"})
+    # A single read proving a wider width than configured.
+    client.get_station_names = AsyncMock(
+        return_value={1: "Zone 1", 2: "Zone 2", 3: "Zone 3"}
+    )
     client.get_firmware_version = AsyncMock(
         return_value={"major": 5, "raw_hex": "5.1.5"}
     )
     coordinator = _make_coordinator(hass, entry, client)
 
-    assert coordinator.device_station_count is None
+    assert coordinator.device_station_count == 2
     assert coordinator.num_stations == 2
 
     with _mock_hass_storage():
-        # First narrower read is deferred (partial-read guard)...
-        await coordinator._fetch_device_metadata()
-        assert coordinator.device_station_count is None
-        # ...the second agreeing read adopts it.
         await coordinator._fetch_device_metadata()
 
-    assert coordinator.device_station_count == 1
-    assert coordinator.num_stations == 1
-    assert len(coordinator.stations) == 1
+    assert coordinator.device_station_count == 3
+    assert coordinator.num_stations == 3
+    assert len(coordinator.stations) == 3
 
 
 @pytest.mark.asyncio
-async def test_num_stations_property_prefers_device_count(
+async def test_device_station_count_never_shrinks_below_adopted_value(
     hass: HomeAssistant,
 ) -> None:
-    """The property returns the device count when known, the knob otherwise."""
+    """A name read whose derived count is lower keeps the existing width."""
+    entry = _entry(num_stations=4)
+    client = MagicMock()
+    client.mock = True
+    client.max_station_num = 4
+    # Stations 3-4 exist physically but carry no onboard name: the
+    # derived count (2) is below the adopted width (4).
+    client.get_station_names = AsyncMock(return_value={1: "A", 2: "B"})
+    client.get_firmware_version = AsyncMock(
+        return_value={"major": 5, "raw_hex": "5.1.5"}
+    )
+    coordinator = _make_coordinator(hass, entry, client)
+
+    with _mock_hass_storage():
+        await coordinator._fetch_device_metadata()
+        assert coordinator.device_station_count == 4
+        # Repeated agreeing reads keep the width stable.
+        await coordinator._fetch_device_metadata()
+        assert coordinator.device_station_count == 4
+        assert coordinator.num_stations == 4
+
+    assert len(coordinator.stations) == 4
+
+
+@pytest.mark.asyncio
+async def test_growth_adopts_immediately_on_single_read(
+    hass: HomeAssistant,
+) -> None:
+    """A wider read grows the width on the first sight, no second read needed."""
+    entry = _entry(num_stations=2)
+    client = MagicMock()
+    client.mock = True
+    client.max_station_num = 4
+    client.get_firmware_version = AsyncMock(
+        return_value={"major": 5, "raw_hex": "5.1.5"}
+    )
+    coordinator = _make_coordinator(hass, entry, client)
+
+    with _mock_hass_storage():
+        # First read: partial dict (station 2 missing). The derived count
+        # (1) is below the configured width: no shrink, trigger keeps firing.
+        client.get_station_names = AsyncMock(return_value={1: "A"})
+        await coordinator._fetch_device_metadata()
+        assert coordinator.device_station_count == 2
+        assert coordinator.num_stations == 2
+
+        # Next read proves a higher slot than configured (e.g. the user
+        # named station 3 onboard): ONE read grows the width immediately.
+        client.get_station_names = AsyncMock(
+            return_value={1: "A", 2: "B", 3: "New zone"}
+        )
+        coordinator._station_names_retry_after = 0.0
+        await coordinator._fetch_device_metadata()
+
+    assert coordinator.device_station_count == 3
+    assert coordinator.num_stations == 3
+    assert len(coordinator.stations) == 3
+    # The name covering the new width passes the merge filter.
+    assert coordinator.station_names[3] == "New zone"
+
+
+@pytest.mark.asyncio
+async def test_retry_trigger_keeps_firing_for_unnamed_higher_stations(
+    hass: HomeAssistant,
+) -> None:
+    """A narrower device re-reads names every metadata cycle.
+
+    With upward-only semantics the trigger
+    (``len(station_names) < num_stations``) can never be satisfied by a
+    device whose highest named output is below the configured width: the
+    read-every-poll behavior is the deliberate tradeoff (correct width
+    over read frequency), documented in
+    ``maybe_adopt_device_station_count``.
+    """
+    entry = _entry(num_stations=4)
+    client = MagicMock()
+    client.mock = True
+    client.max_station_num = 4
+    client.get_station_names = AsyncMock(return_value={1: "A", 2: "B"})
+    client.get_firmware_version = AsyncMock(
+        return_value={"major": 5, "raw_hex": "5.1.5"}
+    )
+    coordinator = _make_coordinator(hass, entry, client)
+
+    with _mock_hass_storage():
+        await coordinator._fetch_device_metadata()
+        assert coordinator.device_station_count == 4
+        assert coordinator.num_stations == 4
+
+        # The cached names (2) stay below num_stations (4): the trigger
+        # keeps firing on every cycle.
+        client.get_station_names.reset_mock()
+        await coordinator._fetch_device_metadata()
+        client.get_station_names.assert_awaited_once()
+        await coordinator._fetch_device_metadata()
+        assert client.get_station_names.await_count == 2
+
+    assert coordinator.num_stations == 4
+
+
+@pytest.mark.asyncio
+async def test_retry_trigger_stops_when_names_cover_width(
+    hass: HomeAssistant,
+) -> None:
+    """A device whose names cover the width stops re-reading (no infinite loop)."""
+    entry = _entry(num_stations=2)
+    client = MagicMock()
+    client.mock = True
+    client.max_station_num = 2
+    client.get_station_names = AsyncMock(return_value={1: "A", 2: "B"})
+    client.get_firmware_version = AsyncMock(
+        return_value={"major": 5, "raw_hex": "5.1.5"}
+    )
+    coordinator = _make_coordinator(hass, entry, client)
+
+    with _mock_hass_storage():
+        await coordinator._fetch_device_metadata()
+        assert coordinator.num_stations == 2
+
+        client.get_station_names.reset_mock()
+        await coordinator._fetch_device_metadata()
+
+    client.get_station_names.assert_not_awaited()
+    assert coordinator.station_names == {1: "A", 2: "B"}
+
+
+@pytest.mark.asyncio
+async def test_num_stations_property_follows_device_count(
+    hass: HomeAssistant,
+) -> None:
+    """The property returns the upward-only device-derived width."""
     entry = _entry(num_stations=4)
     client = MagicMock()
     client.mock = True
@@ -210,20 +332,23 @@ async def test_num_stations_property_prefers_device_count(
     coordinator = _make_coordinator(hass, entry, client)
 
     assert coordinator.num_stations == 4
-    assert coordinator.adopt_device_station_count(3) is True
-    assert coordinator.device_station_count == 3
-    assert coordinator.num_stations == 3
-    assert len(coordinator.stations) == 3
+    assert coordinator.adopt_device_station_count(5) is True
+    assert coordinator.device_station_count == 5
+    assert coordinator.num_stations == 5
+    assert len(coordinator.stations) == 5
 
     # No-op when the device count is unchanged.
-    assert coordinator.adopt_device_station_count(3) is False
+    assert coordinator.adopt_device_station_count(5) is False
     # None (mock mode / no client signal) keeps the current value.
     assert coordinator.adopt_device_station_count(None) is False
+    # A narrower count can never shrink the adopted width.
+    assert coordinator.adopt_device_station_count(3) is False
+    assert coordinator.num_stations == 5
 
 
 @pytest.mark.asyncio
 async def test_repair_issue_created_on_disagreement(hass: HomeAssistant) -> None:
-    """A configured num_stations disagreeing with the device raises the notice."""
+    """A device proving more stations than configured raises the notice."""
     from homeassistant.helpers import issue_registry as ir
 
     entry = _entry(num_stations=2)
@@ -258,10 +383,6 @@ async def test_repair_issue_created_on_disagreement(hass: HomeAssistant) -> None
     ) as create_issue2:
         coordinator.adopt_device_station_count(5)
         create_issue2.assert_not_called()
-    issue_registry = ir.async_get(hass)
-    assert (
-        f"{ISSUE_STATION_COUNT_MISMATCH}_{entry.entry_id}" in issue_registry.issues
-    ) or True  # patched call path; registry state asserted via mock above
 
 
 @pytest.mark.asyncio
@@ -311,37 +432,6 @@ async def test_no_repair_issue_when_num_stations_not_configured(
 
 
 @pytest.mark.asyncio
-async def test_polling_trigger_uses_device_count(
-    hass: HomeAssistant,
-) -> None:
-    """The name-read trigger/filter work on the device count, not the knob."""
-    entry = _entry(num_stations=2)
-    client = MagicMock()
-    client.mock = True
-    client.max_station_num = 2
-    # Partial read: only station 1 reported.
-    client.get_station_names = AsyncMock(return_value={1: "Zone 1"})
-    client.get_firmware_version = AsyncMock(
-        return_value={"major": 5, "raw_hex": "5.1.5"}
-    )
-    coordinator = _make_coordinator(hass, entry, client)
-
-    with _mock_hass_storage():
-        # Two partial-read cycles converge on the device width...
-        await coordinator._fetch_device_metadata()
-        await coordinator._fetch_device_metadata()
-        assert coordinator.device_station_count == 1
-        # ...then the trigger (cached names < num_stations) must NOT
-        # re-arm the read again.
-        client.get_station_names.reset_mock()
-        await coordinator._fetch_device_metadata()
-
-    assert coordinator.num_stations == 1
-    client.get_station_names.assert_not_awaited()
-    assert coordinator.station_names == {1: "Zone 1"}
-
-
-@pytest.mark.asyncio
 async def test_polling_filter_uses_grown_device_count(
     hass: HomeAssistant,
 ) -> None:
@@ -374,7 +464,7 @@ async def test_station_names_partial_reads_merge_unchanged(
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """A partial dict read must not shrink the width before retries merge."""
+    """A partial dict read never shrinks the width before retries merge."""
     responses = [{1: "Zone 1"}, {2: "Zone 2"}]
 
     async def partial_names() -> dict[int, str]:
@@ -399,8 +489,8 @@ async def test_station_names_partial_reads_merge_unchanged(
 
 
 @pytest.mark.asyncio
-async def test_pin_is_solem_blip_ble_0_3_2_b5() -> None:
-    """The manifest and pyproject pin solem-blip-ble==0.3.2b5."""
+async def test_pin_is_solem_blip_ble_0_3_2_b6() -> None:
+    """The manifest and pyproject pin solem-blip-ble==0.3.2b6."""
     import pathlib
 
     import tomllib
@@ -409,8 +499,8 @@ async def test_pin_is_solem_blip_ble_0_3_2_b5() -> None:
     manifest = json.loads(
         (root / "custom_components/solem_blip/manifest.json").read_text()
     )
-    assert "solem-blip-ble==0.3.2b5" in manifest["requirements"]
+    assert "solem-blip-ble==0.3.2b6" in manifest["requirements"]
 
     pyproject = tomllib.loads((root / "pyproject.toml").read_text())
     deps = pyproject["project"]["dependencies"]
-    assert "solem-blip-ble==0.3.2b5" in deps
+    assert "solem-blip-ble==0.3.2b6" in deps

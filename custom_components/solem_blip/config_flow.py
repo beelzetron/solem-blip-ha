@@ -544,8 +544,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         except Exception:
             _LOGGER.exception("Failed to read onboard station names")
             return self.async_abort(reason="station_names_read_failed")
-        # The validated snapshot read re-adopts the device-reported width
-        # inside the library; mirror it coordinator-side (issue #122).
+        # The validated snapshot read adopts the device-reported width
+        # upward-only inside the library (0.3.2b6); mirror it coordinator-
+        # side (issue #122) — adopt_device_station_count is upward-only
+        # too, so this can only raise the width, never lower it.
         client_count = getattr(manager.api, "station_count", None)
         coordinator.adopt_device_station_count(
             client_count if isinstance(client_count, int) else None

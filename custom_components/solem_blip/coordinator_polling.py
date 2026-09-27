@@ -245,14 +245,28 @@ def maybe_adopt_device_station_count(
     coordinator: SolemCoordinator,
     station_names: dict[int, str],
 ) -> None:
-    """Adopt the device-derived count after a successful name read.
+    """Adopt the device-derived count after a successful name read, upward-only.
 
-    The width is derived from the returned names dict. A wider derived
-    count is adopted immediately (the device proves the outputs exist). A
-    narrower one is adopted only after two consecutive agreeing reads: a
-    partial dict read (fragments still arriving across retries) must not
-    shrink the width, or the read-again trigger based on the cached count
-    would stop before the missing fragments are ever requested.
+    Mirrors the library invariant (solem-blip-ble 0.3.2b6): the device
+    ALWAYS reports every configured slot in a name read (real captures:
+    12 slots at every physical width), so the highest named output is a
+    LOWER bound on the physical width, never an upper bound — stations can
+    exist physically but carry no onboard name. A name read can therefore
+    only RAISE the count: ``max`` over the current value on every
+    successful full read. A narrower derived count (fresh installs whose
+    names live HA-side, or a partial dict read) simply keeps the existing
+    width, so live watering status for unnamed higher stations is never
+    dropped and the read-again trigger
+    (``len(station_names) < num_stations``) keeps firing for the unnamed
+    higher slots.
+
+    Tradeoff accepted deliberately (correct width over read frequency): a
+    device whose configured width exceeds the highest named output will
+    re-read station names on every metadata cycle — the trigger can never
+    be satisfied by a narrower device — until the width grows or the entry
+    is corrected. This replaces the 919c04a shrink guard, which avoided
+    the re-reads by adopting the narrower width after two agreeing reads,
+    silently dropping live status for the unnamed higher stations.
 
     The client's ``station_count`` attribute is used only when the library
     actually refreshed it — i.e. it differs from the constructor width the
@@ -272,16 +286,9 @@ def maybe_adopt_device_station_count(
     derived = derive_station_count_from_names(station_names)
     if derived is None:
         return
-    current = coordinator.num_stations
-    if current is not None and derived < current:
-        if coordinator._last_derived_station_count == derived:
-            coordinator.adopt_device_station_count(derived)
-            coordinator._last_derived_station_count = None
-        else:
-            coordinator._last_derived_station_count = derived
-        return
-    coordinator._last_derived_station_count = None
-    coordinator.adopt_device_station_count(derived)
+    coordinator.adopt_device_station_count(
+        max(coordinator.device_station_count, derived)
+    )
 
 
 async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
@@ -364,10 +371,9 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             )
             station_names_failed = True
         else:
-            # Issue #122: the name read is the authoritative physical
-            # width. Adopt the device-derived count FIRST so the merge
-            # below and the station models rebuilt on a width change use
-            # the device count, not the config knob.
+            # Issue #122: adopt the device-derived count (upward-only)
+            # FIRST so the merge below and the station models rebuilt on a
+            # width change use the proven width, not the config knob.
             maybe_adopt_device_station_count(coordinator, station_names)
             coordinator.station_names.update(
                 {
@@ -376,13 +382,6 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                     if 1 <= station_id <= coordinator.num_stations
                 }
             )
-            # A shrunken device width must not leave cached names for
-            # outputs the controller no longer reports.
-            coordinator.station_names = {
-                station_id: name
-                for station_id, name in coordinator.station_names.items()
-                if station_id <= coordinator.num_stations
-            }
             coordinator._station_names_restored = False
             await coordinator.display_names.async_save(
                 station_names=dict(coordinator.station_names)
