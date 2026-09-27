@@ -294,6 +294,10 @@
     "bluetooth_stuck_adapter": {
       "title": "Bluetooth adapter may be stuck",
       "description": "The Bluetooth connection to controller {mac} has been failing continuously, and the Bluetooth library reports it could not release a stale connection. The Bluetooth adapter may be stuck. If the problem persists across a few more polls, restart the host (Settings -> System -> Restart), not just Home Assistant core."
+    },
+    "station_count_mismatch": {
+      "title": "Configured station count differs from the device",
+      "description": "The controller reports {reported} station(s) via its onboard station-name list. The configured num_stations value ({configured}) is ignored this session and the device-reported count is used instead. Update or remove the num_stations setting in the integration options to resolve this notice."
     }
   },
   "selector": {

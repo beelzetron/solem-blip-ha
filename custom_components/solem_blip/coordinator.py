@@ -11,6 +11,8 @@ from typing import Any, cast
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import Context, HomeAssistant
 
+from homeassistant.helpers import issue_registry as ir
+
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from solem_blip_ble import IrrigationProgram
@@ -39,6 +41,7 @@ from .const import (
     SOLEM_API_MOCK,
 )
 from .coordinator_descriptors import build_all_descriptors
+from .issues import ISSUE_STATION_COUNT_MISMATCH
 from .coordinator_irrigation import (
     await_irrigation_monitor_task,
     clear_irrigation_idle_state,
@@ -108,7 +111,18 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             always_update=True,
         )
 
-        self.num_stations = config_entry.data.get(NUM_STATIONS, 2)
+        self._config_num_stations = int(config_entry.data.get(NUM_STATIONS, 2))
+        # Device-derived station width (issue #122): None until the first
+        # successful station-name read, then adopted from the device-reported
+        # snapshot. num_stations is a property that prefers this value and
+        # falls back to the user-configured knob.
+        self.device_station_count: int | None = None
+        self._device_count_notice_created = False
+        # Constructor width the BLE client was built with; a client
+        # station_count equal to this has not been refreshed by a validated
+        # snapshot read yet, so it carries no device information.
+        self._client_initial_station_count = self._config_num_stations
+        self._last_derived_station_count: int | None = None
         self.config_entry = config_entry
         self.entity_translations: dict[str, Any] = {}
 
@@ -192,6 +206,79 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         _LOGGER.info(
             "%s - Coordinator initialization finished.",
             self.controller_mac_address,
+        )
+
+    @property
+    def num_stations(self) -> int:
+        """Active station width: device-reported when known, config knob otherwise.
+
+        The device-derived count from the station-name read (#122) is the
+        authority once available; the user-configured ``num_stations`` entry
+        data remains the migration/startup fallback for entries created
+        before device derivation existed.
+        """
+        if self.device_station_count is not None:
+            return self.device_station_count
+        return self._config_num_stations
+
+    def adopt_device_station_count(self, count: int | None) -> bool:
+        """Adopt a device-reported station count (issue #122).
+
+        Returns True when the count changed the active station width and a
+        repair notice was created. ``None`` means the client does not expose
+        a device-derived count (e.g. mock mode): the config knob stays in
+        effect.
+        """
+        if count is None or count < 1:
+            return False
+        if count == self.device_station_count:
+            return False
+        previous = self.num_stations
+        self.device_station_count = count
+        _LOGGER.info(
+            "%s - Device reports %d station(s); the configured num_stations "
+            "value (%d) is ignored for this session",
+            self.controller_mac_address,
+            count,
+            previous,
+        )
+        if count != previous:
+            # Keep the in-memory station models in sync with the physical
+            # width: stations are first built from the config value at setup
+            # (entities must exist before BLE connects), so the device count
+            # can only arrive afterwards. Shrinking drops trailing models and
+            # growing appends fresh ones; entity/device registry entries are
+            # keyed by device_id/unique_id, so an added station gains its
+            # entities on the next descriptor publish and removed ones simply
+            # stop being published (issue #122).
+            self.stations = self._build_stations()
+            self._create_station_count_mismatch_issue(previous)
+            return True
+        return False
+
+    def _create_station_count_mismatch_issue(self, configured: int) -> None:
+        """Create a repair notice when the config knob disagrees with the device.
+
+        Raised once per entry per session and only when the user explicitly
+        configured ``num_stations`` (not when running on the default).
+        """
+        if self._device_count_notice_created:
+            return
+        entry = self.config_entry
+        if entry is None or NUM_STATIONS not in entry.data:
+            return
+        self._device_count_notice_created = True
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            f"{ISSUE_STATION_COUNT_MISMATCH}_{entry.entry_id}",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_STATION_COUNT_MISMATCH,
+            translation_placeholders={
+                "configured": str(configured),
+                "reported": str(self.device_station_count),
+            },
         )
 
     def _station_name(self, station_id: int) -> str:
@@ -440,6 +527,14 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             snapshot = await self.station_name_manager.update(
                 station, name, revision
             )
+        # The validated snapshot read/write path re-adopts the
+        # device-reported width inside the library; mirror it coordinator-
+        # side so entity models follow a device count that the filtered
+        # dict reads cannot express (issue #122).
+        client_count = getattr(self.api, "station_count", None)
+        self.adopt_device_station_count(
+            client_count if isinstance(client_count, int) else None
+        )
         self.station_names.update(
             {
                 station_id: name_text.strip() or f"Station {station_id}"

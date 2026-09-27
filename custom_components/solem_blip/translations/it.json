@@ -294,6 +294,10 @@
     "bluetooth_stuck_adapter": {
       "title": "L'adattatore Bluetooth potrebbe essere bloccato",
       "description": "La connessione Bluetooth al controller {mac} non riesce in modo continuo e la libreria Bluetooth segnala di non essere riuscita a rilasciare una connessione obsoleta. L'adattatore Bluetooth potrebbe essere bloccato. Se il problema persiste per alcuni sondaggi ancora, riavviare l'host (Impostazioni -> Sistema -> Riavvia), non solo il core di Home Assistant."
+    },
+    "station_count_mismatch": {
+      "title": "Il numero di vie configurato differisce dal dispositivo",
+      "description": "Il controller segnala {reported} vie tramite l'elenco dei nomi delle vie integrato. Il valore num_stations configurato ({configured}) viene ignorato per questa sessione e viene utilizzato il numero segnalato dal dispositivo. Aggiorna o rimuovi l'impostazione num_stations nelle opzioni dell'integrazione per risolvere questo avviso."
     }
   },
   "selector": {

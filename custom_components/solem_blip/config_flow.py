@@ -544,6 +544,12 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         except Exception:
             _LOGGER.exception("Failed to read onboard station names")
             return self.async_abort(reason="station_names_read_failed")
+        # The validated snapshot read re-adopts the device-reported width
+        # inside the library; mirror it coordinator-side (issue #122).
+        client_count = getattr(manager.api, "station_count", None)
+        coordinator.adopt_device_station_count(
+            client_count if isinstance(client_count, int) else None
+        )
         pending = manager.pending is not None
         options = [
             {

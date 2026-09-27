@@ -294,6 +294,10 @@
     "bluetooth_stuck_adapter": {
       "title": "L'adaptateur Bluetooth est peut-être bloqué",
       "description": "La connexion Bluetooth au programmateur {mac} échoue en continu et la bibliothèque Bluetooth signale qu'elle n'a pas pu libérer une connexion obsolète. L'adaptateur Bluetooth est peut-être bloqué. Si le problème persiste après quelques autres interrogations, redémarrez l'hôte (Paramètres -> Système -> Redémarrer), pas seulement le cœur de Home Assistant."
+    },
+    "station_count_mismatch": {
+      "title": "Le nombre de voies configuré diffère de celui du matériel",
+      "description": "Le programmateur signale {reported} voie(s) via sa liste de noms de voies intégrée. La valeur num_stations configurée ({configured}) est ignorée pour cette session et le nombre signalé par le matériel est utilisé à la place. Mettez à jour ou supprimez le réglage num_stations dans les options de l'intégration pour résoudre cet avis."
     }
   },
   "selector": {

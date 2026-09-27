@@ -224,6 +224,66 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
         await _fetch_device_metadata_locked(coordinator)
 
 
+def derive_station_count_from_names(station_names: dict[int, str]) -> int | None:
+    """Derive the device station width from a station-name read (issue #122).
+
+    Mirrors ``StationNameSnapshot.station_count`` from solem-blip-ble: the
+    highest 1-based output with a non-empty name, falling back to the
+    highest reported output number when every name is empty. The polling
+    task's ``get_station_names()`` returns a plain dict and does not
+    refresh ``client.station_count`` (only the validated snapshot/write
+    paths in the library do), so the coordinator derives the width itself
+    from the same data. Returns None for an empty read.
+    """
+    named = [station for station, name in station_names.items() if name.strip()]
+    if named:
+        return max(named)
+    return max(station_names, default=None)
+
+
+def maybe_adopt_device_station_count(
+    coordinator: SolemCoordinator,
+    station_names: dict[int, str],
+) -> None:
+    """Adopt the device-derived count after a successful name read.
+
+    The width is derived from the returned names dict. A wider derived
+    count is adopted immediately (the device proves the outputs exist). A
+    narrower one is adopted only after two consecutive agreeing reads: a
+    partial dict read (fragments still arriving across retries) must not
+    shrink the width, or the read-again trigger based on the cached count
+    would stop before the missing fragments are ever requested.
+
+    The client's ``station_count`` attribute is used only when the library
+    actually refreshed it — i.e. it differs from the constructor width the
+    coordinator passed in. The polling dict read filters fragments to that
+    constructor width and never refreshes the attribute, so an unrefreshed
+    value carries no device information (mock clients return a MagicMock
+    attribute, which is ignored).
+    """
+    client_count = getattr(coordinator.api, "station_count", None)
+    if (
+        isinstance(client_count, int)
+        and client_count > 0
+        and client_count != coordinator._client_initial_station_count
+    ):
+        coordinator.adopt_device_station_count(client_count)
+        return
+    derived = derive_station_count_from_names(station_names)
+    if derived is None:
+        return
+    current = coordinator.num_stations
+    if current is not None and derived < current:
+        if coordinator._last_derived_station_count == derived:
+            coordinator.adopt_device_station_count(derived)
+            coordinator._last_derived_station_count = None
+        else:
+            coordinator._last_derived_station_count = derived
+        return
+    coordinator._last_derived_station_count = None
+    coordinator.adopt_device_station_count(derived)
+
+
 async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
     """Read firmware and station names while holding the heavy-read lock."""
     firmware_attempted = False
@@ -304,6 +364,11 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             )
             station_names_failed = True
         else:
+            # Issue #122: the name read is the authoritative physical
+            # width. Adopt the device-derived count FIRST so the merge
+            # below and the station models rebuilt on a width change use
+            # the device count, not the config knob.
+            maybe_adopt_device_station_count(coordinator, station_names)
             coordinator.station_names.update(
                 {
                     station_id: name.strip() or f"Station {station_id}"
@@ -311,6 +376,13 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                     if 1 <= station_id <= coordinator.num_stations
                 }
             )
+            # A shrunken device width must not leave cached names for
+            # outputs the controller no longer reports.
+            coordinator.station_names = {
+                station_id: name
+                for station_id, name in coordinator.station_names.items()
+                if station_id <= coordinator.num_stations
+            }
             coordinator._station_names_restored = False
             await coordinator.display_names.async_save(
                 station_names=dict(coordinator.station_names)

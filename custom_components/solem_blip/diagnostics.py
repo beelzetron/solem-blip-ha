@@ -50,6 +50,8 @@ async def async_get_config_entry_diagnostics(
         "last_poll_age_seconds": last_poll_age,
         "firmware_version": coordinator.firmware_version,
         "station_count": coordinator.num_stations,
+        "configured_station_count": coordinator._config_num_stations,
+        "device_station_count": coordinator.device_station_count,
         "station_names_loaded": len(coordinator.station_names),
         "program_names": program_names,
         "battery": {

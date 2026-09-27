@@ -51,7 +51,7 @@ async def editor(hass, mock_config_entry, coordinator, names_manager):
     mock_config_entry.add_to_hass(hass)
     coordinator.station_name_manager = names_manager
     coordinator.api = names_manager.api
-    coordinator.num_stations = 6
+    coordinator.device_station_count = 6
     coordinator.async_update_all_sensors = AsyncMock(return_value=[])
     mock_config_entry.runtime_data = RuntimeData(coordinator)
     handler = SolemOptionsFlowHandler()
