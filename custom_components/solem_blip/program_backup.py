@@ -86,6 +86,11 @@ class ProgramBackupStore:
                     if repaired.programs.get(program_index) == program:
                         continue
                     changes = _program_changes(program)
+                    # physical_stations is the snapshot's 12-slot storage
+                    # width for new backups (legacy 6-wide backups remain
+                    # valid: their hidden slots are zero so patches stay
+                    # no-op). It must NOT be read as the controller's
+                    # physical station count.
                     _, repaired = repaired.patch(
                         program_index,
                         changes,
