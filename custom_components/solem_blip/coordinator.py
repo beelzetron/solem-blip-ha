@@ -255,9 +255,15 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         # Keep the in-memory station models in sync with the wider width:
         # stations are first built from the config value at setup (entities
         # must exist before BLE connects), so growth appends fresh models.
-        # Entity/device registry entries are keyed by device_id/unique_id,
-        # so an added station gains its entities on the next descriptor
-        # publish (issue #122).
+        # NOTE (issue #122): the appended models do NOT gain valve/button/
+        # sensor entities immediately — entities are created once per
+        # platform setup from coordinator.data, and publish_descriptor_update
+        # never re-invokes async_add_entities. Adopted stations become
+        # controllable after the entry is reloaded (or after an HA
+        # restart); the repair notice below directs the user to update
+        # num_stations via reconfigure, which reloads the entry and
+        # rebuilds entities. Dynamic entity creation is deliberately out
+        # of scope for #122.
         self.stations = self._build_stations()
         self._create_station_count_mismatch_issue(previous)
         return True

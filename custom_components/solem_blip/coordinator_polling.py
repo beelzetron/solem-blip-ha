@@ -224,71 +224,9 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
         await _fetch_device_metadata_locked(coordinator)
 
 
-def derive_station_count_from_names(station_names: dict[int, str]) -> int | None:
-    """Derive the device station width from a station-name read (issue #122).
-
-    Mirrors ``StationNameSnapshot.station_count`` from solem-blip-ble: the
-    highest 1-based output with a non-empty name, falling back to the
-    highest reported output number when every name is empty. The polling
-    task's ``get_station_names()`` returns a plain dict and does not
-    refresh ``client.station_count`` (only the validated snapshot/write
-    paths in the library do), so the coordinator derives the width itself
-    from the same data. Returns None for an empty read.
-    """
-    named = [station for station, name in station_names.items() if name.strip()]
-    if named:
-        return max(named)
-    return max(station_names, default=None)
-
-
-def maybe_adopt_device_station_count(
-    coordinator: SolemCoordinator,
-    station_names: dict[int, str],
-) -> None:
-    """Adopt the device-derived count after a successful name read, upward-only.
-
-    Mirrors the library invariant (solem-blip-ble 0.3.2b6): the device
-    ALWAYS reports every configured slot in a name read (real captures:
-    12 slots at every physical width), so the highest named output is a
-    LOWER bound on the physical width, never an upper bound — stations can
-    exist physically but carry no onboard name. A name read can therefore
-    only RAISE the count: ``max`` over the current value on every
-    successful full read. A narrower derived count (fresh installs whose
-    names live HA-side, or a partial dict read) simply keeps the existing
-    width, so live watering status for unnamed higher stations is never
-    dropped and the read-again trigger
-    (``len(station_names) < num_stations``) keeps firing for the unnamed
-    higher slots.
-
-    Tradeoff accepted deliberately (correct width over read frequency): a
-    device whose configured width exceeds the highest named output will
-    re-read station names on every metadata cycle — the trigger can never
-    be satisfied by a narrower device — until the width grows or the entry
-    is corrected. This replaces the 919c04a shrink guard, which avoided
-    the re-reads by adopting the narrower width after two agreeing reads,
-    silently dropping live status for the unnamed higher stations.
-
-    The client's ``station_count`` attribute is used only when the library
-    actually refreshed it — i.e. it differs from the constructor width the
-    coordinator passed in. The polling dict read filters fragments to that
-    constructor width and never refreshes the attribute, so an unrefreshed
-    value carries no device information (mock clients return a MagicMock
-    attribute, which is ignored).
-    """
-    client_count = getattr(coordinator.api, "station_count", None)
-    if (
-        isinstance(client_count, int)
-        and client_count > 0
-        and client_count != coordinator._client_initial_station_count
-    ):
-        coordinator.adopt_device_station_count(client_count)
-        return
-    derived = derive_station_count_from_names(station_names)
-    if derived is None:
-        return
-    coordinator.adopt_device_station_count(
-        max(coordinator.device_station_count, derived)
-    )
+def _station_names_trigger_active(coordinator: SolemCoordinator) -> bool:
+    """Return True when cached names do not yet cover the active width."""
+    return len(coordinator.station_names) < coordinator.num_stations
 
 
 async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
@@ -352,14 +290,23 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
     if (
         (
             coordinator._station_names_restored
-            or len(coordinator.station_names) < coordinator.num_stations
+            or _station_names_trigger_active(coordinator)
         )
         and now >= coordinator._station_names_retry_after
     ):
         station_names_attempted = True
         try:
-            station_names = await asyncio.wait_for(
-                coordinator.api.get_station_names(),
+            # Issue #122: the once-per-session/forced name read runs as the
+            # VALIDATED snapshot, not the plain dict read. The dict read
+            # (get_station_names) filters name fragments above the client's
+            # constructor width (max_station_num = the configured floor), so
+            # it can never observe a station beyond that width and growth
+            # would be dead code on real hardware. The snapshot path asks
+            # for ALL outputs and reports the device width in
+            # snapshot.station_count; the library refreshes its
+            # ``station_count`` attribute upward-only from it.
+            snapshot = await asyncio.wait_for(
+                coordinator.api.get_station_name_snapshot(),
                 timeout=STATION_NAMES_READ_TIMEOUT,
             )
         except Exception as err:
@@ -371,14 +318,16 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             )
             station_names_failed = True
         else:
-            # Issue #122: adopt the device-derived count (upward-only)
-            # FIRST so the merge below and the station models rebuilt on a
-            # width change use the proven width, not the config knob.
-            maybe_adopt_device_station_count(coordinator, station_names)
+            # Issue #122: adopt the device-derived count (upward-only,
+            # single authoritative path: snapshot.station_count, which the
+            # library mirrors onto client.station_count) FIRST so the merge
+            # below and the station models rebuilt on a width change use
+            # the proven width, not the config knob.
+            coordinator.adopt_device_station_count(snapshot.station_count)
             coordinator.station_names.update(
                 {
                     station_id: name.strip() or f"Station {station_id}"
-                    for station_id, name in station_names.items()
+                    for station_id, name in snapshot.names.items()
                     if 1 <= station_id <= coordinator.num_stations
                 }
             )

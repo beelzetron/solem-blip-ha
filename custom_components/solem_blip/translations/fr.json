@@ -297,7 +297,7 @@
     },
     "station_count_mismatch": {
       "title": "Le matériel a plus de voies que configuré",
-      "description": "Le programmateur a prouvé {reported} voie(s) via sa liste de noms de voies intégrée, davantage que la valeur num_stations configurée ({configured}). Le nombre plus large signalé par le matériel est utilisé (une lecture des noms peut augmenter la largeur de voies mais jamais la réduire). Mettez à jour le réglage num_stations dans les options de l'intégration pour l'adapter au matériel et résoudre cet avis."
+      "description": "Le programmateur a prouvé {reported} voie(s) via sa liste de noms de voies intégrée, davantage que la valeur num_stations configurée ({configured}). Le nombre plus large signalé par le matériel est utilisé (une lecture des noms peut augmenter la largeur de voies mais jamais la réduire). Les voies ajoutées ne deviennent commandables qu'après la mise à jour du réglage num_stations dans les options de l'intégration via Configurer : la reconfiguration recharge l'entrée et recrée les entités (vanne, bouton, capteur) des nouvelles voies."
     }
   },
   "selector": {

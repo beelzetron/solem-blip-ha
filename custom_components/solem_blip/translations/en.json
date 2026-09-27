@@ -293,7 +293,7 @@
     },
     "station_count_mismatch": {
       "title": "Device has more stations than configured",
-      "description": "The controller proved {reported} station(s) via its onboard station-name list, more than the configured num_stations value ({configured}). The wider device-reported count is used (a name read can raise the station width but never lower it). Update the num_stations setting in the integration options to match the device and resolve this notice."
+      "description": "The controller proved {reported} station(s) via its onboard station-name list, more than the configured num_stations value ({configured}). The wider device-reported count is used (a name read can raise the station width but never lower it). The added stations only become controllable after updating the num_stations setting in the integration options via Configure: reconfiguring the entry reloads it and recreates the valve, button and sensor entities for the new stations."
     }
   },
   "selector": {

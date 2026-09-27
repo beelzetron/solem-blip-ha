@@ -124,6 +124,24 @@ def mock_config_entry() -> MockConfigEntry:
     )
 
 
+class SimpleSnapshot:
+    """Minimal StationNameSnapshot stand-in for tests: names + station_count."""
+
+    def __init__(self, names: dict[int, str], station_count: int | None = None) -> None:
+        self.names = names
+        if station_count is None:
+            named = [station for station, name in names.items() if name.strip()]
+            station_count = max(named or names, default=0)
+        self.station_count = station_count
+
+
+def _simple_snapshot(station_num: int) -> SimpleSnapshot:
+    """Names ``Zone N`` for stations 1..station_num at that width."""
+    return SimpleSnapshot(
+        {station: f"Zone {station}" for station in range(1, station_num + 1)}
+    )
+
+
 def create_mock_solem_client(station_num: int = 2) -> MagicMock:
     """Create a mock SolemClient with configurable station count."""
     client = MagicMock()
@@ -151,6 +169,12 @@ def create_mock_solem_client(station_num: int = 2) -> MagicMock:
     client.get_station_names = AsyncMock(return_value={
         station: f"Zone {station}" for station in range(1, station_num + 1)
     })
+    # 0.3.2b7: the polling metadata path reads the VALIDATED snapshot (see
+    # coordinator_polling._fetch_device_metadata_locked); the plain dict
+    # read stays for the other call sites.
+    client.get_station_name_snapshot = AsyncMock(
+        return_value=_simple_snapshot(station_num)
+    )
     client.get_irrigation_config = AsyncMock(return_value=MOCK_IRRIGATION_PROGRAMS)
     client.set_irrigation_program = AsyncMock(return_value=MOCK_IRRIGATION_PROGRAMS)
     client.set_time = AsyncMock()

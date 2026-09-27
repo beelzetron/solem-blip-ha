@@ -40,6 +40,20 @@ from solem_blip_ble import SolemConnectionError
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
 
 
+
+def _entry_with_num_stations(num_stations: int) -> MockConfigEntry:
+    """A MockConfigEntry whose data carries an explicit num_stations knob."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
+            NUM_STATIONS: num_stations,
+        },
+        options={},
+        unique_id="AA:BB:CC:DD:EE:FF",
+    )
+
+
 def _program_editor_input(**overrides: object) -> dict[str, object]:
     data: dict[str, object] = {
         "name": "Vasi",
@@ -831,6 +845,128 @@ def test_options_flow_program_edit_schema_uses_station_names(
     field_names = {field["name"] for field in serialized}
     assert "Front lawn (station 1) duration (minutes)" in field_names
     assert "Herbs (station 2) duration (minutes)" in field_names
+
+
+def test_program_schema_sizes_from_coordinator_width_not_config_knob(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """D1 (issue #122): after growth the editor renders the adopted width.
+
+    The configured num_stations stays 2 but the coordinator adopted a
+    device-derived width of 7: the schema must expose 7 duration fields
+    (sized from coordinator.num_stations), not 2.
+    """
+    coordinator = MagicMock()
+    coordinator.num_stations = 7
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        schema = handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1])
+
+    keys = {str(key) for key in schema.schema}
+    assert sum(1 for key in keys if key.startswith("station_")) == 7
+    for station in range(1, 8):
+        assert f"station_{station}_duration" in keys
+
+
+def test_program_schema_falls_back_to_entry_data_without_coordinator(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """D1 fallback: with no loaded coordinator the entry-data knob sizes it."""
+    mock_config_entry = _entry_with_num_stations(3)
+    mock_config_entry.runtime_data = None
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        schema = handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1])
+
+    keys = {str(key) for key in schema.schema}
+    assert sum(1 for key in keys if key.startswith("station_")) == 3
+
+
+@pytest.mark.asyncio
+async def test_program_edit_validates_after_width_growth(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """D1 regression: growth to 7 makes program edit validate AND write.
+
+    Before the fix the form rendered 2 duration fields (config knob) while
+    submission validated 7 (coordinator width) -> KeyError -> generic
+    set_program_failed on every edit.
+    """
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 7
+    coordinator.station_names = {i: f"Zone {i}" for i in range(1, 8)}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+
+    user_input = _program_editor_input()
+    # Only the configured two exist in a form rendered pre-growth; supply
+    # the adopted width's fields (as the form now renders them).
+    for station in range(3, 8):
+        user_input[f"station_{station}_duration"] = 0
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["station_durations"] == [0, 120, 0, 0, 0, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_program_edit_form_renders_grown_width(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The program edit form renders one duration field per adopted station."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 7
+    coordinator.station_names = {}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(None)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    field_names = {
+        str(key.schema) for key in result["data_schema"].schema
+    }
+    assert sum(1 for name in field_names if name.startswith("station_")) == 7
 
 
 @pytest.mark.asyncio

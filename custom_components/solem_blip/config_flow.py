@@ -630,7 +630,21 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         *,
         station_names: dict[int, str] | None = None,
     ) -> vol.Schema:
-        num_stations = int(self.config_entry.data.get(NUM_STATIONS, MIN_NUM_STATIONS))
+        # D1 (issue #122): size the duration fields from the ACTIVE width —
+        # the device-derived coordinator width when loaded — not the
+        # configured num_stations knob. After a device-derived growth the
+        # two diverge, and validation (async_step_program_edit submits with
+        # coordinator.num_stations) would expect duration fields the form
+        # never rendered, turning every program edit into
+        # set_program_failed. Fallback to entry data keeps the editor
+        # renderable while the entry is not loaded (runtime_data None).
+        coordinator = self._coordinator
+        if coordinator is not None:
+            num_stations = int(coordinator.num_stations)
+        else:
+            num_stations = int(
+                self.config_entry.data.get(NUM_STATIONS, MIN_NUM_STATIONS)
+            )
         defaults = self._program_defaults(program, num_stations=num_stations)
         fields: dict[Any, Any] = {
             vol.Required(ATTR_NAME, default=defaults[ATTR_NAME]): str,
