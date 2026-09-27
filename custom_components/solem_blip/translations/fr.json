@@ -14,10 +14,9 @@
     "step": {
       "user": {
         "title": "Configuration du programmateur",
-        "description": "Sélectionnez votre programmateur Solem BL-IP et le nombre de stations. La programmation et la suspension en cas de pluie doivent être gérées dans les automatisations Home Assistant.",
+        "description": "Sélectionnez votre programmateur Solem BL-IP. Le nombre de stations est lu depuis l'appareil pendant la configuration. La programmation et la suspension en cas de pluie doivent être gérées dans les automatisations Home Assistant.",
         "data": {
-          "controller_mac_address": "Adresse MAC du programmateur",
-          "num_stations": "Nombre de stations"
+          "controller_mac_address": "Adresse MAC du programmateur"
         }
       },
       "reconfigure": {
@@ -27,10 +26,7 @@
         }
       },
       "bluetooth_confirm": {
-        "description": "Configurez {name} et choisissez le nombre de stations.",
-        "data": {
-          "num_stations": "Nombre de stations"
-        }
+        "description": "Configurer {name} ? Le nombre de stations est lu depuis l'appareil pendant la configuration."
       }
     }
   },

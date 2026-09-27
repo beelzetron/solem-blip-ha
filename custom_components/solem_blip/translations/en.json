@@ -14,10 +14,9 @@
     "step": {
       "user": {
         "title": "Controller setup",
-        "description": "Select your Solem BL-IP controller and the number of stations. Scheduling and rain skip belong in Home Assistant automations.",
+        "description": "Select your Solem BL-IP controller. The number of stations is read from the device during setup. Scheduling and rain skip belong in Home Assistant automations.",
         "data": {
-          "controller_mac_address": "Controller MAC address",
-          "num_stations": "Number of stations"
+          "controller_mac_address": "Controller MAC address"
         }
       },
       "reconfigure": {
@@ -27,10 +26,7 @@
         }
       },
       "bluetooth_confirm": {
-        "description": "Set up {name} and choose the number of stations.",
-        "data": {
-          "num_stations": "Number of stations"
-        }
+        "description": "Set up {name}? The number of stations is read from the device during setup."
       }
     }
   },

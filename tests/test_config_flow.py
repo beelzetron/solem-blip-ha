@@ -45,9 +45,9 @@ async def test_bluetooth_confirmation_validates_before_creation(
 
     with patch(
         "custom_components.solem_blip.config_flow.validate_input",
-        new=AsyncMock(return_value={"title": "Solem BL-IP"}),
+        new=AsyncMock(return_value={"title": "Solem BL-IP", "num_stations": 4}),
     ):
-        result = await flow.async_step_bluetooth_confirm({NUM_STATIONS: 4})
+        result = await flow.async_step_bluetooth_confirm({})
 
     assert result == {"type": "create_entry"}
     flow.async_create_entry.assert_called_once_with(
@@ -57,6 +57,22 @@ async def test_bluetooth_confirmation_validates_before_creation(
             NUM_STATIONS: 4,
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_bluetooth_confirmation_schema_has_no_station_question(
+    hass: HomeAssistant,
+) -> None:
+    """The confirm form no longer asks for the station count (issue #122)."""
+    flow = SolemConfigFlow()
+    flow.hass = hass
+    flow._discovered_controller = "Solem BL-IP - AA:BB:CC:DD:EE:FF"
+
+    result = await flow.async_step_bluetooth_confirm(None)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "bluetooth_confirm"
+    assert NUM_STATIONS not in (result["data_schema"].schema or {})
 
 
 @pytest.mark.asyncio
