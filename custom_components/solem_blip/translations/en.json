@@ -290,6 +290,10 @@
     "bluetooth_unavailable": {
       "title": "Bluetooth connection unavailable",
       "description": "Home Assistant could not reliably poll controller {mac} over Bluetooth. Check that the controller is powered on, in range, and not connected to another app. If it connects through a Bluetooth proxy, rebooting the proxy typically resolves it; otherwise restarting Home Assistant reloads the Bluetooth adapter."
+    },
+    "station_count_mismatch": {
+      "title": "Device has more stations than configured",
+      "description": "The controller proved {reported} station(s) via its onboard station-name list, more than the configured num_stations value ({configured}). The wider device-reported count is used (a name read can raise the station width but never lower it). The added stations only become controllable after updating the num_stations setting in the integration options via Configure: reconfiguring the entry reloads it and recreates the valve, button and sensor entities for the new stations."
     }
   },
   "selector": {

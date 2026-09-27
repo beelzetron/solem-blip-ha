@@ -18,6 +18,7 @@ from custom_components.solem_blip.const import (
     TIME_SYNC_RETRY_INTERVAL,
 )
 from custom_components.solem_blip.coordinator import SolemCoordinator
+from tests.conftest import SimpleSnapshot
 
 
 @pytest.mark.asyncio
@@ -201,7 +202,7 @@ class TestEntitySetupMetadata:
         import asyncio
 
         mock_solem_client.get_firmware_version.side_effect = asyncio.TimeoutError
-        mock_solem_client.get_station_names.side_effect = asyncio.TimeoutError
+        mock_solem_client.get_station_name_snapshot.side_effect = asyncio.TimeoutError
 
         with patch(
             "custom_components.solem_blip.client_factory.StatelessSolemClient",
@@ -216,7 +217,7 @@ class TestEntitySetupMetadata:
             await coordinator._fetch_device_metadata()
 
             mock_solem_client.get_firmware_version.assert_awaited_once()
-            mock_solem_client.get_station_names.assert_awaited_once()
+            mock_solem_client.get_station_name_snapshot.assert_awaited_once()
             assert caplog.messages[-1] == (
                 "AA:BB:CC:DD:EE:FF - BLE cycle degraded "
                 "(firmware read and station names read). "
@@ -266,7 +267,7 @@ class TestEntitySetupMetadata:
         """Station-name retries cool down while status polls keep advancing."""
         import asyncio
 
-        mock_solem_client.get_station_names.side_effect = asyncio.TimeoutError
+        mock_solem_client.get_station_name_snapshot.side_effect = asyncio.TimeoutError
 
         with patch(
             "custom_components.solem_blip.client_factory.StatelessSolemClient",
@@ -282,7 +283,7 @@ class TestEntitySetupMetadata:
             await coordinator._fetch_device_metadata()
             await coordinator.async_update_data()
 
-        mock_solem_client.get_station_names.assert_awaited_once()
+        mock_solem_client.get_station_name_snapshot.assert_awaited_once()
         assert mock_solem_client.get_status.await_count == 2
         assert coordinator.battery_voltage == 90
 
@@ -785,7 +786,7 @@ async def test_status_poll_runs_during_manual_irrigation(
         await coordinator._fetch_device_status()
 
     mock_solem_client.get_status.assert_awaited_once()
-    mock_solem_client.get_station_names.assert_not_awaited()
+    mock_solem_client.get_station_name_snapshot.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -797,11 +798,11 @@ async def test_station_names_slow_read_uses_extended_timeout(
     """Station name reads longer than 5s succeed within STATION_NAMES_READ_TIMEOUT."""
     import asyncio
 
-    async def slow_names() -> dict[int, str]:
+    async def slow_names() -> SimpleSnapshot:
         await asyncio.sleep(0.01)
-        return {1: "Zone 1", 2: "Zone 2"}
+        return SimpleSnapshot({1: "Zone 1", 2: "Zone 2"})
 
-    mock_solem_client.get_station_names = slow_names
+    mock_solem_client.get_station_name_snapshot = AsyncMock(side_effect=slow_names)
 
     with patch(
         "custom_components.solem_blip.client_factory.StatelessSolemClient",
@@ -817,18 +818,17 @@ async def test_station_names_slow_read_uses_extended_timeout(
 
 
 @pytest.mark.asyncio
-async def test_station_names_partial_reads_merge(
+async def test_station_names_snapshot_failure_cools_down(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """Partial station-name reads accumulate across retries."""
-    responses = [{1: "Zone 1"}, {2: "Zone 2"}]
+    """A failed validated snapshot read arms the metadata retry cooldown."""
+    import asyncio
 
-    async def partial_names() -> dict[int, str]:
-        return responses.pop(0)
-
-    mock_solem_client.get_station_names = partial_names
+    mock_solem_client.get_station_name_snapshot = AsyncMock(
+        side_effect=asyncio.TimeoutError
+    )
 
     with patch(
         "custom_components.solem_blip.client_factory.StatelessSolemClient",
@@ -839,10 +839,36 @@ async def test_station_names_partial_reads_merge(
         coordinator = SolemCoordinator(hass, mock_config_entry)
         await coordinator.async_init()
         await coordinator._fetch_device_metadata()
-        coordinator._station_names_retry_after = 0.0
+        # The cooldown blocks an immediate second read.
+        await coordinator._fetch_device_metadata()
+        assert mock_solem_client.get_station_name_snapshot.await_count == 1
+        assert coordinator.station_names == {}
+
+
+@pytest.mark.asyncio
+async def test_station_names_snapshot_drops_names_on_shrink(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Names are merged through the width filter AFTER count adoption."""
+    mock_solem_client.max_station_num = 2
+    mock_solem_client.get_station_name_snapshot = AsyncMock(
+        return_value=SimpleSnapshot({1: "Zone 1", 2: "Zone 2", 3: "Zone 3"}, 3)
+    )
+
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, mock_config_entry)
+        await coordinator.async_init()
         await coordinator._fetch_device_metadata()
 
-    assert coordinator.station_names == {1: "Zone 1", 2: "Zone 2"}
+    # The width grew first (2 -> 3), so all three names pass the filter.
+    assert coordinator.station_names == {1: "Zone 1", 2: "Zone 2", 3: "Zone 3"}
 
 
 @pytest.mark.asyncio
@@ -899,7 +925,7 @@ async def test_metadata_deferred_until_heavy_read_gate(
         await hass.async_block_till_done()
 
     mock_solem_client.get_firmware_version.assert_awaited()
-    mock_solem_client.get_station_names.assert_awaited()
+    mock_solem_client.get_station_name_snapshot.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -972,16 +998,18 @@ async def test_schedule_first_refresh_reads_metadata_before_config(
         calls.append("firmware")
         return {"major": 5, "minor": 1, "patch": 7, "raw_hex": "5.1.7"}
 
-    async def get_station_names() -> dict[int, str]:
+    async def get_station_name_snapshot() -> object:
         calls.append("station_names")
-        return {1: "Zone 1", 2: "Zone 2"}
+        return SimpleSnapshot({1: "Zone 1", 2: "Zone 2"})
 
     async def get_irrigation_config() -> dict[int, object]:
         calls.append("irrigation_config")
         return {}
 
     mock_solem_client.get_firmware_version = AsyncMock(side_effect=get_firmware_version)
-    mock_solem_client.get_station_names = AsyncMock(side_effect=get_station_names)
+    mock_solem_client.get_station_name_snapshot = AsyncMock(
+        side_effect=get_station_name_snapshot
+    )
     mock_solem_client.get_irrigation_config = AsyncMock(
         side_effect=get_irrigation_config
     )
@@ -1056,5 +1084,5 @@ async def test_schedule_first_refresh_cancelled_on_entry_shutdown(
         await hass.async_block_till_done()
 
     mock_solem_client.get_firmware_version.assert_not_awaited()
-    mock_solem_client.get_station_names.assert_not_awaited()
+    mock_solem_client.get_station_name_snapshot.assert_not_awaited()
     mock_solem_client.get_irrigation_config.assert_not_awaited()

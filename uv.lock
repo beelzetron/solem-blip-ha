@@ -2429,16 +2429,16 @@ wheels = [
 
 [[package]]
 name = "solem-blip-ble"
-version = "0.3.2b4"
+version = "0.3.2b7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
     { name = "bleak-retry-connector" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/4a/6215b1289f48ec586efff9000c7a8742a110e4b22df3bff6b440536b51fc/solem_blip_ble-0.3.2b4.tar.gz", hash = "sha256:5e95210deaadd4f83fbf687754438b2ad90040646431d6b2f542c126477a7ca9", size = 91182, upload-time = "2026-09-27T11:15:25.071Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/4d/7c71d869bcf2ac6182a307616dc7dab84c2ec0f0d40ba5119c0de0fcfaa6/solem_blip_ble-0.3.2b7.tar.gz", hash = "sha256:dcb5bc6633c6380b736da611b5c841d9e45f37cc23c4b5c0859a4e426f2e40e0", size = 97028, upload-time = "2026-09-27T16:59:45.643Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/06/3b/d17376b218230e691434ff29c74ce6fd8a8910459461c64904c667759b6c/solem_blip_ble-0.3.2b4-py3-none-any.whl", hash = "sha256:364ada9f18798654a821683d18c8569f18dd87d6a881f3022ad60a09c0139faf", size = 61986, upload-time = "2026-09-27T11:15:23.608Z" },
+    { url = "https://files.pythonhosted.org/packages/48/b0/ad374ae3269357476eadea99643b307250b05059563ff5ed9235f867dc5e/solem_blip_ble-0.3.2b7-py3-none-any.whl", hash = "sha256:81117e30b6ce91716fa65382e2c19713385e4ce9e7352d840935249e02e784d8", size = 63853, upload-time = "2026-09-27T16:59:44.18Z" },
 ]
 
 [[package]]
@@ -2465,7 +2465,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-homeassistant-custom-component", marker = "extra == 'dev'", specifier = "==0.13.366" },
-    { name = "solem-blip-ble", specifier = "==0.3.2b4" },
+    { name = "solem-blip-ble", specifier = "==0.3.2b7" },
 ]
 provides-extras = ["dev"]
 

@@ -119,7 +119,7 @@ async def test_metadata_failures_emit_one_warning_and_debug_detail(
 ) -> None:
     """Both metadata reads failing produce exactly one consolidated warning."""
     mock_solem_client.get_firmware_version.side_effect = asyncio.TimeoutError
-    mock_solem_client.get_station_names.side_effect = asyncio.TimeoutError
+    mock_solem_client.get_station_name_snapshot.side_effect = asyncio.TimeoutError
 
     with patch(
         "custom_components.solem_blip.client_factory.StatelessSolemClient",

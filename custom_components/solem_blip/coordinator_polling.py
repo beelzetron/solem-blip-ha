@@ -224,6 +224,11 @@ async def fetch_device_metadata(coordinator: SolemCoordinator) -> None:
         await _fetch_device_metadata_locked(coordinator)
 
 
+def _station_names_trigger_active(coordinator: SolemCoordinator) -> bool:
+    """Return True when cached names do not yet cover the active width."""
+    return len(coordinator.station_names) < coordinator.num_stations
+
+
 async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
     """Read firmware and station names while holding the heavy-read lock."""
     firmware_attempted = False
@@ -285,14 +290,23 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
     if (
         (
             coordinator._station_names_restored
-            or len(coordinator.station_names) < coordinator.num_stations
+            or _station_names_trigger_active(coordinator)
         )
         and now >= coordinator._station_names_retry_after
     ):
         station_names_attempted = True
         try:
-            station_names = await asyncio.wait_for(
-                coordinator.api.get_station_names(),
+            # Issue #122: the once-per-session/forced name read runs as the
+            # VALIDATED snapshot, not the plain dict read. The dict read
+            # (get_station_names) filters name fragments above the client's
+            # constructor width (max_station_num = the configured floor), so
+            # it can never observe a station beyond that width and growth
+            # would be dead code on real hardware. The snapshot path asks
+            # for ALL outputs and reports the device width in
+            # snapshot.station_count; the library refreshes its
+            # ``station_count`` attribute upward-only from it.
+            snapshot = await asyncio.wait_for(
+                coordinator.api.get_station_name_snapshot(),
                 timeout=STATION_NAMES_READ_TIMEOUT,
             )
         except Exception as err:
@@ -304,10 +318,16 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             )
             station_names_failed = True
         else:
+            # Issue #122: adopt the device-derived count (upward-only,
+            # single authoritative path: snapshot.station_count, which the
+            # library mirrors onto client.station_count) FIRST so the merge
+            # below and the station models rebuilt on a width change use
+            # the proven width, not the config knob.
+            coordinator.adopt_device_station_count(snapshot.station_count)
             coordinator.station_names.update(
                 {
                     station_id: name.strip() or f"Station {station_id}"
-                    for station_id, name in station_names.items()
+                    for station_id, name in snapshot.names.items()
                     if 1 <= station_id <= coordinator.num_stations
                 }
             )
