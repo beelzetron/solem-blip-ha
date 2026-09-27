@@ -56,6 +56,11 @@ from .station_names import StationNameManager
 
 _LOGGER = logging.getLogger(__name__)
 
+# Entry-data floor for the station count at setup. The device-derived
+# count replaces it when the snapshot read succeeds (upward-only); this
+# matches the coordinator/migration default (.get(NUM_STATIONS, 2)).
+SETUP_NUM_STATIONS_FLOOR = 2
+
 ATTR_CYCLE = "cycle"
 ATTR_INTER_STATION_DELAY = "inter_station_delay"
 ATTR_NAME = "name"
@@ -95,9 +100,67 @@ _WEEKDAYS = {
 }
 
 
+async def _derive_station_count(api: Any, fallback: int) -> int:
+    """Read the device-derived station count on the validation connection.
+
+    Up to two polling-safe station-name snapshot reads (solem-blip-ble
+    0.3.2b7 hardened read, same safety-grade call the station-name
+    options flow uses). The first attempt runs right after the connect
+    probe released its link, and single-client devices can kill the
+    fresh connection while the previous one is still releasing — so one
+    delayed retry is made before falling back. Returns the clamped
+    derived count on success; the configured fallback when the client
+    does not expose a derived count (mock mode) or the reads fail — the
+    runtime upward-only adoption remains the safety net either way.
+    """
+    snapshot = None
+    for attempt in range(2):
+        try:
+            snapshot = await api.get_station_name_snapshot()
+            break
+        except Exception as err:
+            if attempt == 0:
+                _LOGGER.debug(
+                    "%s - Station-name snapshot read failed on the first "
+                    "attempt (%s); retrying once after the link settles",
+                    getattr(api, "mac_address", "?"),
+                    type(err).__name__,
+                )
+                await asyncio.sleep(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+                continue
+            _LOGGER.info(
+                "%s - Station-name snapshot unavailable during setup (%s); "
+                "keeping configured station count %d",
+                getattr(api, "mac_address", "?"),
+                type(err).__name__,
+                fallback,
+            )
+    count = getattr(snapshot, "station_count", None) if snapshot else None
+    if not isinstance(count, int) or count < 1:
+        return fallback
+    # The derived count is a lower bound (highest *named* output): adopt
+    # it upward-only against the configured floor, mirroring
+    # adopt_device_station_count — never shrink below what was asked.
+    derived = min(max(count, fallback), MAX_NUM_STATIONS)
+    if derived != count:
+        _LOGGER.info(
+            "%s - Device reports %d station(s); station count set to %d",
+            getattr(api, "mac_address", "?"),
+            count,
+            derived,
+        )
+    return derived
+
+
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate BLE connectivity to the selected controller."""
+    """Validate BLE connectivity; derive the station count from the device.
+
+    The count is a snapshot read adopted upward-only against the
+    configured floor (issue #122); the floor wins when the read fails —
+    runtime adoption remains the safety net.
+    """
     address = data[CONTROLLER_MAC_ADDRESS].rsplit(" - ", 1)[1]
+    configured_stations = int(data.get(NUM_STATIONS, SETUP_NUM_STATIONS_FLOOR))
     _LOGGER.debug("Validating BLE connection to %s", address)
 
     def _resolve_ble_device() -> Any | None:
@@ -115,11 +178,13 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     )
 
     last_err: Exception | None = None
+    connected = False
     for attempt in range(CONFIG_FLOW_CONNECT_RETRIES):
         try:
             await api.connect()
+            connected = True
             _LOGGER.debug("Connected to Bluetooth controller %s", address)
-            return {"title": "Solem BL-IP"}
+            break
         except SolemConnectionError as err:
             last_err = err
             if (
@@ -136,6 +201,10 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
                 continue
             break
 
+    if connected:
+        num_stations = await _derive_station_count(api, configured_stations)
+        return {"title": "Solem BL-IP", "num_stations": num_stations}
+
     if last_err is None:
         raise CannotConnect
     if "connection slots" in str(last_err).lower():
@@ -147,7 +216,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
                 "will connect on first poll.",
                 address,
             )
-            return {"title": "Solem BL-IP"}
+            return {"title": "Solem BL-IP", "num_stations": configured_stations}
         raise CannotConnectSlots from last_err
     raise CannotConnect from last_err
 
@@ -168,9 +237,13 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
         self,
         *,
         controller_default: str | None = None,
-        num_stations_default: int = 1,
         bt_options: list[dict[str, str]],
     ) -> vol.Schema:
+        """User-step schema: controller selection only.
+
+        The station count is no longer asked at setup — it is derived from
+        the device during validation (issue #122 follow-up).
+        """
         return vol.Schema(
             {
                 vol.Required(
@@ -183,10 +256,6 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
                             "mode": "dropdown",
                         }
                     }
-                ),
-                vol.Required(NUM_STATIONS, default=num_stations_default): vol.All(
-                    vol.Coerce(int),
-                    vol.Clamp(min=MIN_NUM_STATIONS, max=MAX_NUM_STATIONS),
                 ),
             }
         )
@@ -205,17 +274,22 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Confirm setup for a Bluetooth-discovered controller."""
+        """Confirm setup for a Bluetooth-discovered controller.
+
+        The station count is device-derived during validation (issue #122
+        follow-up); no station-count question is shown.
+        """
         assert self._discovered_controller is not None
         errors: dict[str, str] = {}
         data = {
             CONTROLLER_MAC_ADDRESS: self._discovered_controller,
-            NUM_STATIONS: 2,
+            # Floor only; validate_input replaces it with the device-derived
+            # count when the snapshot read succeeds.
+            NUM_STATIONS: SETUP_NUM_STATIONS_FLOOR,
         }
         if user_input is not None:
-            data[NUM_STATIONS] = user_input[NUM_STATIONS]
             try:
-                await validate_input(self.hass, data)
+                info = await validate_input(self.hass, data)
             except CannotConnectSlots:
                 errors["base"] = "cannot_connect_slots"
             except CannotConnect:
@@ -224,6 +298,7 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
+                data[NUM_STATIONS] = info["num_stations"]
                 return self.async_create_entry(
                     title=self._discovered_controller,
                     data=data,
@@ -231,17 +306,7 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="bluetooth_confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        NUM_STATIONS,
-                        default=data[NUM_STATIONS],
-                    ): vol.All(
-                        vol.Coerce(int),
-                        vol.Clamp(min=MIN_NUM_STATIONS, max=MAX_NUM_STATIONS),
-                    ),
-                }
-            ),
+            data_schema=vol.Schema({}),
             errors=errors,
             description_placeholders={"name": self._discovered_controller},
         )
@@ -249,12 +314,19 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial setup step."""
+        """Handle the initial setup step.
+
+        The station count is device-derived during validation (issue #122
+        follow-up); no station-count question is shown.
+        """
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(
+                    self.hass,
+                    {**user_input, NUM_STATIONS: SETUP_NUM_STATIONS_FLOOR},
+                )
             except CannotConnectSlots:
                 errors["base"] = "cannot_connect_slots"
                 _LOGGER.exception("Bluetooth connection slots unavailable")
@@ -265,13 +337,12 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                await self.async_set_unique_id(
-                    user_input[CONTROLLER_MAC_ADDRESS].rsplit(" - ", 1)[1].upper()
-                )
+                address = user_input[CONTROLLER_MAC_ADDRESS].rsplit(" - ", 1)[1].upper()
+                await self.async_set_unique_id(address)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=user_input[CONTROLLER_MAC_ADDRESS],
-                    data=user_input,
+                    data={**user_input, NUM_STATIONS: info["num_stations"]},
                 )
 
         existing_entries = {
@@ -320,7 +391,9 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(
                         NUM_STATIONS,
-                        default=config_entry.data[NUM_STATIONS],
+                        default=config_entry.data.get(
+                            NUM_STATIONS, SETUP_NUM_STATIONS_FLOOR
+                        ),
                     ): vol.All(
                         vol.Coerce(int),
                         vol.Clamp(min=MIN_NUM_STATIONS, max=MAX_NUM_STATIONS),

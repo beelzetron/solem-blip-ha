@@ -37,7 +37,38 @@ from custom_components.solem_blip.const import (
     SOLEM_API_MOCK,
 )
 from solem_blip_ble import SolemConnectionError
+from contextlib import contextmanager
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
+
+
+def _snapshot_api(
+    *,
+    connect_side_effect: list | None = None,
+    snapshot: object | None = None,
+    snapshot_side_effect: object = None,
+) -> MagicMock:
+    """Mock client: connect + a station-name snapshot read."""
+    api = MagicMock()
+    api.connect = AsyncMock(side_effect=connect_side_effect)
+    if snapshot_side_effect is not None:
+        api.get_station_name_snapshot = AsyncMock(side_effect=snapshot_side_effect)
+    else:
+        api.get_station_name_snapshot = AsyncMock(return_value=snapshot)
+    return api
+
+
+@contextmanager
+def _patched_ble(mock_api: MagicMock):
+    """Patch the config-flow BLE resolution to a mock client."""
+    with patch(
+        "custom_components.solem_blip.config_flow.async_get_connectable_device",
+        return_value=MagicMock(),
+    ), patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_api,
+    ):
+        yield
+
 
 
 
@@ -89,7 +120,7 @@ async def test_validate_input_requires_connectable_device(hass: HomeAssistant) -
         with pytest.raises(CannotConnect):
             await validate_input(
                 hass,
-                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"},
+                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
             )
 
 
@@ -98,17 +129,14 @@ async def test_validate_input_connects_successfully(hass: HomeAssistant) -> None
     """Validation succeeds when BLE connect works."""
     mock_api = MagicMock()
     mock_api.connect = AsyncMock()
+    mock_api.get_station_name_snapshot = AsyncMock(
+        return_value=SimpleNamespace(station_count=4)
+    )
 
-    with patch(
-        "custom_components.solem_blip.config_flow.async_get_connectable_device",
-        return_value=MagicMock(),
-    ), patch(
-        "custom_components.solem_blip.client_factory.StatelessSolemClient",
-        return_value=mock_api,
-    ):
+    with _patched_ble(mock_api):
         result = await validate_input(
             hass,
-            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"},
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
         )
 
     assert result["title"] == "Solem BL-IP"
@@ -126,19 +154,13 @@ async def test_validate_input_retries_busy_slots(hass: HomeAssistant) -> None:
         ]
     )
 
-    with patch(
-        "custom_components.solem_blip.config_flow.async_get_connectable_device",
-        return_value=MagicMock(),
-    ), patch(
-        "custom_components.solem_blip.client_factory.StatelessSolemClient",
-        return_value=mock_api,
-    ), patch(
+    with _patched_ble(mock_api), patch(
         "custom_components.solem_blip.config_flow.asyncio.sleep",
         new=AsyncMock(),
     ):
         result = await validate_input(
             hass,
-            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"},
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
         )
 
     assert result["title"] == "Solem BL-IP"
@@ -167,7 +189,7 @@ async def test_validate_input_slots_with_discovery_proceeds(
     ):
         result = await validate_input(
             hass,
-            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"},
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
         )
 
     assert result["title"] == "Solem BL-IP"
@@ -196,7 +218,7 @@ async def test_validate_input_slots_without_discovery_raises(
         with pytest.raises(CannotConnectSlots):
             await validate_input(
                 hass,
-                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"},
+                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
             )
 
 
@@ -206,17 +228,11 @@ async def test_validate_input_generic_connect_error(hass: HomeAssistant) -> None
     mock_api = MagicMock()
     mock_api.connect = AsyncMock(side_effect=SolemConnectionError("timeout"))
 
-    with patch(
-        "custom_components.solem_blip.config_flow.async_get_connectable_device",
-        return_value=MagicMock(),
-    ), patch(
-        "custom_components.solem_blip.client_factory.StatelessSolemClient",
-        return_value=mock_api,
-    ):
+    with _patched_ble(mock_api):
         with pytest.raises(CannotConnect):
             await validate_input(
                 hass,
-                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"},
+                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
             )
 
 
@@ -235,31 +251,6 @@ async def test_user_step_shows_form(hass: HomeAssistant) -> None:
 
     assert result["type"] == "form"
     assert result["step_id"] == "user"
-
-
-@pytest.mark.asyncio
-async def test_user_step_creates_entry(hass: HomeAssistant) -> None:
-    """User step creates an entry after successful validation."""
-    flow = SolemConfigFlow()
-    flow.hass = hass
-    flow.context = {}
-    flow.async_set_unique_id = AsyncMock()
-    flow._abort_if_unique_id_configured = MagicMock()
-    flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
-
-    user_input = {
-        CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
-        NUM_STATIONS: 3,
-    }
-
-    with patch(
-        "custom_components.solem_blip.config_flow.validate_input",
-        new=AsyncMock(return_value={"title": "Solem BL-IP"}),
-    ):
-        result = await flow.async_step_user(user_input)
-
-    assert result == {"type": "create_entry"}
-    flow.async_create_entry.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -307,7 +298,7 @@ async def test_bluetooth_confirm_validation_errors(hass: HomeAssistant) -> None:
         "custom_components.solem_blip.config_flow.validate_input",
         new=AsyncMock(side_effect=CannotConnect()),
     ):
-        result = await flow.async_step_bluetooth_confirm({NUM_STATIONS: 2})
+        result = await flow.async_step_bluetooth_confirm({})
 
     assert result["type"] == "form"
     assert result["errors"]["base"] == "cannot_connect"
@@ -324,7 +315,7 @@ async def test_bluetooth_confirm_slots_error(hass: HomeAssistant) -> None:
         "custom_components.solem_blip.config_flow.validate_input",
         new=AsyncMock(side_effect=CannotConnectSlots()),
     ):
-        result = await flow.async_step_bluetooth_confirm({NUM_STATIONS: 2})
+        result = await flow.async_step_bluetooth_confirm({})
 
     assert result["type"] == "form"
     assert result["errors"]["base"] == "cannot_connect_slots"
@@ -341,10 +332,154 @@ async def test_bluetooth_confirm_unknown_error(hass: HomeAssistant) -> None:
         "custom_components.solem_blip.config_flow.validate_input",
         new=AsyncMock(side_effect=RuntimeError("boom")),
     ):
-        result = await flow.async_step_bluetooth_confirm({NUM_STATIONS: 2})
+        result = await flow.async_step_bluetooth_confirm({})
 
     assert result["type"] == "form"
     assert result["errors"]["base"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_validate_input_derives_station_count_from_snapshot(
+    hass: HomeAssistant,
+) -> None:
+    """A successful snapshot read replaces the configured count with the derived one."""
+    mock_api = _snapshot_api(snapshot=SimpleNamespace(station_count=6))
+
+    with _patched_ble(mock_api):
+        result = await validate_input(
+            hass,
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
+        )
+
+    assert result["title"] == "Solem BL-IP"
+    assert result["num_stations"] == 6
+    mock_api.get_station_name_snapshot.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_validate_input_station_count_clamped_to_max(
+    hass: HomeAssistant,
+) -> None:
+    """A derived count above MAX is clamped to MAX."""
+    mock_api = _snapshot_api(snapshot=SimpleNamespace(station_count=99))
+
+    with _patched_ble(mock_api):
+        result = await validate_input(
+            hass,
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
+        )
+
+    assert result["num_stations"] == 8
+
+
+@pytest.mark.asyncio
+async def test_validate_input_snapshot_failure_falls_back_to_configured(
+    hass: HomeAssistant,
+) -> None:
+    """A failed snapshot read keeps the configured count; connect still succeeds."""
+    mock_api = _snapshot_api(
+        snapshot_side_effect=SolemConnectionError("link drop")
+    )
+
+    with _patched_ble(mock_api):
+        result = await validate_input(
+            hass,
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 3},
+        )
+
+    assert result["title"] == "Solem BL-IP"
+    assert result["num_stations"] == 3
+
+
+@pytest.mark.asyncio
+async def test_validate_input_snapshot_without_count_falls_back(
+    hass: HomeAssistant,
+) -> None:
+    """A client that does not expose station_count (mock mode) keeps the configured count."""
+    mock_api = _snapshot_api(snapshot=SimpleNamespace(station_count=None))
+
+    with _patched_ble(mock_api):
+        result = await validate_input(
+            hass,
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
+        )
+
+    assert result["num_stations"] == 2
+
+
+@pytest.mark.asyncio
+async def test_user_step_end_to_end_creates_entry_with_derived_count(
+    hass: HomeAssistant,
+) -> None:
+    """User step through the REAL validate_input (no mock): blocker regression.
+
+    The form no longer renders num_stations, so the submitted user_input
+    lacks the key; async_step_user must inject the floor before calling
+    validate_input, and the entry data must carry the device-derived count.
+    """
+    flow = SolemConfigFlow()
+    flow.hass = hass
+    flow.context = {}
+    flow.async_set_unique_id = AsyncMock()
+    flow._abort_if_unique_id_configured = MagicMock()
+    flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
+
+    mock_api = _snapshot_api(snapshot=SimpleNamespace(station_count=6))
+
+    with _patched_ble(mock_api):
+        result = await flow.async_step_user(
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"}
+        )
+
+    assert result == {"type": "create_entry"}
+    flow.async_create_entry.assert_called_once_with(
+        title="Solem BL-IP - AA:BB:CC:DD:EE:FF",
+        data={
+            CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF",
+            NUM_STATIONS: 6,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_derive_station_count_retries_once_after_link_release(
+    hass: HomeAssistant,
+) -> None:
+    """The snapshot read retries once: the connect probe just released the link."""
+    mock_api = _snapshot_api(
+        snapshot_side_effect=[
+            SolemConnectionError("link dropped"),
+            SimpleNamespace(station_count=5),
+        ]
+    )
+
+    with _patched_ble(mock_api), patch(
+        "custom_components.solem_blip.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        result = await validate_input(
+            hass,
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
+        )
+
+    assert result["num_stations"] == 5
+    assert mock_api.get_station_name_snapshot.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_derive_station_count_never_shrinks_configured_floor(
+    hass: HomeAssistant,
+) -> None:
+    """A derived count below the configured floor is adopted upward-only."""
+    mock_api = _snapshot_api(snapshot=SimpleNamespace(station_count=1))
+
+    with _patched_ble(mock_api):
+        result = await validate_input(
+            hass,
+            {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 4},
+        )
+
+    assert result["num_stations"] == 4
 
 
 @pytest.mark.asyncio
@@ -354,6 +489,9 @@ async def test_validate_input_raises_when_no_connect_attempts(
     """Validation fails when no BLE connect attempts were made."""
     mock_api = MagicMock()
     mock_api.connect = AsyncMock()
+    mock_api.get_station_name_snapshot = AsyncMock(
+        return_value=SimpleNamespace(station_count=4)
+    )
 
     with patch(
         "custom_components.solem_blip.config_flow.async_get_connectable_device",
@@ -368,7 +506,7 @@ async def test_validate_input_raises_when_no_connect_attempts(
         with pytest.raises(CannotConnect):
             await validate_input(
                 hass,
-                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF"},
+                {CONTROLLER_MAC_ADDRESS: "Solem BL-IP - AA:BB:CC:DD:EE:FF", NUM_STATIONS: 2},
             )
 
 

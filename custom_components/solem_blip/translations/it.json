@@ -14,10 +14,9 @@
     "step": {
       "user": {
         "title": "Configurazione controller",
-        "description": "Seleziona il controller Solem BL-IP e il numero di stazioni. La programmazione e l'esclusione in caso di pioggia vanno gestite con automazioni Home Assistant.",
+        "description": "Seleziona il controller Solem BL-IP. Il numero di stazioni viene letto dal dispositivo durante la configurazione. La programmazione e l'esclusione in caso di pioggia vanno gestite con automazioni Home Assistant.",
         "data": {
-          "controller_mac_address": "Indirizzo MAC del controller",
-          "num_stations": "Numero di stazioni"
+          "controller_mac_address": "Indirizzo MAC del controller"
         }
       },
       "reconfigure": {
@@ -27,10 +26,7 @@
         }
       },
       "bluetooth_confirm": {
-        "description": "Configura {name} e scegli il numero di stazioni.",
-        "data": {
-          "num_stations": "Numero di stazioni"
-        }
+        "description": "Configurare {name}? Il numero di stazioni viene letto dal dispositivo durante la configurazione."
       }
     }
   },
