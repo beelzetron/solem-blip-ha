@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -925,6 +925,66 @@ async def test_options_flow_program_edit_writes_named_station_fields(
     assert program["station_durations"] == [0, 120]
 
 
+@pytest.mark.asyncio
+async def test_program_edit_accepts_time_object_start(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Native time picker submits datetime.time; it round-trips to minutes."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = {1: "Front lawn", 2: "Herbs"}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    user_input = _program_editor_input(start_time_1=time(6, 30))
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"][0] == 390
+
+
+@pytest.mark.asyncio
+async def test_program_edit_midnight_time_object_is_not_disabled(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Midnight (time(0, 0)) is a valid start, not treated as falsy/empty."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = {1: "Front lawn", 2: "Herbs"}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    user_input = _program_editor_input(start_time_1=time(0, 0))
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"][0] == 0
+
+
 def test_options_flow_program_edit_defaults_show_duration_minutes() -> None:
     """Program editor exposes station durations in minutes."""
     handler = SolemOptionsFlowHandler()
@@ -958,6 +1018,22 @@ def test_options_flow_program_edit_schema_serializes(
         )
 
     assert any(field["name"] == "station_2_duration" for field in serialized)
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized_a = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[0]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    start_field = next(
+        field for field in serialized_a if field["name"] == "start_time_1"
+    )
+    assert start_field["default"] == "17:40"
 
 
 def test_options_flow_program_edit_schema_uses_station_names(
@@ -1197,6 +1273,215 @@ async def test_config_flow_options_factory(
     """Config flow exposes the options handler factory."""
     handler = SolemConfigFlow.async_get_options_flow(mock_config_entry)
     assert isinstance(handler, SolemOptionsFlowHandler)
+
+
+def test_program_schema_start_times_use_time_selector(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Program start slots render as HA native time selectors (issue #129)."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    start_fields = [
+        field for field in serialized if field["name"].startswith("start_time_")
+    ]
+    assert len(start_fields) == 8
+    for field in start_fields:
+        assert field["selector"] == {"time": {}}
+
+
+def _degenerate_editor_input(**overrides: object) -> dict[str, object]:
+    """Weekly program with no weekday selected but healthy durations."""
+    return _program_editor_input(
+        cycle="custom",
+        week_days=[],
+        **overrides,
+    )
+
+
+def _no_starts_editor_input(**overrides: object) -> dict[str, object]:
+    """Healthy weekly program with every start slot cleared."""
+    starts = {f"start_time_{i}": "" for i in range(1, 9)}
+    return _program_editor_input(cycle="custom", **starts, **overrides)
+
+
+def _loaded_editor_handler(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    *,
+    station_names: dict[int, str] | None = None,
+) -> tuple[SolemOptionsFlowHandler, MagicMock]:
+    """A program editor wired to a loaded, idle coordinator."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = station_names or {}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    return handler, coordinator
+
+
+@pytest.mark.asyncio
+async def test_program_edit_week_days_zero_warns_and_does_not_write(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A weekly program with no day selected re-renders with a warning, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_degenerate_editor_input())
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert "confirm_degenerate" in field_names
+    placeholders = result["description_placeholders"]
+    assert "never start" in placeholders["warning"]
+    # The user's submitted values carry over as defaults.
+    assert placeholders.get("preview")
+    # The re-rendered defaults carry the SUBMITTED values, not the old
+    # persisted program (quality review follow-up, issue #129): program 1
+    # persists as "Programma B" with no start times. HA's patched
+    # voluptuous wraps defaults in a default_factory lambda, so resolve
+    # callables before comparing.
+    def marker_default(key: object) -> object:
+        default = getattr(key, "default", None)
+        return default() if callable(default) else default
+
+    defaults = {
+        str(key.schema): marker_default(key)
+        for key in result["data_schema"].schema
+    }
+    assert defaults["name"] == "Vasi"
+    assert defaults["start_time_1"] == "06:30"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_no_start_times_warns_and_does_not_write(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A program with all start slots cleared re-renders with a warning, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_no_starts_editor_input())
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert "confirm_degenerate" in field_names
+    placeholders = result["description_placeholders"]
+    assert "start times" in placeholders["warning"]
+    assert placeholders.get("preview")
+
+
+@pytest.mark.asyncio
+async def test_program_edit_no_start_times_confirm_resubmit_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Confirming the no-start-times warning proceeds to the write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _no_starts_editor_input()
+    user_input["confirm_degenerate"] = True
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_degenerate_confirm_resubmit_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Confirming the degenerate warning proceeds to the write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _degenerate_editor_input()
+    user_input["confirm_degenerate"] = True
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_healthy_input_writes_immediately(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Healthy configs write on first submit - no confirm round-trip."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_program_editor_input())
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_renders_preview_placeholder(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Validation errors still render a schedule preview from parseable input."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(
+            _program_editor_input(station_1_duration=-5)
+        )
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_program"
+    coordinator.set_irrigation_program.assert_not_awaited()
+    preview = result["description_placeholders"]["preview"]
+    assert preview
+    assert "06:30" in preview
 
 
 @pytest.mark.asyncio

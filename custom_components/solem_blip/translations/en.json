@@ -95,9 +95,10 @@
           "station_5_duration": "Station 5 duration (minutes)",
           "station_6_duration": "Station 6 duration (minutes)",
           "station_7_duration": "Station 7 duration (minutes)",
-          "station_8_duration": "Station 8 duration (minutes)"
+          "station_8_duration": "Station 8 duration (minutes)",
+          "confirm_degenerate": "Water anyway despite warning"
         },
-        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.",
+        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.\n\nSchedule preview: {preview}\n\n{warning}",
         "title": "Edit on-device schedule"
       },
       "station_select": {

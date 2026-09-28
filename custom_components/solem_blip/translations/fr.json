@@ -95,9 +95,10 @@
           "station_5_duration": "Durée de la station 5 (minutes)",
           "station_6_duration": "Durée de la station 6 (minutes)",
           "station_7_duration": "Durée de la station 7 (minutes)",
-          "station_8_duration": "Durée de la station 8 (minutes)"
+          "station_8_duration": "Durée de la station 8 (minutes)",
+          "confirm_degenerate": "Arroser malgré l'avertissement"
         },
-        "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.",
+        "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.\n\nAperçu du programme : {preview}\n\n{warning}",
         "title": "Modifier une programmation sur l'appareil"
       },
       "station_select": {
