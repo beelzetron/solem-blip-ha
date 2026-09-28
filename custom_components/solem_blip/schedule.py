@@ -73,6 +73,30 @@ def enabled_start_count(start_times: list[int | None]) -> int:
     return sum(1 for minutes in start_times if minutes is not None)
 
 
+DegenerateReason = str  # "no_days" | "no_durations"
+
+
+def is_degenerate_schedule(program: IrrigationProgram) -> DegenerateReason | None:
+    """Return why a program can never run, or None if it is runnable.
+
+    Two degenerate shapes are detected:
+
+    - "no_durations": every station duration is zero, so the program
+      would water for no time even when a start day and slot match.
+    - "no_days": the weekly cycle (cycle 0) is selected but no weekday
+      bit is set in ``week_days``, so ``weekday_allowed`` rejects every
+      day of the week and no start can ever fire. This check only
+      applies to cycle 0: cycles 1-3 pick days by day-of-month parity
+      and cycle 4 is periodic — none of them consult ``week_days``, so
+      ``week_days == 0`` is harmless there.
+    """
+    if not any(d > 0 for d in program["station_durations"]):
+        return "no_durations"
+    if int(program["cycle"]) == 0 and int(program["week_days"]) == 0:
+        return "no_days"
+    return None
+
+
 def format_duration(seconds: int) -> str:
     """Format a duration in seconds for schedule summaries."""
     minutes, remaining_seconds = divmod(seconds, 60)

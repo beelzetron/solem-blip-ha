@@ -12,12 +12,35 @@ from custom_components.solem_blip.schedule import (
     enabled_start_count,
     format_duration,
     format_start_time,
+    is_degenerate_schedule,
     next_start_datetime,
     periodic_start_day_matches,
     schedule_context_attributes,
     schedule_summary,
     weekday_allowed,
 )
+
+
+def _make_program(
+    cycle: int = 0,
+    week_days: int = 0x7F,
+    station_durations: tuple[int, ...] = (600,),
+) -> dict:
+    """Build a full-shape IrrigationProgram dict for degeneracy tests."""
+    return {
+        "name": "Test",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": cycle,
+        "week_days": week_days,
+        "period_length": 2,
+        "synchro_day": 0,
+        "period_start_date": None,
+        "start_times": [480, None, None, None, None, None, None, None],
+        "station_durations": list(station_durations) + [0] * (
+            6 - len(station_durations)
+        ),
+    }
 
 CAPTURE_PROGRAM_A = {
     "name": "Programma A",
@@ -300,3 +323,27 @@ def test_next_start_datetime_handles_naive_now():
         "period_length": 0,
     }
     assert next_start_datetime(program, naive_now) is not None
+
+
+def test_week_days_zero_is_degenerate():
+    assert is_degenerate_schedule(_make_program(cycle=0, week_days=0)) == "no_days"
+
+
+def test_all_zero_durations_is_degenerate():
+    program = _make_program(cycle=0, week_days=127, station_durations=(0,))
+    assert is_degenerate_schedule(program) == "no_durations"
+
+
+def test_healthy_program_is_not_degenerate():
+    program = _make_program(cycle=0, week_days=127, station_durations=(600,))
+    assert is_degenerate_schedule(program) is None
+
+
+def test_all_zero_durations_degenerate_for_every_cycle():
+    program = _make_program(cycle=4, week_days=127, station_durations=(0,))
+    assert is_degenerate_schedule(program) == "no_durations"
+
+
+def test_periodic_cycle_ignores_week_days():
+    program = _make_program(cycle=4, week_days=0, station_durations=(600,))
+    assert is_degenerate_schedule(program) is None
