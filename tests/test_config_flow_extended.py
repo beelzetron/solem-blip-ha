@@ -1616,6 +1616,32 @@ def test_program_schema_has_preset_field_first(
     assert names.index("schedule_preset") < names.index("cycle")
 
 
+def test_program_schema_orders_advanced_fields_last(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Periodic-cycle fields render after station durations; synchro_day is last."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    names = [field["name"] for field in serialized]
+    last_station_duration = max(
+        i for i, name in enumerate(names) if name.endswith("_duration")
+    )
+    for advanced in ("period_start_date", "period_length"):
+        assert names.index(advanced) > last_station_duration, names
+    assert names[-1] == "synchro_day"
+
+
 @pytest.mark.asyncio
 async def test_program_edit_preset_submit_rerenders_with_preview(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry

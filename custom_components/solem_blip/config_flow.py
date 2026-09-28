@@ -952,18 +952,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 }
             ),
             vol.Required(
-                ATTR_PERIOD_START_DATE,
-                default=defaults[ATTR_PERIOD_START_DATE],
-            ): selector({"date": {}}),
-            vol.Required(
-                ATTR_PERIOD_LENGTH,
-                default=defaults[ATTR_PERIOD_LENGTH],
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
-            vol.Required(
-                ATTR_SYNCHRO_DAY,
-                default=defaults[ATTR_SYNCHRO_DAY],
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
-            vol.Required(
                 ATTR_WATER_BUDGET,
                 default=defaults[ATTR_WATER_BUDGET],
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
@@ -988,6 +976,22 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 vol.Coerce(float),
                 vol.Range(min=0, max=MAX_PROGRAM_DURATION_MINUTES),
             )
+        # Advanced (periodic cycle) fields: rendered LAST so the main flow
+        # ends at the station durations. HA options-flow forms have no
+        # collapsible sections, so the grouping is purely positional; the
+        # step description explains the layout (issue #129).
+        fields[vol.Required(
+            ATTR_PERIOD_START_DATE,
+            default=defaults[ATTR_PERIOD_START_DATE],
+        )] = selector({"date": {}})
+        fields[vol.Required(
+            ATTR_PERIOD_LENGTH,
+            default=defaults[ATTR_PERIOD_LENGTH],
+        )] = vol.All(vol.Coerce(int), vol.Range(min=1, max=255))
+        fields[vol.Required(
+            ATTR_SYNCHRO_DAY,
+            default=defaults[ATTR_SYNCHRO_DAY],
+        )] = vol.All(vol.Coerce(int), vol.Range(min=0, max=255))
         if confirm_degenerate:
             fields[vol.Required(CONFIRM_DEGENERATE, default=False)] = selector(
                 {"boolean": {}}

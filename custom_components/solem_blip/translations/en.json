@@ -99,8 +99,11 @@
           "station_8_duration": "Station 8 duration (minutes)",
           "confirm_degenerate": "Water anyway despite warning"
         },
-        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.\n\nSchedule preview: {preview}\n\n{warning}",
-        "title": "Edit on-device schedule"
+        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.\n\nPeriodic-cycle fields (start date, interval, day offset) are grouped at the bottom under Advanced.\n\nSchedule preview: {preview}\n\n{warning}",
+        "title": "Edit on-device schedule",
+        "data_description": {
+          "synchro_day": "Auto-derived from the start date; override only on expert advice"
+        }
       },
       "station_select": {
         "data": {
