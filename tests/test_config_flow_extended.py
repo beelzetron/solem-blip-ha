@@ -1300,6 +1300,124 @@ def test_program_schema_start_times_use_time_selector(
         assert field["selector"] == {"time": {}}
 
 
+def _degenerate_editor_input(**overrides: object) -> dict[str, object]:
+    """Weekly program with no weekday selected but healthy durations."""
+    return _program_editor_input(
+        cycle="custom",
+        week_days=[],
+        **overrides,
+    )
+
+
+def _loaded_editor_handler(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    *,
+    station_names: dict[int, str] | None = None,
+) -> tuple[SolemOptionsFlowHandler, MagicMock]:
+    """A program editor wired to a loaded, idle coordinator."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = station_names or {}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    return handler, coordinator
+
+
+@pytest.mark.asyncio
+async def test_program_edit_week_days_zero_warns_and_does_not_write(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A weekly program with no day selected re-renders with a warning, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_degenerate_editor_input())
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert "confirm_degenerate" in field_names
+    placeholders = result["description_placeholders"]
+    assert "never start" in placeholders["warning"]
+    # The user's submitted values carry over as defaults.
+    assert placeholders.get("preview")
+
+
+@pytest.mark.asyncio
+async def test_program_edit_degenerate_confirm_resubmit_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Confirming the degenerate warning proceeds to the write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _degenerate_editor_input()
+    user_input["confirm_degenerate"] = True
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_healthy_input_writes_immediately(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Healthy configs write on first submit - no confirm round-trip."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_program_editor_input())
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_renders_preview_placeholder(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Validation errors still render a schedule preview from parseable input."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(
+            _program_editor_input(station_1_duration=-5)
+        )
+
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_program"
+    coordinator.set_irrigation_program.assert_not_awaited()
+    preview = result["description_placeholders"]["preview"]
+    assert preview
+    assert "06:30" in preview
+
+
 @pytest.mark.asyncio
 async def test_bluetooth_step_aborts_duplicate(hass: HomeAssistant) -> None:
     """Bluetooth discovery aborts when the controller is already configured."""

@@ -95,9 +95,10 @@
           "station_5_duration": "Durata stazione 5 (minuti)",
           "station_6_duration": "Durata stazione 6 (minuti)",
           "station_7_duration": "Durata stazione 7 (minuti)",
-          "station_8_duration": "Durata stazione 8 (minuti)"
+          "station_8_duration": "Durata stazione 8 (minuti)",
+          "confirm_degenerate": "Innaffia comunque nonostante l'avviso"
         },
-        "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.",
+        "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.\n\nAnteprima programma: {preview}\n\n{warning}",
         "title": "Modifica programmazione sul dispositivo"
       },
       "station_select": {

@@ -20,6 +20,7 @@ from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import selector
+from homeassistant.util import dt as dt_util
 
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
 
@@ -52,6 +53,12 @@ from .const import (
 )
 from .config_entry import MyConfigEntry
 from .exceptions_map import flow_error_for_exception
+from .schedule import (
+    format_duration,
+    is_degenerate_schedule,
+    next_start_datetime,
+    schedule_summary,
+)
 from .station_names import StationNameManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,6 +87,16 @@ MENU_EDIT_STATION_NAMES = "station_select"
 
 ATTR_ACCEPT_CURRENT = "accept_current"
 ATTR_STATION = "station"
+CONFIRM_DEGENERATE = "confirm_degenerate"
+
+# Human text for the degenerate-config reasons returned by
+# is_degenerate_schedule. These sentences live in code because HA flow
+# description placeholders carry raw strings only; translations ride the
+# step description (acceptable trade-off for now).
+_DEGENERATE_WARNINGS: dict[str, str] = {
+    "no_days": "No day of the week is selected - this program can never start.",
+    "no_durations": "All station durations are zero - nothing would be watered.",
+}
 
 _CYCLES = {
     "custom": 0,
@@ -529,6 +546,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             )
 
         program_index = self._selected_program_index
+        program: IrrigationProgram | None = None
         if user_input is not None:
             if coordinator._irrigation_active or coordinator._is_watering:
                 errors["base"] = "set_program_while_watering"
@@ -542,22 +560,64 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                             program_index
                         ),
                     )
-                    await coordinator.set_irrigation_program(program_index, program)
                 except vol.Invalid:
                     errors["base"] = "invalid_program"
-                except Exception:
-                    _LOGGER.exception(
-                        "Failed to update Program %s from options flow",
-                        PROGRAM_LABELS[program_index],
-                    )
-                    errors["base"] = "set_program_failed"
                 else:
-                    return self.async_create_entry(
-                        title="",
-                        data=dict(self.config_entry.options),
-                    )
+                    reason = is_degenerate_schedule(program)
+                    if reason is not None and not user_input.get(
+                        CONFIRM_DEGENERATE, False
+                    ):
+                        # Non-blocking warning (issue #129): re-render with
+                        # the submitted values, a schedule preview, the
+                        # warning, and a confirm checkbox. No write yet.
+                        return self.async_show_form(
+                            step_id="program_edit",
+                            data_schema=self._program_schema(
+                                program,
+                                station_names=self._station_names(coordinator),
+                                confirm_degenerate=True,
+                            ),
+                            errors=errors,
+                            description_placeholders={
+                                "program": self._program_option_label(
+                                    coordinator, program_index
+                                ),
+                                "preview": self._schedule_preview(
+                                    program, coordinator
+                                ),
+                                "warning": _DEGENERATE_WARNINGS.get(reason, reason),
+                            },
+                        )
+                    try:
+                        await coordinator.set_irrigation_program(
+                            program_index, program
+                        )
+                    except Exception:
+                        _LOGGER.exception(
+                            "Failed to update Program %s from options flow",
+                            PROGRAM_LABELS[program_index],
+                        )
+                        errors["base"] = "set_program_failed"
+                    else:
+                        return self.async_create_entry(
+                            title="",
+                            data=dict(self.config_entry.options),
+                        )
 
         current_program = coordinator.irrigation_programs.get(program_index)
+        # Preview from the just-parsed program when available (validation
+        # errors fall here too, via a best-effort partial parse); it must
+        # never block or crash a write.
+        preview = ""
+        if program is not None:
+            preview = self._schedule_preview(program, coordinator)
+        elif user_input is not None:
+            preview = self._schedule_preview(
+                self._best_effort_preview_program(
+                    user_input, coordinator, program_index
+                ),
+                coordinator,
+            )
         return self.async_show_form(
             step_id="program_edit",
             data_schema=self._program_schema(
@@ -567,6 +627,8 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             errors=errors,
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
+                "preview": preview,
+                "warning": "",
             },
         )
 
@@ -702,6 +764,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         program: IrrigationProgram | None,
         *,
         station_names: dict[int, str] | None = None,
+        confirm_degenerate: bool = False,
     ) -> vol.Schema:
         # D1 (issue #122): size the duration fields from the ACTIVE width —
         # the device-derived coordinator width when loaded — not the
@@ -779,7 +842,76 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 vol.Coerce(float),
                 vol.Range(min=0, max=MAX_PROGRAM_DURATION_MINUTES),
             )
+        if confirm_degenerate:
+            fields[vol.Required(CONFIRM_DEGENERATE, default=False)] = selector(
+                {"boolean": {}}
+            )
         return vol.Schema(fields)
+
+    def _schedule_preview(
+        self,
+        program: IrrigationProgram | None,
+        coordinator: Any | None,
+    ) -> str:
+        """Human schedule summary for the form description.
+
+        Purely informational: any failure yields an empty string so the
+        preview can never block or crash a write.
+        """
+        if program is None:
+            return ""
+        try:
+            summary = schedule_summary(program, self._station_names(coordinator))
+            nxt = next_start_datetime(program, dt_util.now())
+            nxt_text = (
+                dt_util.as_local(nxt).strftime("%a %H:%M") if nxt else "none"
+            )
+            total = sum(d for d in program["station_durations"] if d > 0)
+            return (
+                f"{summary or 'no start times'}"
+                f" · next start {nxt_text} · {format_duration(total)}/run"
+            )
+        except Exception:  # noqa: BLE001 - preview must never block a write
+            _LOGGER.debug("Schedule preview rendering failed", exc_info=True)
+            return ""
+
+    def _best_effort_preview_program(
+        self,
+        user_input: dict[str, Any],
+        coordinator: Any,
+        program_index: int,
+    ) -> IrrigationProgram | None:
+        """Parse submitted input leniently for the preview on error paths.
+
+        Returns ``None`` when nothing usable can be salvaged; used only for
+        rendering, never for validation or writes. Negative station
+        durations (rejected by strict validation) are clamped to zero so
+        the schedule preview still shows the rest of the config.
+        """
+        data = dict(user_input)
+        try:
+            for station in range(1, int(coordinator.num_stations) + 1):
+                for key in (
+                    SolemOptionsFlowHandler._station_key(station),
+                    SolemOptionsFlowHandler._station_duration_key(
+                        station,
+                        station_names=self._station_names(coordinator),
+                    ),
+                ):
+                    value = data.get(key)
+                    if value is not None and float(value) < 0:
+                        data[key] = 0
+        except (TypeError, ValueError):
+            pass
+        try:
+            return self._program_from_options_input(
+                data,
+                num_stations=coordinator.num_stations,
+                station_names=self._station_names(coordinator),
+                current_program=coordinator.irrigation_programs.get(program_index),
+            )
+        except Exception:  # noqa: BLE001 - preview must never block a render
+            return None
 
     def _program_defaults(
         self,
