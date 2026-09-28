@@ -19,7 +19,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.selector import selector
+from homeassistant.helpers.selector import TimeSelector, selector
 from homeassistant.util import dt as dt_util
 
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
@@ -80,6 +80,30 @@ ATTR_WEEK_DAYS = "week_days"
 MAX_PROGRAM_DURATION_SECONDS = 0xFFFFFF
 SECONDS_PER_MINUTE = 60
 MAX_PROGRAM_DURATION_MINUTES = MAX_PROGRAM_DURATION_SECONDS / SECONDS_PER_MINUTE
+
+# Sentinel for a cleared/disabled start-time slot. The frontend submits an
+# untouched time selector as an empty string; the bare TimeSelector rejects
+# it, so the start-slot validator passes empty through and defers everything
+# else to the time selector.
+_START_TIME_EMPTY = ""
+
+
+class _StartSlotSelector(TimeSelector):
+    """Time selector that tolerates an empty (cleared/disabled) slot.
+
+    Defined as a subclass rather than an instance override so the value stays
+    a proper Selector for Home Assistant's serializer; the config validation
+    quirk that affects unregistered selector subclasses only triggers for
+    non-empty configs, and we always pass the empty config.
+    """
+
+    def __call__(self, data: Any) -> Any:
+        if data == _START_TIME_EMPTY:
+            return data
+        TimeSelector.__call__(self, data)
+        return data
+
+
 
 MENU_SETTINGS = "settings"
 MENU_EDIT_PROGRAM = "program_select"
@@ -965,9 +989,13 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # Native time picker (issue #129). The HH:MM string default from
             # _format_minutes serializes fine for a time selector and the
             # parse path accepts both datetime.time (what the picker submits)
-            # and legacy "HH:MM" strings.
-            fields[vol.Optional(key, default=defaults[key])] = selector(
-                {"time": {}}
+            # and legacy "HH:MM" strings. The bare TimeSelector rejects the
+            # empty string an untouched/cleared slot submits ("Invalid time
+            # specified"), so the slot validator tolerates empty: disabled
+            # slots are the normal case (most programs use 1-2 of 8 slots).
+            # Non-empty values still go through the selector's validation.
+            fields[vol.Optional(key, default=defaults[key])] = (
+                _StartSlotSelector({})
             )
         for station in range(1, num_stations + 1):
             default_key = self._station_key(station)
