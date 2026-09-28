@@ -1499,3 +1499,75 @@ async def test_bluetooth_step_aborts_duplicate(hass: HomeAssistant) -> None:
         await flow.async_step_bluetooth(
             SimpleNamespace(address="aa:bb:cc:dd:ee:ff", name="Solem BL-IP")
         )
+
+
+# --- Schedule presets: catalog + applier (issue #129, Task 1) ---
+
+
+def _base_form_input() -> dict[str, object]:
+    return _program_editor_input()
+
+
+def _schema_defaults(schema: vol.Schema) -> dict[str, object]:
+    """Resolve a rendered schema's defaults (HA wraps them in factories)."""
+    def marker_default(key: object) -> object:
+        default = getattr(key, "default", None)
+        return default() if callable(default) else default
+
+    return {
+        str(key.schema): marker_default(key)
+        for key in schema.schema
+    }
+
+
+def test_apply_preset_every_day() -> None:
+    """every_day restores native weekly semantics (issue #129)."""
+    program = SolemOptionsFlowHandler._apply_preset("every_day", _base_form_input())
+
+    assert program["cycle"] == 0 and program["week_days"] == 0x7F
+    assert program["period_length"] == 1 and program["synchro_day"] == 0
+
+
+def test_apply_preset_even_and_odd() -> None:
+    """even_days/odd_days map to the native parity cycles."""
+    even = SolemOptionsFlowHandler._apply_preset("even_days", _base_form_input())
+    assert even["cycle"] == 1
+    odd = SolemOptionsFlowHandler._apply_preset("odd_days", _base_form_input())
+    assert odd["cycle"] == 2
+
+
+def test_apply_preset_anchored_periodic() -> None:
+    """Anchored presets set the periodic cycle and keep the picked anchor."""
+    program = SolemOptionsFlowHandler._apply_preset("every_3_days", _base_form_input())
+
+    assert program["cycle"] == 4 and program["period_length"] == 3
+    assert program["period_start_date"] == _base_form_input()["period_start_date"]
+
+
+def test_apply_preset_none_returns_input_unchanged() -> None:
+    """none is a passthrough: the parsed program carries no preset mutation."""
+    inp = _base_form_input()
+    program = SolemOptionsFlowHandler._apply_preset("none", inp)
+    expected = SolemOptionsFlowHandler()._program_from_options_input(
+        inp, num_stations=2
+    )
+
+    assert program == expected
+    assert program["cycle"] == 4  # parsed from the input's "periodic", untouched
+
+
+def test_apply_preset_uses_named_station_fields() -> None:
+    """The applier sizes stations from named duration fields too."""
+    inp = _base_form_input()
+    del inp["station_1_duration"]
+    del inp["station_2_duration"]
+    inp["Front lawn (station 1) duration (minutes)"] = 1
+    inp["Herbs (station 2) duration (minutes)"] = 2
+
+    program = SolemOptionsFlowHandler._apply_preset(
+        "every_2_days",
+        inp,
+        station_names={1: "Front lawn", 2: "Herbs"},
+    )
+
+    assert program["station_durations"] == [60, 120]

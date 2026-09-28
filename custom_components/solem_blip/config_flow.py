@@ -88,6 +88,24 @@ MENU_EDIT_STATION_NAMES = "station_select"
 ATTR_ACCEPT_CURRENT = "accept_current"
 ATTR_STATION = "station"
 CONFIRM_DEGENERATE = "confirm_degenerate"
+ATTR_SCHEDULE_PRESET = "schedule_preset"
+
+# Schedule presets (issue #129): one submit applies the encoding to the
+# parsed program and re-renders with the preview; the re-render resets the
+# preset default to "none" so the second submit parses as preset=none and
+# writes (two-phase, mirroring confirm_degenerate).
+_PRESET_NONE = "none"
+_SCHEDULE_PRESETS: dict[str, dict[str, int]] = {
+    # Native parity cycles. every_day additionally zeroes the periodic
+    # fields back to weekly semantics (period_length 1, synchro_day 0).
+    "every_day": {"cycle": 0, "week_days": 0x7F, "period_length": 1, "synchro_day": 0},
+    "even_days": {"cycle": 1},
+    "odd_days": {"cycle": 2},
+    # Anchored periodic presets: the anchor is the form's period_start_date.
+    "every_2_days": {"cycle": 4, "period_length": 2},
+    "every_3_days": {"cycle": 4, "period_length": 3},
+    "every_4_days": {"cycle": 4, "period_length": 4},
+}
 
 # Human text for the degenerate-config reasons returned by
 # is_degenerate_schedule. These sentences live in code because HA flow
@@ -988,47 +1006,48 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         station_names: dict[int, str] | None = None,
         current_program: IrrigationProgram | None = None,
     ) -> IrrigationProgram:
-        start_times = [
-            self._parse_optional_time(data.get(self._start_key(slot), ""))
-            for slot in range(8)
-        ]
-        period_start_date = data[ATTR_PERIOD_START_DATE]
-        if isinstance(period_start_date, str):
-            period_start_date = date.fromisoformat(period_start_date)
-        previous_period_start_date = (
-            current_program.get("period_start_date")
-            if current_program is not None
-            else None
+        return _parse_program_input(
+            data,
+            num_stations=num_stations,
+            station_names=station_names,
+            current_program=current_program,
         )
-        period_length = int(data[ATTR_PERIOD_LENGTH])
-        synchro_day = int(data[ATTR_SYNCHRO_DAY])
-        if period_start_date != previous_period_start_date:
-            synchro_day = (
-                (period_start_date - previous_period_start_date).days % period_length
-                if previous_period_start_date is not None
-                else 0
+
+    @staticmethod
+    def _apply_preset(
+        preset: str,
+        form_input: dict[str, Any],
+        *,
+        num_stations: int | None = None,
+        station_names: dict[int, str] | None = None,
+    ) -> IrrigationProgram:
+        """Apply a schedule preset to a parsed program-editor input.
+
+        Pure function: builds the program via ``_program_from_options_input``
+        (which derives ``synchro_day`` when the anchor date changed) and, for
+        a non-``none`` preset, overlays the preset's encoding on the result.
+        The anchored presets keep the form's ``period_start_date`` as their
+        anchor; ``every_day`` resets the periodic fields to weekly semantics.
+        When ``num_stations`` is not given, it is inferred from the duration
+        fields present in the input (plain or station-name-labelled).
+        """
+        if num_stations is None:
+            num_stations = sum(
+                1
+                for key in form_input
+                if str(key).endswith("_duration")
+                or "(station " in str(key) and "duration (minutes)" in str(key)
             )
-        return {
-            "name": str(data[ATTR_NAME]),
-            "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
-            "water_budget": int(data[ATTR_WATER_BUDGET]),
-            "cycle": _CYCLES[str(data[ATTR_CYCLE])],
-            "week_days": self._weekdays_mask(list(data[ATTR_WEEK_DAYS])),
-            "period_length": period_length,
-            "synchro_day": synchro_day,
-            "period_start_date": period_start_date,
-            "start_times": start_times,
-            "station_durations": [
-                self._duration_seconds(
-                    self._station_duration_value(
-                        data,
-                        station,
-                        station_names=station_names,
-                    )
-                )
-                for station in range(1, num_stations + 1)
-            ],
-        }
+            num_stations = max(num_stations, 1)
+        program = _parse_program_input(
+            form_input,
+            num_stations=num_stations,
+            station_names=station_names,
+        )
+        if preset == _PRESET_NONE:
+            return program
+        program.update(_SCHEDULE_PRESETS[preset])  # type: ignore[typeddict-item]
+        return program
 
     @staticmethod
     def _start_key(slot: int) -> str:
@@ -1144,6 +1163,65 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         for day in days:
             mask |= 1 << _WEEKDAYS[str(day)]
         return mask
+
+
+def _parse_program_input(
+    data: dict[str, Any],
+    *,
+    num_stations: int,
+    station_names: dict[int, str] | None = None,
+    current_program: IrrigationProgram | None = None,
+) -> IrrigationProgram:
+    """Parse program-editor form input into an IrrigationProgram.
+
+    Module-level so the pure preset applier can reuse it without an
+    instance. Derives ``synchro_day`` when the anchor date changed.
+    """
+    start_times = [
+        SolemOptionsFlowHandler._parse_optional_time(
+            data.get(SolemOptionsFlowHandler._start_key(slot), "")
+        )
+        for slot in range(8)
+    ]
+    period_start_date = data[ATTR_PERIOD_START_DATE]
+    if isinstance(period_start_date, str):
+        period_start_date = date.fromisoformat(period_start_date)
+    previous_period_start_date = (
+        current_program.get("period_start_date")
+        if current_program is not None
+        else None
+    )
+    period_length = int(data[ATTR_PERIOD_LENGTH])
+    synchro_day = int(data[ATTR_SYNCHRO_DAY])
+    if period_start_date != previous_period_start_date:
+        synchro_day = (
+            (period_start_date - previous_period_start_date).days % period_length
+            if previous_period_start_date is not None
+            else 0
+        )
+    return {
+        "name": str(data[ATTR_NAME]),
+        "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
+        "water_budget": int(data[ATTR_WATER_BUDGET]),
+        "cycle": _CYCLES[str(data[ATTR_CYCLE])],
+        "week_days": SolemOptionsFlowHandler._weekdays_mask(
+            list(data[ATTR_WEEK_DAYS])
+        ),
+        "period_length": period_length,
+        "synchro_day": synchro_day,
+        "period_start_date": period_start_date,
+        "start_times": start_times,
+        "station_durations": [
+            SolemOptionsFlowHandler._duration_seconds(
+                SolemOptionsFlowHandler._station_duration_value(
+                    data,
+                    station,
+                    station_names=station_names,
+                )
+            )
+            for station in range(1, num_stations + 1)
+        ],
+    }
 
 
 class CannotConnect(HomeAssistantError):
