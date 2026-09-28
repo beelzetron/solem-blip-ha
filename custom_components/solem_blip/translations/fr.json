@@ -73,6 +73,7 @@
       "program_edit": {
         "data": {
           "name": "Nom",
+          "schedule_preset": "Programme prédéfini",
           "cycle": "Cycle",
           "week_days": "Jours de la semaine",
           "period_start_date": "Date de début de la période",
@@ -322,6 +323,17 @@
         "friday": "Vendredi",
         "saturday": "Samedi",
         "sunday": "Dimanche"
+      }
+    },
+    "schedule_preset_selector": {
+      "options": {
+        "none": "Aucun",
+        "every_day": "Tous les jours",
+        "even_days": "Jours pairs du mois",
+        "odd_days": "Jours impairs du mois",
+        "every_2_days": "Tous les 2 jours (à partir de la date de début)",
+        "every_3_days": "Tous les 3 jours (à partir de la date de début)",
+        "every_4_days": "Tous les 4 jours (à partir de la date de début)"
       }
     }
   }

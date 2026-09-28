@@ -92,6 +92,7 @@
       "program_edit": {
         "data": {
           "name": "Name",
+          "schedule_preset": "Schedule preset",
           "cycle": "Cycle",
           "week_days": "Weekdays",
           "period_start_date": "Period start date",
@@ -322,6 +323,17 @@
         "friday": "Friday",
         "saturday": "Saturday",
         "sunday": "Sunday"
+      }
+    },
+    "schedule_preset_selector": {
+      "options": {
+        "none": "None",
+        "every_day": "Every day",
+        "even_days": "Even days of month",
+        "odd_days": "Odd days of month",
+        "every_2_days": "Every 2 days (from start date)",
+        "every_3_days": "Every 3 days (from start date)",
+        "every_4_days": "Every 4 days (from start date)"
       }
     }
   }

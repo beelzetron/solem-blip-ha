@@ -1571,3 +1571,163 @@ def test_apply_preset_uses_named_station_fields() -> None:
     )
 
     assert program["station_durations"] == [60, 120]
+
+
+# --- Schedule presets: form field + preview-confirm wiring (issue #129, Task 2) ---
+
+
+def test_program_schema_has_preset_field_first(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """The preset dropdown is the first field with exactly the 7 options."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    names = [field["name"] for field in serialized]
+    assert names[0] == "schedule_preset"
+    select = serialized[0]["selector"]["select"]
+    assert select["options"] == [
+        "none",
+        "every_day",
+        "even_days",
+        "odd_days",
+        "every_2_days",
+        "every_3_days",
+        "every_4_days",
+    ]
+    assert select["mode"] == "dropdown"
+    assert select["translation_key"] == "schedule_preset_selector"
+    assert names.index("schedule_preset") < names.index("cycle")
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_submit_rerenders_with_preview(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Submitting a preset re-renders with applied values + preview, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(schedule_preset="every_3_days")
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    placeholders = result["description_placeholders"]
+    assert placeholders.get("preview")
+    assert placeholders.get("warning") == ""
+    # The re-rendered defaults carry the APPLIED values (period_length 3),
+    # and the preset default is reset to "none" so the next submit writes.
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["period_length"] == 3
+    assert defaults["schedule_preset"] == "none"
+    assert defaults["cycle"] == "periodic"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_confirmed_second_submit_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The second submit (preset back to none, applied values) writes."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(schedule_preset="none", period_length=3)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["period_length"] == 3
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_none_writes_immediately(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A healthy submit with preset=none writes with no round-trip."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="none")
+        )
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_resubmit_does_not_reapply(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Resubmitting while the applied state is set does not loop the re-render."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(schedule_preset="every_3_days")
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        first = await handler.async_step_program_edit(user_input)
+        assert first["type"] == "form"
+        # A stray second submit still carrying the preset must NOT re-apply
+        # (the flow-internal applied state guards it); it writes instead.
+        second = await handler.async_step_program_edit(user_input)
+
+    assert second["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "translation_file",
+    [
+        Path("custom_components/solem_blip/strings.json"),
+        Path("custom_components/solem_blip/translations/en.json"),
+        Path("custom_components/solem_blip/translations/it.json"),
+        Path("custom_components/solem_blip/translations/fr.json"),
+    ],
+)
+def test_program_edit_preset_translations_exist(translation_file: Path) -> None:
+    """Preset field label and selector options exist in all four locales."""
+    translations = json.loads(translation_file.read_text())
+
+    data = translations["options"]["step"]["program_edit"]["data"]
+    assert data["schedule_preset"]
+
+    options = translations["selector"]["schedule_preset_selector"]["options"]
+    assert set(options) == {
+        "none",
+        "every_day",
+        "even_days",
+        "odd_days",
+        "every_2_days",
+        "every_3_days",
+        "every_4_days",
+    }
+    assert all(options.values())

@@ -73,6 +73,7 @@
       "program_edit": {
         "data": {
           "name": "Nome",
+          "schedule_preset": "Programmazione preimpostata",
           "cycle": "Ciclo",
           "week_days": "Giorni della settimana",
           "period_start_date": "Data inizio periodo",
@@ -322,6 +323,17 @@
         "friday": "Venerdì",
         "saturday": "Sabato",
         "sunday": "Domenica"
+      }
+    },
+    "schedule_preset_selector": {
+      "options": {
+        "none": "Nessuna",
+        "every_day": "Ogni giorno",
+        "even_days": "Giorni pari del mese",
+        "odd_days": "Giorni dispari del mese",
+        "every_2_days": "Ogni 2 giorni (dalla data iniziale)",
+        "every_3_days": "Ogni 3 giorni (dalla data iniziale)",
+        "every_4_days": "Ogni 4 giorni (dalla data iniziale)"
       }
     }
   }
