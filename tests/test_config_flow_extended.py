@@ -1199,6 +1199,31 @@ async def test_config_flow_options_factory(
     assert isinstance(handler, SolemOptionsFlowHandler)
 
 
+def test_program_schema_start_times_use_time_selector(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Program start slots render as HA native time selectors (issue #129)."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    start_fields = [
+        field for field in serialized if field["name"].startswith("start_time_")
+    ]
+    assert len(start_fields) == 8
+    for field in start_fields:
+        assert field["selector"] == {"time": {}}
+
+
 @pytest.mark.asyncio
 async def test_bluetooth_step_aborts_duplicate(hass: HomeAssistant) -> None:
     """Bluetooth discovery aborts when the controller is already configured."""

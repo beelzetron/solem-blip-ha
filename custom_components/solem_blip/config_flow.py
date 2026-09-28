@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date
+from datetime import date, time
 from typing import Any
 
 import voluptuous as vol
@@ -765,7 +765,13 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         }
         for slot in range(8):
             key = self._start_key(slot)
-            fields[vol.Optional(key, default=defaults[key])] = str
+            # Native time picker (issue #129). The HH:MM string default from
+            # _format_minutes serializes fine for a time selector and the
+            # parse path accepts both datetime.time (what the picker submits)
+            # and legacy "HH:MM" strings.
+            fields[vol.Optional(key, default=defaults[key])] = selector(
+                {"time": {}}
+            )
         for station in range(1, num_stations + 1):
             default_key = self._station_key(station)
             key = self._station_duration_key(station, station_names=station_names)
@@ -944,6 +950,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
 
     @staticmethod
     def _parse_optional_time(value: Any) -> int | None:
+        if isinstance(value, time):
+            # Native time selector submits a datetime.time (possibly with
+            # seconds); the device stores minutes since midnight.
+            return value.hour * 60 + value.minute
         text = str(value or "").strip()
         if not text:
             return None
