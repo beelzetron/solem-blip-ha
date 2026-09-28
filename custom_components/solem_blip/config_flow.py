@@ -81,6 +81,12 @@ MAX_PROGRAM_DURATION_SECONDS = 0xFFFFFF
 SECONDS_PER_MINUTE = 60
 MAX_PROGRAM_DURATION_MINUTES = MAX_PROGRAM_DURATION_SECONDS / SECONDS_PER_MINUTE
 
+# Sentinel for a cleared/disabled start-time slot. The frontend submits an
+# untouched time selector as an empty string; the bare TimeSelector rejects
+# it, so the schema allows this value explicitly before the selector runs.
+_START_TIME_EMPTY = ""
+
+
 MENU_SETTINGS = "settings"
 MENU_EDIT_PROGRAM = "program_select"
 MENU_EDIT_STATION_NAMES = "station_select"
@@ -965,9 +971,14 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # Native time picker (issue #129). The HH:MM string default from
             # _format_minutes serializes fine for a time selector and the
             # parse path accepts both datetime.time (what the picker submits)
-            # and legacy "HH:MM" strings.
-            fields[vol.Optional(key, default=defaults[key])] = selector(
-                {"time": {}}
+            # and legacy "HH:MM" strings. The bare TimeSelector rejects the
+            # empty string an untouched/cleared slot submits ("Invalid time
+            # specified"), so empty is allowed explicitly: disabled slots are
+            # the normal case (most programs use 1-2 of 8 slots). Non-empty
+            # values still go through the selector's own validation.
+            fields[vol.Optional(key, default=defaults[key])] = vol.Any(
+                _START_TIME_EMPTY,
+                selector({"time": {}}),
             )
         for station in range(1, num_stations + 1):
             default_key = self._station_key(station)
