@@ -1504,10 +1504,6 @@ async def test_bluetooth_step_aborts_duplicate(hass: HomeAssistant) -> None:
 # --- Schedule presets: catalog + applier (issue #129, Task 1) ---
 
 
-def _base_form_input() -> dict[str, object]:
-    return _program_editor_input()
-
-
 def _schema_defaults(schema: vol.Schema) -> dict[str, object]:
     """Resolve a rendered schema's defaults (HA wraps them in factories)."""
     def marker_default(key: object) -> object:
@@ -1522,7 +1518,7 @@ def _schema_defaults(schema: vol.Schema) -> dict[str, object]:
 
 def test_apply_preset_every_day() -> None:
     """every_day restores native weekly semantics (issue #129)."""
-    program = SolemOptionsFlowHandler._apply_preset("every_day", _base_form_input())
+    program = SolemOptionsFlowHandler._apply_preset("every_day", _program_editor_input())
 
     assert program["cycle"] == 0 and program["week_days"] == 0x7F
     assert program["period_length"] == 1 and program["synchro_day"] == 0
@@ -1530,23 +1526,33 @@ def test_apply_preset_every_day() -> None:
 
 def test_apply_preset_even_and_odd() -> None:
     """even_days/odd_days map to the native parity cycles."""
-    even = SolemOptionsFlowHandler._apply_preset("even_days", _base_form_input())
+    even = SolemOptionsFlowHandler._apply_preset("even_days", _program_editor_input())
     assert even["cycle"] == 1
-    odd = SolemOptionsFlowHandler._apply_preset("odd_days", _base_form_input())
+    odd = SolemOptionsFlowHandler._apply_preset("odd_days", _program_editor_input())
     assert odd["cycle"] == 2
+
+
+def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
+    """An anchored preset renormalizes the parsed phase into its new period."""
+    inp = _program_editor_input(period_start_date=None, synchro_day=5)
+
+    program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
+
+    assert program["period_length"] == 3
+    assert program["synchro_day"] == 5 % 3
 
 
 def test_apply_preset_anchored_periodic() -> None:
     """Anchored presets set the periodic cycle and keep the picked anchor."""
-    program = SolemOptionsFlowHandler._apply_preset("every_3_days", _base_form_input())
+    program = SolemOptionsFlowHandler._apply_preset("every_3_days", _program_editor_input())
 
     assert program["cycle"] == 4 and program["period_length"] == 3
-    assert program["period_start_date"] == _base_form_input()["period_start_date"]
+    assert program["period_start_date"] == _program_editor_input()["period_start_date"]
 
 
 def test_apply_preset_none_returns_input_unchanged() -> None:
     """none is a passthrough: the parsed program carries no preset mutation."""
-    inp = _base_form_input()
+    inp = _program_editor_input()
     program = SolemOptionsFlowHandler._apply_preset("none", inp)
     expected = SolemOptionsFlowHandler()._program_from_options_input(
         inp, num_stations=2
@@ -1558,7 +1564,7 @@ def test_apply_preset_none_returns_input_unchanged() -> None:
 
 def test_apply_preset_uses_named_station_fields() -> None:
     """The applier sizes stations from named duration fields too."""
-    inp = _base_form_input()
+    inp = _program_editor_input()
     del inp["station_1_duration"]
     del inp["station_2_duration"]
     inp["Front lawn (station 1) duration (minutes)"] = 1
@@ -1679,6 +1685,78 @@ async def test_program_edit_preset_none_writes_immediately(
 
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_apply_degenerate_warns_without_write(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """An applied preset whose schedule is degenerate warns instead of writing."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(
+        schedule_preset="every_3_days",
+        station_1_duration=0,
+        station_2_duration=0,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert "confirm_degenerate" in field_names
+    assert result["description_placeholders"].get("warning")
+    # The rendered defaults carry the APPLIED periodic encoding.
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["period_length"] == 3
+
+
+@pytest.mark.asyncio
+async def test_program_edit_failed_write_then_different_preset_is_applied(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A preset picked after a failed write is honored, not silently ignored."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    coordinator.set_irrigation_program = AsyncMock(
+        side_effect=Exception("device unreachable")
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        # Phase 1: pick a preset (two-phase apply renders the preview).
+        first = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="every_3_days")
+        )
+        assert first["type"] == "form"
+        # Phase 2: confirm-submit the applied values; the write fails.
+        second = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="none", period_length=3)
+        )
+        assert second["errors"] == {"base": "set_program_failed"}
+        # Phase 3: pick a DIFFERENT preset — it must re-apply (fresh
+        # re-render with the new preset's values), not silently write.
+        third = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="every_2_days")
+        )
+
+    assert third["type"] == "form"
+    assert "base" not in (third["errors"] or {})
+    # The only write attempt is the expected failed one from phase 2 —
+    # phase 3 must re-apply the new preset, not silently write.
+    assert coordinator.set_irrigation_program.await_count == 1
+    defaults = _schema_defaults(third["data_schema"])
+    assert defaults["period_length"] == 2
+    assert defaults["schedule_preset"] == "none"
 
 
 @pytest.mark.asyncio

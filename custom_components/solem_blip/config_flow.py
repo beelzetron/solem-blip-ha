@@ -586,55 +586,11 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 except vol.Invalid:
                     errors["base"] = "invalid_program"
                 else:
-                    if (
-                        user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)
-                        != _PRESET_NONE
-                        and not self._preset_applied
-                    ):
-                        # Two-phase preset (issue #129), mirroring the
-                        # confirm_degenerate pattern: do NOT write. Apply the
-                        # preset to the parsed program, then re-render with the
-                        # APPLIED values as defaults, the schedule preview, and
-                        # the preset default reset to "none" so the second
-                        # submit parses as preset=none and writes. The flow
-                        # flag guards a stray re-submit that still carries the
-                        # preset against an infinite apply loop.
-                        self._preset_applied = True
-                        applied = self._apply_preset(
-                            str(user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)),
-                            user_input,
-                            num_stations=coordinator.num_stations,
-                            station_names=self._station_names(coordinator),
-                        )
-                        reason = is_degenerate_schedule(applied)
-                        warning = (
-                            _DEGENERATE_WARNINGS.get(reason, reason)
-                            if reason is not None
-                            else ""
-                        )
-                        if reason is not None:
-                            # The applied schedule is degenerate: show the
-                            # warning and the confirm checkbox on this render.
-                            return self._show_degenerate_warning(
-                                applied, coordinator, program_index, reason
-                            )
-                        return self.async_show_form(
-                            step_id="program_edit",
-                            data_schema=self._program_schema(
-                                applied,
-                                station_names=self._station_names(coordinator),
-                            ),
-                            errors={},
-                            description_placeholders={
-                                "program": self._program_option_label(
-                                    coordinator, program_index
-                                ),
-                                "preview": self._schedule_preview(
-                                    applied, coordinator
-                                ),
-                                "warning": warning,
-                            },
-                        )
+                    preset_result = self._preset_apply_result(
+                        user_input, coordinator, program_index
+                    )
+                    if preset_result is not None:
+                        return preset_result
                     reason = is_degenerate_schedule(program)
                     if reason is not None and not user_input.get(
                         CONFIRM_DEGENERATE, False
@@ -648,23 +604,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                     return await self._attempt_write(program_index, program)
 
         current_program = coordinator.irrigation_programs.get(program_index)
-        # Preview from the just-parsed program when available (validation
-        # errors fall here too, via a best-effort partial parse); it must
-        # never block or crash a write.
         if user_input is None:
             # Fresh render (menu entry): any pending preset-apply state is
             # stale — the user restarted the edit.
             self._preset_applied = False
-        preview = ""
-        if program is not None:
-            preview = self._schedule_preview(program, coordinator)
-        elif user_input is not None:
-            preview = self._schedule_preview(
-                self._best_effort_preview_program(
-                    user_input, coordinator, program_index
-                ),
-                coordinator,
-            )
         return self.async_show_form(
             step_id="program_edit",
             data_schema=self._program_schema(
@@ -674,8 +617,83 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             errors=errors,
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
-                "preview": preview,
+                # Preview from the just-parsed program when available
+                # (validation errors fall here too, via a best-effort partial
+                # parse); it must never block or crash a write.
+                "preview": self._editor_preview(user_input, program, coordinator),
                 "warning": "",
+            },
+        )
+
+    def _editor_preview(
+        self,
+        user_input: dict[str, Any] | None,
+        program: IrrigationProgram | None,
+        coordinator: Any,
+    ) -> str:
+        """Preview for the re-render, best-effort on validation errors."""
+        if program is not None:
+            return self._schedule_preview(program, coordinator)
+        if user_input is not None:
+            return self._schedule_preview(
+                self._best_effort_preview_program(
+                    user_input, coordinator, self._selected_program_index
+                ),
+                coordinator,
+            )
+        return ""
+
+    def _preset_apply_result(
+        self,
+        user_input: dict[str, Any],
+        coordinator: Any,
+        program_index: int,
+    ) -> ConfigFlowResult | None:
+        """Apply a freshly submitted schedule preset (two-phase, issue #129).
+
+        Mirrors the confirm_degenerate pattern: do NOT write. Applies the
+        preset to the parsed program, then re-renders with the APPLIED values
+        as defaults, the schedule preview, and the preset default reset to
+        "none" so the second submit parses as preset=none and writes. The
+        flow flag guards a stray re-submit that still carries the preset
+        against an infinite apply loop.
+
+        Returns the re-render when a preset was applied, ``None`` when there
+        is no preset to apply (caller proceeds to the degenerate/write paths).
+        """
+        if (
+            user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE) == _PRESET_NONE
+            or self._preset_applied
+        ):
+            return None
+        self._preset_applied = True
+        applied = self._apply_preset(
+            str(user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)),
+            user_input,
+            num_stations=coordinator.num_stations,
+            station_names=self._station_names(coordinator),
+        )
+        reason = is_degenerate_schedule(applied)
+        warning = (
+            _DEGENERATE_WARNINGS.get(reason, reason) if reason is not None else ""
+        )
+        if reason is not None:
+            # The applied schedule is degenerate: show the warning and the
+            # confirm checkbox on this render.
+            return self._show_degenerate_warning(
+                applied, coordinator, program_index, reason
+            )
+        return self.async_show_form(
+            step_id="program_edit",
+            data_schema=self._program_schema(
+                applied,
+                station_names=self._station_names(coordinator),
+            ),
+            errors={},
+            description_placeholders={
+                "program": self._program_option_label(coordinator, program_index),
+                "preview": self._schedule_preview(applied, coordinator),
+                "warning": warning,
             },
         )
 
@@ -722,6 +740,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 PROGRAM_LABELS[program_index],
             )
             errors["base"] = "set_program_failed"
+            # The two-phase preset cycle did NOT complete: reset the flag so
+            # a different preset picked after this failed write is honored
+            # instead of being silently ignored (issue #129).
+            self._preset_applied = False
         else:
             # Write done: the two-phase preset cycle is complete.
             self._preset_applied = False
@@ -1107,7 +1129,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 1
                 for key in form_input
                 if str(key).endswith("_duration")
-                or "(station " in str(key) and "duration (minutes)" in str(key)
+                or ("(station " in str(key) and "duration (minutes)" in str(key))
             )
             num_stations = max(num_stations, 1)
         program = _parse_program_input(
@@ -1118,6 +1140,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         if preset == _PRESET_NONE:
             return program
         program.update(_SCHEDULE_PRESETS[preset])  # type: ignore[typeddict-item]
+        if program["cycle"] == 4 and program["period_length"] > 1:
+            # The overlay changed the period length: renormalize the parsed
+            # phase into the new period so the anchor stays meaningful.
+            program["synchro_day"] %= program["period_length"]
         return program
 
     @staticmethod
