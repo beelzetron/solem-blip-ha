@@ -570,39 +570,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                         # Non-blocking warning (issue #129): re-render with
                         # the submitted values, a schedule preview, the
                         # warning, and a confirm checkbox. No write yet.
-                        return self.async_show_form(
-                            step_id="program_edit",
-                            data_schema=self._program_schema(
-                                program,
-                                station_names=self._station_names(coordinator),
-                                confirm_degenerate=True,
-                            ),
-                            errors=errors,
-                            description_placeholders={
-                                "program": self._program_option_label(
-                                    coordinator, program_index
-                                ),
-                                "preview": self._schedule_preview(
-                                    program, coordinator
-                                ),
-                                "warning": _DEGENERATE_WARNINGS.get(reason, reason),
-                            },
+                        return self._show_degenerate_warning(
+                            program, coordinator, program_index, reason
                         )
-                    try:
-                        await coordinator.set_irrigation_program(
-                            program_index, program
-                        )
-                    except Exception:
-                        _LOGGER.exception(
-                            "Failed to update Program %s from options flow",
-                            PROGRAM_LABELS[program_index],
-                        )
-                        errors["base"] = "set_program_failed"
-                    else:
-                        return self.async_create_entry(
-                            title="",
-                            data=dict(self.config_entry.options),
-                        )
+                    return await self._attempt_write(program_index, program)
 
         current_program = coordinator.irrigation_programs.get(program_index)
         # Preview from the just-parsed program when available (validation
@@ -628,6 +599,69 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
                 "preview": preview,
+                "warning": "",
+            },
+        )
+
+    def _show_degenerate_warning(
+        self,
+        program: IrrigationProgram,
+        coordinator: Any,
+        program_index: int,
+        reason: str,
+    ) -> ConfigFlowResult:
+        """Re-render the editor with the degenerate-schedule warning.
+
+        Non-blocking (issue #129): shows the submitted values as defaults,
+        a schedule preview, the warning, and a confirm checkbox. No write
+        happens until the user re-submits with the checkbox set.
+        """
+        return self.async_show_form(
+            step_id="program_edit",
+            data_schema=self._program_schema(
+                program,
+                station_names=self._station_names(coordinator),
+                confirm_degenerate=True,
+            ),
+            errors={},
+            description_placeholders={
+                "program": self._program_option_label(coordinator, program_index),
+                "preview": self._schedule_preview(program, coordinator),
+                "warning": _DEGENERATE_WARNINGS.get(reason, reason),
+            },
+        )
+
+    async def _attempt_write(
+        self, program_index: int, program: IrrigationProgram
+    ) -> ConfigFlowResult:
+        """Write the parsed program to the device, or re-render on failure."""
+        coordinator = self._coordinator
+        assert coordinator is not None  # caller guarantees a loaded entry
+        errors: dict[str, str] = {}
+        try:
+            await coordinator.set_irrigation_program(program_index, program)
+        except Exception:
+            _LOGGER.exception(
+                "Failed to update Program %s from options flow",
+                PROGRAM_LABELS[program_index],
+            )
+            errors["base"] = "set_program_failed"
+        else:
+            return self.async_create_entry(
+                title="",
+                data=dict(self.config_entry.options),
+            )
+        current_program = coordinator.irrigation_programs.get(program_index)
+        return self.async_show_form(
+            step_id="program_edit",
+            data_schema=self._program_schema(
+                current_program,
+                station_names=self._station_names(coordinator),
+            ),
+            errors=errors,
+            description_placeholders={
+                "program": self._program_option_label(coordinator, program_index),
+                "preview": self._schedule_preview(program, coordinator),
                 "warning": "",
             },
         )
@@ -889,20 +923,20 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         the schedule preview still shows the rest of the config.
         """
         data = dict(user_input)
-        try:
-            for station in range(1, int(coordinator.num_stations) + 1):
-                for key in (
-                    SolemOptionsFlowHandler._station_key(station),
-                    SolemOptionsFlowHandler._station_duration_key(
-                        station,
-                        station_names=self._station_names(coordinator),
-                    ),
-                ):
+        for station in range(1, int(coordinator.num_stations) + 1):
+            station_names = self._station_names(coordinator)
+            for key in (
+                self._station_key(station),
+                self._station_duration_key(station, station_names=station_names),
+            ):
+                try:
                     value = data.get(key)
                     if value is not None and float(value) < 0:
                         data[key] = 0
-        except (TypeError, ValueError):
-            pass
+                except (TypeError, ValueError):
+                    # One non-numeric value must not abort clamping of the
+                    # remaining stations.
+                    continue
         try:
             return self._program_from_options_input(
                 data,

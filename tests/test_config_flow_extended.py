@@ -1354,6 +1354,21 @@ async def test_program_edit_week_days_zero_warns_and_does_not_write(
     assert "never start" in placeholders["warning"]
     # The user's submitted values carry over as defaults.
     assert placeholders.get("preview")
+    # The re-rendered defaults carry the SUBMITTED values, not the old
+    # persisted program (quality review follow-up, issue #129): program 1
+    # persists as "Programma B" with no start times. HA's patched
+    # voluptuous wraps defaults in a default_factory lambda, so resolve
+    # callables before comparing.
+    def marker_default(key: object) -> object:
+        default = getattr(key, "default", None)
+        return default() if callable(default) else default
+
+    defaults = {
+        str(key.schema): marker_default(key)
+        for key in result["data_schema"].schema
+    }
+    assert defaults["name"] == "Vasi"
+    assert defaults["start_time_1"] == "06:30"
 
 
 @pytest.mark.asyncio
