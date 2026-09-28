@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from solem_blip_ble import IrrigationProgram
@@ -73,7 +73,7 @@ def enabled_start_count(start_times: list[int | None]) -> int:
     return sum(1 for minutes in start_times if minutes is not None)
 
 
-DegenerateReason = str  # "no_days" | "no_durations"
+DegenerateReason = Literal["no_days", "no_durations"]
 
 
 def is_degenerate_schedule(program: IrrigationProgram) -> DegenerateReason | None:
