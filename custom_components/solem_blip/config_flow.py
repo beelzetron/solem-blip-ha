@@ -88,6 +88,24 @@ MENU_EDIT_STATION_NAMES = "station_select"
 ATTR_ACCEPT_CURRENT = "accept_current"
 ATTR_STATION = "station"
 CONFIRM_DEGENERATE = "confirm_degenerate"
+ATTR_SCHEDULE_PRESET = "schedule_preset"
+
+# Schedule presets (issue #129): one submit applies the encoding to the
+# parsed program and re-renders with the preview; the re-render resets the
+# preset default to "none" so the second submit parses as preset=none and
+# writes (two-phase, mirroring confirm_degenerate).
+_PRESET_NONE = "none"
+_SCHEDULE_PRESETS: dict[str, dict[str, int]] = {
+    # Native parity cycles. every_day additionally zeroes the periodic
+    # fields back to weekly semantics (period_length 1, synchro_day 0).
+    "every_day": {"cycle": 0, "week_days": 0x7F, "period_length": 1, "synchro_day": 0},
+    "even_days": {"cycle": 1},
+    "odd_days": {"cycle": 2},
+    # Anchored periodic presets: the anchor is the form's period_start_date.
+    "every_2_days": {"cycle": 4, "period_length": 2},
+    "every_3_days": {"cycle": 4, "period_length": 3},
+    "every_4_days": {"cycle": 4, "period_length": 4},
+}
 
 # Human text for the degenerate-config reasons returned by
 # is_degenerate_schedule. These sentences live in code because HA flow
@@ -425,6 +443,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
     """Handle integration options."""
 
     _selected_program_index: int = 0
+    # Two-phase preset guard (issue #129): True between a preset apply
+    # re-render and the next submit, so a re-rendered default preset value
+    # (or a stray resubmit carrying the preset) cannot re-apply forever.
+    _preset_applied: bool = False
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -564,6 +586,11 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 except vol.Invalid:
                     errors["base"] = "invalid_program"
                 else:
+                    preset_result = self._preset_apply_result(
+                        user_input, coordinator, program_index
+                    )
+                    if preset_result is not None:
+                        return preset_result
                     reason = is_degenerate_schedule(program)
                     if reason is not None and not user_input.get(
                         CONFIRM_DEGENERATE, False
@@ -577,19 +604,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                     return await self._attempt_write(program_index, program)
 
         current_program = coordinator.irrigation_programs.get(program_index)
-        # Preview from the just-parsed program when available (validation
-        # errors fall here too, via a best-effort partial parse); it must
-        # never block or crash a write.
-        preview = ""
-        if program is not None:
-            preview = self._schedule_preview(program, coordinator)
-        elif user_input is not None:
-            preview = self._schedule_preview(
-                self._best_effort_preview_program(
-                    user_input, coordinator, program_index
-                ),
-                coordinator,
-            )
+        if user_input is None:
+            # Fresh render (menu entry): any pending preset-apply state is
+            # stale — the user restarted the edit.
+            self._preset_applied = False
         return self.async_show_form(
             step_id="program_edit",
             data_schema=self._program_schema(
@@ -599,8 +617,83 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             errors=errors,
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
-                "preview": preview,
+                # Preview from the just-parsed program when available
+                # (validation errors fall here too, via a best-effort partial
+                # parse); it must never block or crash a write.
+                "preview": self._editor_preview(user_input, program, coordinator),
                 "warning": "",
+            },
+        )
+
+    def _editor_preview(
+        self,
+        user_input: dict[str, Any] | None,
+        program: IrrigationProgram | None,
+        coordinator: Any,
+    ) -> str:
+        """Preview for the re-render, best-effort on validation errors."""
+        if program is not None:
+            return self._schedule_preview(program, coordinator)
+        if user_input is not None:
+            return self._schedule_preview(
+                self._best_effort_preview_program(
+                    user_input, coordinator, self._selected_program_index
+                ),
+                coordinator,
+            )
+        return ""
+
+    def _preset_apply_result(
+        self,
+        user_input: dict[str, Any],
+        coordinator: Any,
+        program_index: int,
+    ) -> ConfigFlowResult | None:
+        """Apply a freshly submitted schedule preset (two-phase, issue #129).
+
+        Mirrors the confirm_degenerate pattern: do NOT write. Applies the
+        preset to the parsed program, then re-renders with the APPLIED values
+        as defaults, the schedule preview, and the preset default reset to
+        "none" so the second submit parses as preset=none and writes. The
+        flow flag guards a stray re-submit that still carries the preset
+        against an infinite apply loop.
+
+        Returns the re-render when a preset was applied, ``None`` when there
+        is no preset to apply (caller proceeds to the degenerate/write paths).
+        """
+        if (
+            user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE) == _PRESET_NONE
+            or self._preset_applied
+        ):
+            return None
+        self._preset_applied = True
+        applied = self._apply_preset(
+            str(user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)),
+            user_input,
+            num_stations=coordinator.num_stations,
+            station_names=self._station_names(coordinator),
+        )
+        reason = is_degenerate_schedule(applied)
+        warning = (
+            _DEGENERATE_WARNINGS.get(reason, reason) if reason is not None else ""
+        )
+        if reason is not None:
+            # The applied schedule is degenerate: show the warning and the
+            # confirm checkbox on this render.
+            return self._show_degenerate_warning(
+                applied, coordinator, program_index, reason
+            )
+        return self.async_show_form(
+            step_id="program_edit",
+            data_schema=self._program_schema(
+                applied,
+                station_names=self._station_names(coordinator),
+            ),
+            errors={},
+            description_placeholders={
+                "program": self._program_option_label(coordinator, program_index),
+                "preview": self._schedule_preview(applied, coordinator),
+                "warning": warning,
             },
         )
 
@@ -647,7 +740,13 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 PROGRAM_LABELS[program_index],
             )
             errors["base"] = "set_program_failed"
+            # The two-phase preset cycle did NOT complete: reset the flag so
+            # a different preset picked after this failed write is honored
+            # instead of being silently ignored (issue #129).
+            self._preset_applied = False
         else:
+            # Write done: the two-phase preset cycle is complete.
+            self._preset_applied = False
             return self.async_create_entry(
                 title="",
                 data=dict(self.config_entry.options),
@@ -818,6 +917,18 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             )
         defaults = self._program_defaults(program, num_stations=num_stations)
         fields: dict[Any, Any] = {
+            vol.Required(
+                ATTR_SCHEDULE_PRESET,
+                default=_PRESET_NONE,
+            ): selector(
+                {
+                    "select": {
+                        "options": [_PRESET_NONE, *_SCHEDULE_PRESETS],
+                        "mode": "dropdown",
+                        "translation_key": "schedule_preset_selector",
+                    }
+                }
+            ),
             vol.Required(ATTR_NAME, default=defaults[ATTR_NAME]): str,
             vol.Required(ATTR_CYCLE, default=defaults[ATTR_CYCLE]): selector(
                 {
@@ -840,18 +951,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                     }
                 }
             ),
-            vol.Required(
-                ATTR_PERIOD_START_DATE,
-                default=defaults[ATTR_PERIOD_START_DATE],
-            ): selector({"date": {}}),
-            vol.Required(
-                ATTR_PERIOD_LENGTH,
-                default=defaults[ATTR_PERIOD_LENGTH],
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
-            vol.Required(
-                ATTR_SYNCHRO_DAY,
-                default=defaults[ATTR_SYNCHRO_DAY],
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
             vol.Required(
                 ATTR_WATER_BUDGET,
                 default=defaults[ATTR_WATER_BUDGET],
@@ -877,6 +976,22 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 vol.Coerce(float),
                 vol.Range(min=0, max=MAX_PROGRAM_DURATION_MINUTES),
             )
+        # Advanced (periodic cycle) fields: rendered LAST so the main flow
+        # ends at the station durations. HA options-flow forms have no
+        # collapsible sections, so the grouping is purely positional; the
+        # step description explains the layout (issue #129).
+        fields[vol.Required(
+            ATTR_PERIOD_START_DATE,
+            default=defaults[ATTR_PERIOD_START_DATE],
+        )] = selector({"date": {}})
+        fields[vol.Required(
+            ATTR_PERIOD_LENGTH,
+            default=defaults[ATTR_PERIOD_LENGTH],
+        )] = vol.All(vol.Coerce(int), vol.Range(min=1, max=255))
+        fields[vol.Required(
+            ATTR_SYNCHRO_DAY,
+            default=defaults[ATTR_SYNCHRO_DAY],
+        )] = vol.All(vol.Coerce(int), vol.Range(min=0, max=255))
         if confirm_degenerate:
             fields[vol.Required(CONFIRM_DEGENERATE, default=False)] = selector(
                 {"boolean": {}}
@@ -988,47 +1103,52 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         station_names: dict[int, str] | None = None,
         current_program: IrrigationProgram | None = None,
     ) -> IrrigationProgram:
-        start_times = [
-            self._parse_optional_time(data.get(self._start_key(slot), ""))
-            for slot in range(8)
-        ]
-        period_start_date = data[ATTR_PERIOD_START_DATE]
-        if isinstance(period_start_date, str):
-            period_start_date = date.fromisoformat(period_start_date)
-        previous_period_start_date = (
-            current_program.get("period_start_date")
-            if current_program is not None
-            else None
+        return _parse_program_input(
+            data,
+            num_stations=num_stations,
+            station_names=station_names,
+            current_program=current_program,
         )
-        period_length = int(data[ATTR_PERIOD_LENGTH])
-        synchro_day = int(data[ATTR_SYNCHRO_DAY])
-        if period_start_date != previous_period_start_date:
-            synchro_day = (
-                (period_start_date - previous_period_start_date).days % period_length
-                if previous_period_start_date is not None
-                else 0
+
+    @staticmethod
+    def _apply_preset(
+        preset: str,
+        form_input: dict[str, Any],
+        *,
+        num_stations: int | None = None,
+        station_names: dict[int, str] | None = None,
+    ) -> IrrigationProgram:
+        """Apply a schedule preset to a parsed program-editor input.
+
+        Pure function: builds the program via ``_program_from_options_input``
+        (which derives ``synchro_day`` when the anchor date changed) and, for
+        a non-``none`` preset, overlays the preset's encoding on the result.
+        The anchored presets keep the form's ``period_start_date`` as their
+        anchor; ``every_day`` resets the periodic fields to weekly semantics.
+        When ``num_stations`` is not given, it is inferred from the duration
+        fields present in the input (plain or station-name-labelled).
+        """
+        if num_stations is None:
+            num_stations = sum(
+                1
+                for key in form_input
+                if str(key).endswith("_duration")
+                or ("(station " in str(key) and "duration (minutes)" in str(key))
             )
-        return {
-            "name": str(data[ATTR_NAME]),
-            "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
-            "water_budget": int(data[ATTR_WATER_BUDGET]),
-            "cycle": _CYCLES[str(data[ATTR_CYCLE])],
-            "week_days": self._weekdays_mask(list(data[ATTR_WEEK_DAYS])),
-            "period_length": period_length,
-            "synchro_day": synchro_day,
-            "period_start_date": period_start_date,
-            "start_times": start_times,
-            "station_durations": [
-                self._duration_seconds(
-                    self._station_duration_value(
-                        data,
-                        station,
-                        station_names=station_names,
-                    )
-                )
-                for station in range(1, num_stations + 1)
-            ],
-        }
+            num_stations = max(num_stations, 1)
+        program = _parse_program_input(
+            form_input,
+            num_stations=num_stations,
+            station_names=station_names,
+        )
+        if preset == _PRESET_NONE:
+            return program
+        program.update(_SCHEDULE_PRESETS[preset])  # type: ignore[typeddict-item]
+        if program["cycle"] == 4 and program["period_length"] > 1:
+            # The overlay changed the period length: renormalize the parsed
+            # phase into the new period so the anchor stays meaningful.
+            program["synchro_day"] %= program["period_length"]
+        return program
 
     @staticmethod
     def _start_key(slot: int) -> str:
@@ -1144,6 +1264,65 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         for day in days:
             mask |= 1 << _WEEKDAYS[str(day)]
         return mask
+
+
+def _parse_program_input(
+    data: dict[str, Any],
+    *,
+    num_stations: int,
+    station_names: dict[int, str] | None = None,
+    current_program: IrrigationProgram | None = None,
+) -> IrrigationProgram:
+    """Parse program-editor form input into an IrrigationProgram.
+
+    Module-level so the pure preset applier can reuse it without an
+    instance. Derives ``synchro_day`` when the anchor date changed.
+    """
+    start_times = [
+        SolemOptionsFlowHandler._parse_optional_time(
+            data.get(SolemOptionsFlowHandler._start_key(slot), "")
+        )
+        for slot in range(8)
+    ]
+    period_start_date = data[ATTR_PERIOD_START_DATE]
+    if isinstance(period_start_date, str):
+        period_start_date = date.fromisoformat(period_start_date)
+    previous_period_start_date = (
+        current_program.get("period_start_date")
+        if current_program is not None
+        else None
+    )
+    period_length = int(data[ATTR_PERIOD_LENGTH])
+    synchro_day = int(data[ATTR_SYNCHRO_DAY])
+    if period_start_date != previous_period_start_date:
+        synchro_day = (
+            (period_start_date - previous_period_start_date).days % period_length
+            if previous_period_start_date is not None
+            else 0
+        )
+    return {
+        "name": str(data[ATTR_NAME]),
+        "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
+        "water_budget": int(data[ATTR_WATER_BUDGET]),
+        "cycle": _CYCLES[str(data[ATTR_CYCLE])],
+        "week_days": SolemOptionsFlowHandler._weekdays_mask(
+            list(data[ATTR_WEEK_DAYS])
+        ),
+        "period_length": period_length,
+        "synchro_day": synchro_day,
+        "period_start_date": period_start_date,
+        "start_times": start_times,
+        "station_durations": [
+            SolemOptionsFlowHandler._duration_seconds(
+                SolemOptionsFlowHandler._station_duration_value(
+                    data,
+                    station,
+                    station_names=station_names,
+                )
+            )
+            for station in range(1, num_stations + 1)
+        ],
+    }
 
 
 class CannotConnect(HomeAssistantError):

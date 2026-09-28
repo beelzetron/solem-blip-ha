@@ -1499,3 +1499,339 @@ async def test_bluetooth_step_aborts_duplicate(hass: HomeAssistant) -> None:
         await flow.async_step_bluetooth(
             SimpleNamespace(address="aa:bb:cc:dd:ee:ff", name="Solem BL-IP")
         )
+
+
+# --- Schedule presets: catalog + applier (issue #129, Task 1) ---
+
+
+def _schema_defaults(schema: vol.Schema) -> dict[str, object]:
+    """Resolve a rendered schema's defaults (HA wraps them in factories)."""
+    def marker_default(key: object) -> object:
+        default = getattr(key, "default", None)
+        return default() if callable(default) else default
+
+    return {
+        str(key.schema): marker_default(key)
+        for key in schema.schema
+    }
+
+
+def test_apply_preset_every_day() -> None:
+    """every_day restores native weekly semantics (issue #129)."""
+    program = SolemOptionsFlowHandler._apply_preset("every_day", _program_editor_input())
+
+    assert program["cycle"] == 0 and program["week_days"] == 0x7F
+    assert program["period_length"] == 1 and program["synchro_day"] == 0
+
+
+def test_apply_preset_even_and_odd() -> None:
+    """even_days/odd_days map to the native parity cycles."""
+    even = SolemOptionsFlowHandler._apply_preset("even_days", _program_editor_input())
+    assert even["cycle"] == 1
+    odd = SolemOptionsFlowHandler._apply_preset("odd_days", _program_editor_input())
+    assert odd["cycle"] == 2
+
+
+def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
+    """An anchored preset renormalizes the parsed phase into its new period."""
+    inp = _program_editor_input(period_start_date=None, synchro_day=5)
+
+    program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
+
+    assert program["period_length"] == 3
+    assert program["synchro_day"] == 5 % 3
+
+
+def test_apply_preset_anchored_periodic() -> None:
+    """Anchored presets set the periodic cycle and keep the picked anchor."""
+    program = SolemOptionsFlowHandler._apply_preset("every_3_days", _program_editor_input())
+
+    assert program["cycle"] == 4 and program["period_length"] == 3
+    assert program["period_start_date"] == _program_editor_input()["period_start_date"]
+
+
+def test_apply_preset_none_returns_input_unchanged() -> None:
+    """none is a passthrough: the parsed program carries no preset mutation."""
+    inp = _program_editor_input()
+    program = SolemOptionsFlowHandler._apply_preset("none", inp)
+    expected = SolemOptionsFlowHandler()._program_from_options_input(
+        inp, num_stations=2
+    )
+
+    assert program == expected
+    assert program["cycle"] == 4  # parsed from the input's "periodic", untouched
+
+
+def test_apply_preset_uses_named_station_fields() -> None:
+    """The applier sizes stations from named duration fields too."""
+    inp = _program_editor_input()
+    del inp["station_1_duration"]
+    del inp["station_2_duration"]
+    inp["Front lawn (station 1) duration (minutes)"] = 1
+    inp["Herbs (station 2) duration (minutes)"] = 2
+
+    program = SolemOptionsFlowHandler._apply_preset(
+        "every_2_days",
+        inp,
+        station_names={1: "Front lawn", 2: "Herbs"},
+    )
+
+    assert program["station_durations"] == [60, 120]
+
+
+# --- Schedule presets: form field + preview-confirm wiring (issue #129, Task 2) ---
+
+
+def test_program_schema_has_preset_field_first(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """The preset dropdown is the first field with exactly the 7 options."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    names = [field["name"] for field in serialized]
+    assert names[0] == "schedule_preset"
+    select = serialized[0]["selector"]["select"]
+    assert select["options"] == [
+        "none",
+        "every_day",
+        "even_days",
+        "odd_days",
+        "every_2_days",
+        "every_3_days",
+        "every_4_days",
+    ]
+    assert select["mode"] == "dropdown"
+    assert select["translation_key"] == "schedule_preset_selector"
+    assert names.index("schedule_preset") < names.index("cycle")
+
+
+def test_program_schema_orders_advanced_fields_last(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Periodic-cycle fields render after station durations; synchro_day is last."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    names = [field["name"] for field in serialized]
+    last_station_duration = max(
+        i for i, name in enumerate(names) if name.endswith("_duration")
+    )
+    for advanced in ("period_start_date", "period_length"):
+        assert names.index(advanced) > last_station_duration, names
+    assert names[-1] == "synchro_day"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_submit_rerenders_with_preview(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Submitting a preset re-renders with applied values + preview, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(schedule_preset="every_3_days")
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    placeholders = result["description_placeholders"]
+    assert placeholders.get("preview")
+    assert placeholders.get("warning") == ""
+    # The re-rendered defaults carry the APPLIED values (period_length 3),
+    # and the preset default is reset to "none" so the next submit writes.
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["period_length"] == 3
+    assert defaults["schedule_preset"] == "none"
+    assert defaults["cycle"] == "periodic"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_confirmed_second_submit_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The second submit (preset back to none, applied values) writes."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(schedule_preset="none", period_length=3)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["period_length"] == 3
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_none_writes_immediately(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A healthy submit with preset=none writes with no round-trip."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="none")
+        )
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_apply_degenerate_warns_without_write(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """An applied preset whose schedule is degenerate warns instead of writing."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(
+        schedule_preset="every_3_days",
+        station_1_duration=0,
+        station_2_duration=0,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert "confirm_degenerate" in field_names
+    assert result["description_placeholders"].get("warning")
+    # The rendered defaults carry the APPLIED periodic encoding.
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["period_length"] == 3
+
+
+@pytest.mark.asyncio
+async def test_program_edit_failed_write_then_different_preset_is_applied(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A preset picked after a failed write is honored, not silently ignored."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    coordinator.set_irrigation_program = AsyncMock(
+        side_effect=Exception("device unreachable")
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        # Phase 1: pick a preset (two-phase apply renders the preview).
+        first = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="every_3_days")
+        )
+        assert first["type"] == "form"
+        # Phase 2: confirm-submit the applied values; the write fails.
+        second = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="none", period_length=3)
+        )
+        assert second["errors"] == {"base": "set_program_failed"}
+        # Phase 3: pick a DIFFERENT preset — it must re-apply (fresh
+        # re-render with the new preset's values), not silently write.
+        third = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="every_2_days")
+        )
+
+    assert third["type"] == "form"
+    assert "base" not in (third["errors"] or {})
+    # The only write attempt is the expected failed one from phase 2 —
+    # phase 3 must re-apply the new preset, not silently write.
+    assert coordinator.set_irrigation_program.await_count == 1
+    defaults = _schema_defaults(third["data_schema"])
+    assert defaults["period_length"] == 2
+    assert defaults["schedule_preset"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_resubmit_does_not_reapply(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Resubmitting while the applied state is set does not loop the re-render."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(schedule_preset="every_3_days")
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        first = await handler.async_step_program_edit(user_input)
+        assert first["type"] == "form"
+        # A stray second submit still carrying the preset must NOT re-apply
+        # (the flow-internal applied state guards it); it writes instead.
+        second = await handler.async_step_program_edit(user_input)
+
+    assert second["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "translation_file",
+    [
+        Path("custom_components/solem_blip/strings.json"),
+        Path("custom_components/solem_blip/translations/en.json"),
+        Path("custom_components/solem_blip/translations/it.json"),
+        Path("custom_components/solem_blip/translations/fr.json"),
+    ],
+)
+def test_program_edit_preset_translations_exist(translation_file: Path) -> None:
+    """Preset field label and selector options exist in all four locales."""
+    translations = json.loads(translation_file.read_text())
+
+    data = translations["options"]["step"]["program_edit"]["data"]
+    assert data["schedule_preset"]
+
+    options = translations["selector"]["schedule_preset_selector"]["options"]
+    assert set(options) == {
+        "none",
+        "every_day",
+        "even_days",
+        "odd_days",
+        "every_2_days",
+        "every_3_days",
+        "every_4_days",
+    }
+    assert all(options.values())
