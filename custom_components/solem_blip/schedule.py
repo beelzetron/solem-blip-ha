@@ -73,13 +73,13 @@ def enabled_start_count(start_times: list[int | None]) -> int:
     return sum(1 for minutes in start_times if minutes is not None)
 
 
-DegenerateReason = Literal["no_days", "no_durations"]
+DegenerateReason = Literal["no_days", "no_durations", "no_starts"]
 
 
 def is_degenerate_schedule(program: IrrigationProgram) -> DegenerateReason | None:
     """Return why a program can never run, or None if it is runnable.
 
-    Two degenerate shapes are detected:
+    Three degenerate shapes are detected:
 
     - "no_durations": every station duration is zero, so the program
       would water for no time even when a start day and slot match.
@@ -89,11 +89,18 @@ def is_degenerate_schedule(program: IrrigationProgram) -> DegenerateReason | Non
       applies to cycle 0: cycles 1-3 pick days by day-of-month parity
       and cycle 4 is periodic — none of them consult ``week_days``, so
       ``week_days == 0`` is harmless there.
+    - "no_starts": every start-time slot is disabled, so no start can
+      ever fire regardless of days or durations. The official app uses
+      exactly this shape as its disable idiom (clearing all start
+      times), so the editor treats it as a warning-with-confirm rather
+      than an error.
     """
     if not any(d > 0 for d in program["station_durations"]):
         return "no_durations"
     if int(program["cycle"]) == 0 and int(program["week_days"]) == 0:
         return "no_days"
+    if enabled_start_count(program["start_times"]) == 0:
+        return "no_starts"
     return None
 
 

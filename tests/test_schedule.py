@@ -339,6 +339,19 @@ def test_healthy_program_is_not_degenerate():
     assert is_degenerate_schedule(program) is None
 
 
+def test_no_start_slots_is_degenerate():
+    program = _make_program(cycle=0, week_days=127, station_durations=(600,))
+    program["start_times"] = [None] * 8
+    assert is_degenerate_schedule(program) == "no_starts"
+
+
+def test_no_starts_not_flagged_when_other_reason_first():
+    program = _make_program(cycle=0, week_days=127, station_durations=(0,))
+    program["start_times"] = [None] * 8
+    # Ordering is pinned: durations first, then days, then starts.
+    assert is_degenerate_schedule(program) == "no_durations"
+
+
 def test_all_zero_durations_degenerate_for_every_cycle():
     program = _make_program(cycle=4, week_days=127, station_durations=(0,))
     assert is_degenerate_schedule(program) == "no_durations"

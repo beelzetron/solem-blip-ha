@@ -96,6 +96,7 @@ CONFIRM_DEGENERATE = "confirm_degenerate"
 _DEGENERATE_WARNINGS: dict[str, str] = {
     "no_days": "No day of the week is selected - this program can never start.",
     "no_durations": "All station durations are zero - nothing would be watered.",
+    "no_starts": "All start times are cleared - this program can never start.",
 }
 
 _CYCLES = {

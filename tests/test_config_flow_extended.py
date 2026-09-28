@@ -1309,6 +1309,12 @@ def _degenerate_editor_input(**overrides: object) -> dict[str, object]:
     )
 
 
+def _no_starts_editor_input(**overrides: object) -> dict[str, object]:
+    """Healthy weekly program with every start slot cleared."""
+    starts = {f"start_time_{i}": "" for i in range(1, 9)}
+    return _program_editor_input(cycle="custom", **starts, **overrides)
+
+
 def _loaded_editor_handler(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -1369,6 +1375,51 @@ async def test_program_edit_week_days_zero_warns_and_does_not_write(
     }
     assert defaults["name"] == "Vasi"
     assert defaults["start_time_1"] == "06:30"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_no_start_times_warns_and_does_not_write(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A program with all start slots cleared re-renders with a warning, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(_no_starts_editor_input())
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    assert "base" not in (result["errors"] or {})
+    coordinator.set_irrigation_program.assert_not_awaited()
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert "confirm_degenerate" in field_names
+    placeholders = result["description_placeholders"]
+    assert "start times" in placeholders["warning"]
+    assert placeholders.get("preview")
+
+
+@pytest.mark.asyncio
+async def test_program_edit_no_start_times_confirm_resubmit_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Confirming the no-start-times warning proceeds to the write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _no_starts_editor_input()
+    user_input["confirm_degenerate"] = True
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
 
 
 @pytest.mark.asyncio
