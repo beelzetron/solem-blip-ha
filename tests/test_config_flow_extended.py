@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -925,6 +925,66 @@ async def test_options_flow_program_edit_writes_named_station_fields(
     assert program["station_durations"] == [0, 120]
 
 
+@pytest.mark.asyncio
+async def test_program_edit_accepts_time_object_start(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Native time picker submits datetime.time; it round-trips to minutes."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = {1: "Front lawn", 2: "Herbs"}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    user_input = _program_editor_input(start_time_1=time(6, 30))
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"][0] == 390
+
+
+@pytest.mark.asyncio
+async def test_program_edit_midnight_time_object_is_not_disabled(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Midnight (time(0, 0)) is a valid start, not treated as falsy/empty."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = {1: "Front lawn", 2: "Herbs"}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    user_input = _program_editor_input(start_time_1=time(0, 0))
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"][0] == 0
+
+
 def test_options_flow_program_edit_defaults_show_duration_minutes() -> None:
     """Program editor exposes station durations in minutes."""
     handler = SolemOptionsFlowHandler()
@@ -958,6 +1018,22 @@ def test_options_flow_program_edit_schema_serializes(
         )
 
     assert any(field["name"] == "station_2_duration" for field in serialized)
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized_a = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[0]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    start_field = next(
+        field for field in serialized_a if field["name"] == "start_time_1"
+    )
+    assert start_field["default"] == "17:40"
 
 
 def test_options_flow_program_edit_schema_uses_station_names(
