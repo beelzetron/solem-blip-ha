@@ -41,10 +41,28 @@ def test_cleared_start_slot_validates_to_empty_string() -> None:
     schema = _schema_for_two_starts()
     result = schema({"start_time_1": "", "start_time_2": "17:30:00"})
     assert result["start_time_1"] == ""
-    assert result["start_time_2"] == "17:30:00"
+    assert result["start_time_2"] == "17:30"
     # Absent keys fall back to the schema defaults (form partial submit).
     fallback = schema({"start_time_2": "17:30:00"})
     assert fallback["start_time_1"] == "06:30"
+
+
+def test_seconds_are_stripped_from_submitted_values() -> None:
+    """Submitted seconds must be stripped: the picker must not show them.
+
+    HA's time input shows a seconds field only when the value carries
+    ":SS" — normalizing to HH:MM keeps the picker seconds-free.
+    """
+    schema = _schema_for_two_starts()
+    result = schema({"start_time_1": "17:30:45"})
+    assert result["start_time_1"] == "17:30"
+
+
+def test_defaults_are_seconds_free() -> None:
+    """_format_minutes defaults must stay HH:MM (no seconds)."""
+    assert SolemOptionsFlowHandler._format_minutes(390) == "06:30"
+    assert SolemOptionsFlowHandler._format_minutes(0) == "00:00"
+    assert SolemOptionsFlowHandler._format_minutes(None) == ""
 
 
 def test_filled_start_slot_still_validates() -> None:
@@ -52,7 +70,7 @@ def test_filled_start_slot_still_validates() -> None:
     schema = _schema_for_two_starts()
     result = schema({"start_time_1": "05:00", "start_time_2": "17:30:45"})
     assert result["start_time_1"] == "05:00"
-    assert result["start_time_2"] == "17:30:45"
+    assert result["start_time_2"] == "17:30"
 
 
 def test_invalid_time_still_rejected() -> None:
@@ -83,4 +101,40 @@ def test_start_slot_selector_serializes_like_plain_time_selector(
     ]
     assert len(start_fields) == 8
     for field in start_fields:
-        assert field["selector"] == {"time": {}}
+        assert field["selector"] == {"time": {"no_second": True}}
+
+
+def test_start_time_pickers_hide_seconds_via_no_second(
+    mock_config_entry: Any,
+) -> None:
+    """Start pickers must declare no_second so the frontend hides :SS (issue #129).
+
+    HA core's TimeSelectorConfig doesn't know ``no_second`` (frontend PR 21073
+    only added the client-side handling), so the subclass must accept it in
+    CONFIG_SCHEMA and serialize it back out for the frontend.
+    """
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[0]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    start_fields = [
+        field for field in serialized if field["name"].startswith("start_time_")
+    ]
+    assert len(start_fields) == 8
+    for field in start_fields:
+        assert field["selector"] == {"time": {"no_second": True}}
+    # Non-start (plain) fields are unaffected: the flag only appears on the
+    # start-slot pickers (some fields carry no selector at all).
+    assert all(
+        "time" not in field.get("selector", {})
+        for field in serialized
+        if not field["name"].startswith("start_time_")
+    )

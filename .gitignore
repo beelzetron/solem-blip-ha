@@ -9,3 +9,6 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 build/
+
+# ripwire working files
+.ripwire*

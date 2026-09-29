@@ -76,9 +76,6 @@
           "schedule_preset": "Programme prédéfini",
           "cycle": "Cycle",
           "week_days": "Jours de la semaine",
-          "period_start_date": "Date de début de la période",
-          "period_length": "Durée de la période",
-          "synchro_day": "Jour de synchronisation",
           "water_budget": "Budget d'arrosage (%)",
           "inter_station_delay": "Délai entre les stations (secondes)",
           "start_time_1": "Heure de démarrage 1",
@@ -99,10 +96,16 @@
           "station_8_duration": "Durée de la station 8 (minutes)",
           "confirm_degenerate": "Arroser malgré l'avertissement"
         },
-        "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.\n\nLes champs du cycle périodique (date de début, intervalle, jour de synchronisation) sont regroupés en bas de la section Avancé.\n\nAperçu du programme : {preview}\n\n{warning}",
+        "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.\n\nLes champs du cycle périodique (date de début, intervalle) sont regroupés dans une section Avancé repliable en bas du formulaire.\n\nAperçu du programme : {preview}\n\n{warning}",
         "title": "Modifier une programmation sur l'appareil",
-        "data_description": {
-          "synchro_day": "Déduit automatiquement de la date de début ; à modifier uniquement en cas de besoin"
+        "sections": {
+          "periodic": {
+            "name": "Avancé",
+            "data": {
+              "period_start_date": "Date de début de la période",
+              "period_length": "Durée de la période"
+            }
+          }
         }
       },
       "station_select": {
@@ -119,6 +122,20 @@
         },
         "description": "Jusqu'à 32 octets UTF-8. Le contrôleur n'est écrit qu'après la soumission du formulaire.",
         "title": "Renommer la sortie"
+      },
+      "program_apply_confirm": {
+        "title": "Confirmer le programme",
+        "description": "Vérifiez l'aperçu du programme pour {program}, puis appliquez-le.\n\nAperçu du programme : {preview}\n\n{warning}",
+        "data": {
+          "confirm_apply": "Appliquer ce programme"
+        }
+      },
+      "program_degenerate_confirm": {
+        "title": "Avertissement",
+        "description": "Ce programme n'arroserait jamais (ou toujours) comme configuré. Vérifiez l'aperçu pour {program} et décidez.\n\nAperçu du programme : {preview}\n\n{warning}",
+        "data": {
+          "confirm_degenerate": "Arroser malgré l'avertissement"
+        }
       }
     },
     "abort": {

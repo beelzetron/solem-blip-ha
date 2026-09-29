@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, time
 from pathlib import Path
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
+import voluptuous as vol
 from probatio import to_field_list
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_SCAN_INTERVAL
@@ -17,6 +19,7 @@ import homeassistant.helpers.config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.config_flow import (
+    CONFIRM_DEGENERATE,
     CannotConnect,
     CannotConnectSlots,
     MENU_EDIT_PROGRAM,
@@ -24,11 +27,14 @@ from custom_components.solem_blip.config_flow import (
     MENU_SETTINGS,
     SolemConfigFlow,
     SolemOptionsFlowHandler,
+    _parse_program_input,
     validate_input,
 )
 from custom_components.solem_blip.config_entry import RuntimeData
+from custom_components.solem_blip.station_names import StationNameManager
 from custom_components.solem_blip.const import (
     BLUETOOTH_TIMEOUT,
+    CONFIG_FLOW_CONNECT_RETRY_DELAY,
     CONTROLLER_MAC_ADDRESS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -36,7 +42,9 @@ from custom_components.solem_blip.const import (
     PERSISTENT_CONNECTION,
     SOLEM_API_MOCK,
 )
-from solem_blip_ble import SolemConnectionError
+from custom_components.solem_blip import config_flow as config_flow_module
+from solem_blip_ble import IrrigationProgram, SolemConnectionError
+from solem_blip_ble.exceptions import InvalidSnapshot
 from contextlib import contextmanager
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
 
@@ -86,12 +94,24 @@ def _entry_with_num_stations(num_stations: int) -> MockConfigEntry:
 
 
 def _program_editor_input(**overrides: object) -> dict[str, object]:
+    """Form input as the frontend submits it: periodic fields nested.
+
+    ``period_length``/``period_start_date`` overrides are applied INSIDE
+    the section (that is where the form renders them); any other override
+    lands top-level.
+    """
+    periodic: dict[str, object] = {
+        "period_start_date": date(2026, 6, 18),
+        "period_length": 1,
+    }
+    for key in ("period_start_date", "period_length"):
+        if key in overrides:
+            periodic[key] = overrides.pop(key)
     data: dict[str, object] = {
         "name": "Vasi",
         "cycle": "periodic",
         "week_days": ["monday", "wednesday"],
-        "period_start_date": date(2026, 6, 18),
-        "period_length": 1,
+        "periodic": periodic,
         "synchro_day": 0,
         "water_budget": 100,
         "inter_station_delay": 0,
@@ -895,7 +915,7 @@ def test_options_flow_program_edit_resets_synchro_day_without_current_anchor() -
 async def test_options_flow_program_edit_writes_named_station_fields(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Program editor accepts dynamic duration fields named after stations."""
+    """Program editor writes duration values read from the static keys."""
     mock_config_entry.add_to_hass(hass)
     coordinator = MagicMock()
     coordinator.num_stations = 2
@@ -908,10 +928,6 @@ async def test_options_flow_program_edit_writes_named_station_fields(
     handler = SolemOptionsFlowHandler()
     handler._selected_program_index = 1
     user_input = _program_editor_input()
-    del user_input["station_1_duration"]
-    del user_input["station_2_duration"]
-    user_input["Front lawn (station 1) duration (minutes)"] = 0
-    user_input["Herbs (station 2) duration (minutes)"] = 2
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
@@ -1039,7 +1055,13 @@ def test_options_flow_program_edit_schema_serializes(
 def test_options_flow_program_edit_schema_uses_station_names(
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Program editor schema exposes loaded station names in duration labels."""
+    """Duration fields use the dynamic station-name label when a name exists.
+
+    ``<Name> (station N) duration (minutes)`` is preferred by field testing
+    (issue #129 round 3): the real station name on the field beats a static
+    translated label. Unnamed stations keep the raw ``station_N_duration``
+    key.
+    """
     handler = SolemOptionsFlowHandler()
 
     with patch.object(
@@ -1297,7 +1319,7 @@ def test_program_schema_start_times_use_time_selector(
     ]
     assert len(start_fields) == 8
     for field in start_fields:
-        assert field["selector"] == {"time": {}}
+        assert field["selector"] == {"time": {"no_second": True}}
 
 
 def _degenerate_editor_input(**overrides: object) -> dict[str, object]:
@@ -1340,7 +1362,7 @@ def _loaded_editor_handler(
 async def test_program_edit_week_days_zero_warns_and_does_not_write(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """A weekly program with no day selected re-renders with a warning, no write."""
+    """A weekly program with no day selected shows the preview-only confirm step."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
     with patch.object(
         SolemOptionsFlowHandler,
@@ -1351,37 +1373,22 @@ async def test_program_edit_week_days_zero_warns_and_does_not_write(
         result = await handler.async_step_program_edit(_degenerate_editor_input())
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_degenerate_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
+    # Preview-only: the confirm step carries the single boolean and nothing else.
     field_names = {str(key.schema) for key in result["data_schema"].schema}
-    assert "confirm_degenerate" in field_names
+    assert field_names == {"confirm_degenerate"}
     placeholders = result["description_placeholders"]
     assert "never start" in placeholders["warning"]
-    # The user's submitted values carry over as defaults.
     assert placeholders.get("preview")
-    # The re-rendered defaults carry the SUBMITTED values, not the old
-    # persisted program (quality review follow-up, issue #129): program 1
-    # persists as "Programma B" with no start times. HA's patched
-    # voluptuous wraps defaults in a default_factory lambda, so resolve
-    # callables before comparing.
-    def marker_default(key: object) -> object:
-        default = getattr(key, "default", None)
-        return default() if callable(default) else default
-
-    defaults = {
-        str(key.schema): marker_default(key)
-        for key in result["data_schema"].schema
-    }
-    assert defaults["name"] == "Vasi"
-    assert defaults["start_time_1"] == "06:30"
 
 
 @pytest.mark.asyncio
 async def test_program_edit_no_start_times_warns_and_does_not_write(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """A program with all start slots cleared re-renders with a warning, no write."""
+    """A program with all start slots cleared shows the preview-only confirm step."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
     with patch.object(
         SolemOptionsFlowHandler,
@@ -1392,11 +1399,11 @@ async def test_program_edit_no_start_times_warns_and_does_not_write(
         result = await handler.async_step_program_edit(_no_starts_editor_input())
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_degenerate_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
     field_names = {str(key.schema) for key in result["data_schema"].schema}
-    assert "confirm_degenerate" in field_names
+    assert field_names == {"confirm_degenerate"}
     placeholders = result["description_placeholders"]
     assert "start times" in placeholders["warning"]
     assert placeholders.get("preview")
@@ -1406,17 +1413,19 @@ async def test_program_edit_no_start_times_warns_and_does_not_write(
 async def test_program_edit_no_start_times_confirm_resubmit_writes(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Confirming the no-start-times warning proceeds to the write."""
+    """Confirming the degenerate warning proceeds to the write."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _no_starts_editor_input()
-    user_input["confirm_degenerate"] = True
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        result = await handler.async_step_program_edit(user_input)
+        warned = await handler.async_step_program_edit(_no_starts_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: True}
+        )
 
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
@@ -1428,18 +1437,68 @@ async def test_program_edit_degenerate_confirm_resubmit_writes(
 ) -> None:
     """Confirming the degenerate warning proceeds to the write."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _degenerate_editor_input()
-    user_input["confirm_degenerate"] = True
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        result = await handler.async_step_program_edit(user_input)
+        warned = await handler.async_step_program_edit(_degenerate_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: True}
+        )
 
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_degenerate_declined_returns_to_fresh_editor(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Declining the degenerate warning returns to a fresh program editor."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(_degenerate_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: False}
+        )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    coordinator.set_irrigation_program.assert_not_awaited()
+    # Pending state cleared: the fresh editor shows the stored program.
+    assert handler._pending_program is None
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["name"] == "Programma B"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_fresh_render_clears_pending_state(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A fresh (menu-entry) editor render clears any pending confirmation."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(_degenerate_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        assert handler._pending_program is not None
+        await handler.async_step_program_edit(None)
+
+    assert handler._pending_program is None
+    assert handler._pending_program_index is None
 
 
 @pytest.mark.asyncio
@@ -1505,15 +1564,28 @@ async def test_bluetooth_step_aborts_duplicate(hass: HomeAssistant) -> None:
 
 
 def _schema_defaults(schema: vol.Schema) -> dict[str, object]:
-    """Resolve a rendered schema's defaults (HA wraps them in factories)."""
+    """Resolve a rendered schema's defaults (HA wraps them in factories).
+
+    Expandable sections are flattened: inner defaults surface under their
+    own names prefixed by ``<section>.``.
+    """
     def marker_default(key: object) -> object:
         default = getattr(key, "default", None)
         return default() if callable(default) else default
 
-    return {
-        str(key.schema): marker_default(key)
-        for key in schema.schema
-    }
+    defaults: dict[str, object] = {}
+    for key, validator in schema.schema.items():
+        inner = getattr(validator, "schema", None)
+        if isinstance(inner, vol.Schema):  # section: descend into it
+            section_default = marker_default(key) or {}
+            for inner_key in inner.schema:
+                inner_default = marker_default(inner_key)
+                if inner_default is None and str(inner_key.schema) in section_default:
+                    inner_default = section_default[str(inner_key.schema)]
+                defaults[f"{key.schema}.{inner_key.schema}"] = inner_default
+            continue
+        defaults[str(key.schema)] = marker_default(key)
+    return defaults
 
 
 def test_apply_preset_every_day() -> None:
@@ -1533,10 +1605,26 @@ def test_apply_preset_even_and_odd() -> None:
 
 
 def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
-    """An anchored preset renormalizes the parsed phase into its new period."""
-    inp = _program_editor_input(period_start_date=None, synchro_day=5)
+    """An anchored preset renormalizes the stored phase into its new period."""
+    previous: IrrigationProgram = {
+        "name": "Vasi",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x05,
+        "period_length": 5,
+        "synchro_day": 5,
+        "period_start_date": date(2026, 6, 18),
+        "start_times": [1060] + [None] * 7,
+        "station_durations": [0, 2],
+    }
+    inp = _program_editor_input(
+        period_start_date=date(2026, 6, 18), period_length=5
+    )
 
-    program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
+    program = SolemOptionsFlowHandler._apply_preset(
+        "every_3_days", inp, current_program=previous
+    )
 
     assert program["period_length"] == 3
     assert program["synchro_day"] == 5 % 3
@@ -1544,10 +1632,11 @@ def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
 
 def test_apply_preset_anchored_periodic() -> None:
     """Anchored presets set the periodic cycle and keep the picked anchor."""
-    program = SolemOptionsFlowHandler._apply_preset("every_3_days", _program_editor_input())
+    inp = _program_editor_input()
+    program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
 
     assert program["cycle"] == 4 and program["period_length"] == 3
-    assert program["period_start_date"] == _program_editor_input()["period_start_date"]
+    assert program["period_start_date"] == inp["periodic"]["period_start_date"]
 
 
 def test_apply_preset_none_returns_input_unchanged() -> None:
@@ -1563,12 +1652,12 @@ def test_apply_preset_none_returns_input_unchanged() -> None:
 
 
 def test_apply_preset_uses_named_station_fields() -> None:
-    """The applier sizes stations from named duration fields too."""
+    """The applier sizes stations from static duration field keys too."""
     inp = _program_editor_input()
     del inp["station_1_duration"]
     del inp["station_2_duration"]
-    inp["Front lawn (station 1) duration (minutes)"] = 1
-    inp["Herbs (station 2) duration (minutes)"] = 2
+    inp["station_1_duration"] = 1
+    inp["station_2_duration"] = 2
 
     program = SolemOptionsFlowHandler._apply_preset(
         "every_2_days",
@@ -1619,7 +1708,7 @@ def test_program_schema_has_preset_field_first(
 def test_program_schema_orders_advanced_fields_last(
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Periodic-cycle fields render after station durations; synchro_day is last."""
+    """Periodic fields live in a collapsed 'periodic' section, rendered last."""
     handler = SolemOptionsFlowHandler()
 
     with patch.object(
@@ -1634,19 +1723,56 @@ def test_program_schema_orders_advanced_fields_last(
         )
 
     names = [field["name"] for field in serialized]
+    assert "synchro_day" not in names
+    assert names[-1] == "periodic"
+    section_field = serialized[-1]
+    assert section_field["type"] == "expandable"
+    assert section_field["expanded"] is False
+    inner_names = [field["name"] for field in section_field["schema"]]
+    assert inner_names == ["period_start_date", "period_length"]
     last_station_duration = max(
         i for i, name in enumerate(names) if name.endswith("_duration")
     )
-    for advanced in ("period_start_date", "period_length"):
-        assert names.index(advanced) > last_station_duration, names
-    assert names[-1] == "synchro_day"
+    assert last_station_duration < names.index("periodic")
+
+
+def test_program_schema_periodic_section_defaults_are_nested(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """The section renders the stored program's periodic values as defaults."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(
+                {
+                    **MOCK_IRRIGATION_PROGRAMS[1],
+                    "period_length": 5,
+                    "period_start_date": date(2026, 3, 1),
+                }
+            ),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    section_field = next(
+        field for field in serialized if field["name"] == "periodic"
+    )
+    defaults = {field["name"]: field["default"] for field in section_field["schema"]}
+    assert defaults["period_length"] == 5
+    # probatio may keep the date default raw or serialize it to ISO.
+    assert str(defaults["period_start_date"]) == "2026-03-01"
 
 
 @pytest.mark.asyncio
-async def test_program_edit_preset_submit_rerenders_with_preview(
+async def test_program_edit_preset_submit_shows_apply_confirm(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Submitting a preset re-renders with applied values + preview, no write."""
+    """Submitting a preset shows the preview-only confirm step, no write."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
     user_input = _program_editor_input(schedule_preset="every_3_days")
     with patch.object(
@@ -1658,39 +1784,77 @@ async def test_program_edit_preset_submit_rerenders_with_preview(
         result = await handler.async_step_program_edit(user_input)
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_apply_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
+    # Preview-only: the confirm step carries the single boolean and nothing else.
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert field_names == {"confirm_apply"}
     placeholders = result["description_placeholders"]
     assert placeholders.get("preview")
     assert placeholders.get("warning") == ""
-    # The re-rendered defaults carry the APPLIED values (period_length 3),
-    # and the preset default is reset to "none" so the next submit writes.
-    defaults = _schema_defaults(result["data_schema"])
-    assert defaults["period_length"] == 3
-    assert defaults["schedule_preset"] == "none"
-    assert defaults["cycle"] == "periodic"
+    # The pending program carries the applied encoding (period_length 3).
+    assert handler._pending_program is not None
+    assert handler._pending_program["period_length"] == 3
+    assert handler._pending_program_index == 1
 
 
 @pytest.mark.asyncio
 async def test_program_edit_preset_confirmed_second_submit_writes(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """The second submit (preset back to none, applied values) writes."""
+    """Confirming the preview writes the pending (applied) program."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _program_editor_input(schedule_preset="none", period_length=3)
+    user_input = _program_editor_input(schedule_preset="every_3_days")
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        result = await handler.async_step_program_edit(user_input)
+        warned = await handler.async_step_program_edit(user_input)
+        assert warned["step_id"] == "program_apply_confirm"
+        result = await handler.async_step_program_apply_confirm(
+            {"confirm_apply": True}
+        )
 
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
     _, program = coordinator.set_irrigation_program.await_args.args
+    # The pending program (applied preset encoding) is what was written.
     assert program["period_length"] == 3
+    assert program["cycle"] == 4
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_declined_returns_to_fresh_editor(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Declining the preview returns to a fresh program editor, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="every_3_days")
+        )
+        assert warned["step_id"] == "program_apply_confirm"
+        result = await handler.async_step_program_apply_confirm(
+            {"confirm_apply": False}
+        )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    coordinator.set_irrigation_program.assert_not_awaited()
+    assert handler._pending_program is None
+    # Fresh editor: the preset default is back to "none" and the stored
+    # program's values render as defaults.
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["schedule_preset"] == "none"
+    assert defaults["name"] == "Programma B"
 
 
 @pytest.mark.asyncio
@@ -1733,15 +1897,44 @@ async def test_program_edit_preset_apply_degenerate_warns_without_write(
         result = await handler.async_step_program_edit(user_input)
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_degenerate_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
     field_names = {str(key.schema) for key in result["data_schema"].schema}
-    assert "confirm_degenerate" in field_names
+    assert field_names == {"confirm_degenerate"}
     assert result["description_placeholders"].get("warning")
-    # The rendered defaults carry the APPLIED periodic encoding.
-    defaults = _schema_defaults(result["data_schema"])
-    assert defaults["period_length"] == 3
+    # The pending program carries the APPLIED periodic encoding.
+    assert handler._pending_program is not None
+    assert handler._pending_program["period_length"] == 3
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_degenerate_confirm_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Confirming a degenerate preset-applied schedule writes it anyway."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(
+        schedule_preset="every_3_days",
+        station_1_duration=0,
+        station_2_duration=0,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(user_input)
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: True}
+        )
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["period_length"] == 3
 
 
 @pytest.mark.asyncio
@@ -1759,53 +1952,28 @@ async def test_program_edit_failed_write_then_different_preset_is_applied(
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        # Phase 1: pick a preset (two-phase apply renders the preview).
+        # Phase 1: pick a preset (preview-only confirm renders).
         first = await handler.async_step_program_edit(
             _program_editor_input(schedule_preset="every_3_days")
         )
-        assert first["type"] == "form"
-        # Phase 2: confirm-submit the applied values; the write fails.
-        second = await handler.async_step_program_edit(
-            _program_editor_input(schedule_preset="none", period_length=3)
+        assert first["step_id"] == "program_apply_confirm"
+        # Phase 2: confirm; the write fails and re-renders the editor.
+        second = await handler.async_step_program_apply_confirm(
+            {"confirm_apply": True}
         )
         assert second["errors"] == {"base": "set_program_failed"}
         # Phase 3: pick a DIFFERENT preset — it must re-apply (fresh
-        # re-render with the new preset's values), not silently write.
+        # preview with the new preset's values), not silently write.
         third = await handler.async_step_program_edit(
             _program_editor_input(schedule_preset="every_2_days")
         )
 
-    assert third["type"] == "form"
-    assert "base" not in (third["errors"] or {})
+    assert third["step_id"] == "program_apply_confirm"
     # The only write attempt is the expected failed one from phase 2 —
     # phase 3 must re-apply the new preset, not silently write.
     assert coordinator.set_irrigation_program.await_count == 1
-    defaults = _schema_defaults(third["data_schema"])
-    assert defaults["period_length"] == 2
-    assert defaults["schedule_preset"] == "none"
-
-
-@pytest.mark.asyncio
-async def test_program_edit_preset_resubmit_does_not_reapply(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    """Resubmitting while the applied state is set does not loop the re-render."""
-    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _program_editor_input(schedule_preset="every_3_days")
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=mock_config_entry,
-    ):
-        first = await handler.async_step_program_edit(user_input)
-        assert first["type"] == "form"
-        # A stray second submit still carrying the preset must NOT re-apply
-        # (the flow-internal applied state guards it); it writes instead.
-        second = await handler.async_step_program_edit(user_input)
-
-    assert second["type"] == "create_entry"
-    coordinator.set_irrigation_program.assert_awaited_once()
+    assert handler._pending_program is not None
+    assert handler._pending_program["period_length"] == 2
 
 
 @pytest.mark.parametrize(
@@ -1835,3 +2003,293 @@ def test_program_edit_preset_translations_exist(translation_file: Path) -> None:
         "every_4_days",
     }
     assert all(options.values())
+
+
+@pytest.mark.parametrize(
+    "translation_file",
+    [
+        Path("custom_components/solem_blip/strings.json"),
+        Path("custom_components/solem_blip/translations/en.json"),
+        Path("custom_components/solem_blip/translations/it.json"),
+        Path("custom_components/solem_blip/translations/fr.json"),
+    ],
+)
+def test_program_edit_confirm_steps_translations_exist(
+    translation_file: Path,
+) -> None:
+    """The two confirm steps and their labels exist in all four locales."""
+    translations = json.loads(translation_file.read_text())
+    steps = translations["options"]["step"]
+
+    for step_id in ("program_apply_confirm", "program_degenerate_confirm"):
+        step = steps[step_id]
+        assert step["title"]
+        assert "{preview}" in step["description"]
+
+    assert steps["program_apply_confirm"]["data"]["confirm_apply"]
+    assert steps["program_degenerate_confirm"]["data"]["confirm_degenerate"]
+
+
+def _stored_periodic_program(synchro_day: int) -> IrrigationProgram:
+    """A stored periodic program with the given phase, anchor 2026-09-01."""
+    return {
+        "name": "Vasi",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x05,
+        "period_length": 3,
+        "synchro_day": synchro_day,
+        "period_start_date": date(2026, 9, 1),
+        "start_times": [1060] + [None] * 7,
+        "station_durations": [1200, 0],
+    }
+
+
+def _flat_editor_input(**overrides: object) -> dict[str, object]:
+    """Editor input flattened to the parser's namespace (as the flow does)."""
+    data = _program_editor_input(**overrides)
+    periodic = data.pop("periodic")
+    return {**periodic, **data}
+
+
+def _parse_after_anchor_shift(period_start_date: str) -> IrrigationProgram:
+    """Re-parse the editor form after moving the anchor to period_start_date."""
+    previous = _stored_periodic_program(synchro_day=1)
+    data = _flat_editor_input(
+        period_start_date=period_start_date,
+        period_length=3,
+    )
+    data.pop("synchro_day")
+    return _parse_program_input(data, num_stations=2, current_program=previous)
+
+
+def test_parse_program_input_derives_synchro_day_from_anchor_shift() -> None:
+    """synchro_day shifts WITH the anchor, not just by the delta alone."""
+    parsed = _parse_after_anchor_shift("2026-09-03")
+
+    # (stored 1 + 2-day shift) % period 3 = 0; delta-only would give 2.
+    assert parsed["synchro_day"] == 0
+
+
+def test_parse_program_input_negative_anchor_shift() -> None:
+    """A backward anchor shift wraps via Python's non-negative modulo."""
+    parsed = _parse_after_anchor_shift("2026-08-31")
+
+    # (stored 1 + (-1)-day shift) % period 3 = 0, not negative.
+    assert parsed["synchro_day"] == 0
+
+
+def test_parse_program_input_keeps_synchro_day_when_anchor_unchanged() -> None:
+    """Unchanged anchor date keeps the stored synchro_day, ignoring the form."""
+    previous = _stored_periodic_program(synchro_day=1)
+    data = _flat_editor_input(
+        period_start_date="2026-09-01",
+        period_length=5,
+    )
+    data["synchro_day"] = 0
+
+    parsed = _parse_program_input(data, num_stations=2, current_program=previous)
+
+    assert parsed["synchro_day"] == 1
+
+
+# --- Issue #136: station-name editor read retry -----------------------------
+
+
+def _editor_flow(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    snapshot_effects: list | None = None,
+) -> tuple:
+    """Options-flow handler wired to a real manager over a failing API.
+
+    ``snapshot_effects`` drives ``api.get_station_name_snapshot``;
+    ``manager.refresh`` runs its REAL logic so journal reconciliation
+    behaves as in production.
+    """
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.adopt_device_station_count = MagicMock()
+    api = MagicMock()
+    api.station_count = 2
+    api.max_station_num = 2
+    api.get_station_name_snapshot = AsyncMock(
+        side_effect=snapshot_effects
+        if snapshot_effects is not None
+        else [_snapshot_with_names()]
+    )
+    manager = StationNameManager(hass, "retry-test", api)
+    manager.async_load = AsyncMock()
+    manager.store.async_save = AsyncMock()
+    coordinator.station_name_manager = manager
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    return handler, coordinator, manager, mock_config_entry
+
+
+def _snapshot_with_names() -> SimpleNamespace:
+    return SimpleNamespace(
+        names={1: "Zone 1", 2: "Zone 2"},
+        revision="r",
+        raw_names={1: b"1", 2: b"2"},
+    )
+
+
+@contextmanager
+def _editor_patches(entry: MockConfigEntry):
+    """Patch config_entry + the retry sleep for the editor-read tests.
+
+    Yields the (mocked) sleep coroutine so tests can assert on it.
+    """
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ), patch(
+        "custom_components.solem_blip.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ) as mock_sleep:
+        yield mock_sleep
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("first_error", "expected_reads"),
+    [
+        (InvalidSnapshot("Incomplete station-name response"), 2),
+        (asyncio.TimeoutError("read stalled"), 2),
+        (SolemConnectionError("link dropped"), 1),
+        (OSError("offline"), 1),
+    ],
+    ids=["invalid-snapshot-retry", "timeout-retry", "connection-error-abort", "generic-error-abort"],
+)
+async def test_station_select_first_read_error_policy(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry,
+    first_error: Exception, expected_reads: int,
+) -> None:
+    """Recoverable errors retry once; everything else aborts on attempt one."""
+    effects = [first_error, _snapshot_with_names()]
+    handler, coordinator, manager, entry = _editor_flow(
+        hass, mock_config_entry, effects
+    )
+
+    with _editor_patches(entry) as mock_sleep, patch.object(
+        config_flow_module._LOGGER, "exception"
+    ) as mock_exception:
+        result = await handler.async_step_station_select()
+
+    if expected_reads == 2:
+        assert result["step_id"] == "station_select"
+        mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+        mock_exception.assert_not_called()
+    else:
+        assert result["type"] == "abort"
+        assert result["reason"] == "station_names_read_failed"
+        mock_sleep.assert_not_awaited()
+        mock_exception.assert_called_once()
+    assert api_read_count(manager) == expected_reads
+
+
+async def _step_station_select(
+    handler: SolemOptionsFlowHandler, entry: MockConfigEntry
+) -> tuple:
+    """Run station_select under the editor patches + exception logging spy.
+
+    Returns (result, sleep mock, exception-logger mock).
+    """
+    with _editor_patches(entry) as mock_sleep, patch.object(
+        config_flow_module._LOGGER, "exception"
+    ) as mock_exception:
+        result = await handler.async_step_station_select()
+    return result, mock_sleep, mock_exception
+
+
+async def _assert_read_aborted(
+    result: dict, manager: StationNameManager, *, reads: int
+) -> None:
+    """Assert the flow aborted with the station-name read failure."""
+    assert result["type"] == "abort"
+    assert result["reason"] == "station_names_read_failed"
+    assert api_read_count(manager) == reads
+
+
+@pytest.mark.asyncio
+async def test_station_select_read_failure_after_retry_aborts(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Both attempts failing aborts as before, with the exception logged."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass,
+        mock_config_entry,
+        [
+            InvalidSnapshot("Incomplete station-name response"),
+            InvalidSnapshot("Incomplete station-name response"),
+        ],
+    )
+
+    result, mock_sleep, mock_exception = await _step_station_select(
+        handler, entry
+    )
+
+    await _assert_read_aborted(result, manager, reads=2)
+    mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+    mock_exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_station_select_recovery_read_retries_once(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The accept-current reconcile read retries once too."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass,
+        mock_config_entry,
+        [
+            asyncio.TimeoutError("reconcile stalled"),
+            _snapshot_with_names(),
+            _snapshot_with_names(),
+        ],
+    )
+    manager.pending = {"before_revision": "old", "expected_revision": "new"}
+    with _editor_patches(entry) as mock_sleep:
+        result = await handler.async_step_station_select(
+            {"station": "1", "accept_current": True}
+        )
+
+    # The reconcile read retried once and cleared the journal; with the
+    # station submitted the flow advances straight to the name form.
+    assert result["step_id"] == "station_name"
+    assert manager.pending is None
+    assert api_read_count(manager) == 2
+    mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+
+
+@pytest.mark.asyncio
+async def test_station_select_first_failure_logs_debug(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The first failed read logs a debug line with the error message before retrying."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass,
+        mock_config_entry,
+        [
+            asyncio.TimeoutError("read stalled after 30s"),
+            _snapshot_with_names(),
+        ],
+    )
+
+    with _editor_patches(entry), patch.object(
+        config_flow_module._LOGGER, "debug"
+    ) as mock_debug:
+        await handler.async_step_station_select()
+
+    mock_debug.assert_called_once()
+    debug_args = [str(arg) for arg in mock_debug.call_args.args[1:]]
+    assert "read stalled after 30s" in " ".join(debug_args)
+
+
+def api_read_count(manager: StationNameManager) -> int:
+    """Number of snapshot reads issued against the manager's API."""
+    return manager.api.get_station_name_snapshot.await_count

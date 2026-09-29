@@ -18,11 +18,13 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import section
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import TimeSelector, selector
 from homeassistant.util import dt as dt_util
 
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
+from solem_blip_ble.exceptions import InvalidSnapshot
 
 from .bluetooth import (
     async_get_connectable_device,
@@ -74,7 +76,6 @@ ATTR_NAME = "name"
 ATTR_PERIOD_LENGTH = "period_length"
 ATTR_PERIOD_START_DATE = "period_start_date"
 ATTR_PROGRAM = "program"
-ATTR_SYNCHRO_DAY = "synchro_day"
 ATTR_WATER_BUDGET = "water_budget"
 ATTR_WEEK_DAYS = "week_days"
 MAX_PROGRAM_DURATION_SECONDS = 0xFFFFFF
@@ -92,14 +93,34 @@ class _StartSlotSelector(TimeSelector):
     """Time selector that tolerates an empty (cleared/disabled) slot.
 
     Defined as a subclass rather than an instance override so the value stays
-    a proper Selector for Home Assistant's serializer; the config validation
-    quirk that affects unregistered selector subclasses only triggers for
-    non-empty configs, and we always pass the empty config.
+    a proper Selector for Home Assistant's serializer.
+
+    The CONFIG_SCHEMA additionally accepts ``no_second`` (frontend PR 21073
+    hides the seconds input when the time selector declares it) even though
+    HA core's TimeSelectorConfig doesn't declare it — passing it to the bare
+    TimeSelector raises "not a valid option". The flag serializes back out so
+    the frontend picks it up (issue #129 field testing: the start pickers
+    must stay minutes-only).
     """
+
+    CONFIG_SCHEMA = vol.Schema(
+        vol.All(
+            lambda v: {} if v is None else v,
+            {
+                vol.Optional("read_only"): bool,
+                vol.Optional("no_second"): bool,
+            },
+        )
+    )
 
     def __call__(self, data: Any) -> Any:
         if data == _START_TIME_EMPTY:
             return data
+        # HA's time input shows a seconds field only when the value carries
+        # ":SS" (issue #129 field testing): strip submitted seconds so the
+        # picker stays minutes-only. The parser accepts both shapes.
+        if isinstance(data, str) and len(data) == 8 and data[2] == ":" == data[5]:
+            data = data[:5]
         TimeSelector.__call__(self, data)
         return data
 
@@ -119,6 +140,7 @@ ATTR_SCHEDULE_PRESET = "schedule_preset"
 # preset default to "none" so the second submit parses as preset=none and
 # writes (two-phase, mirroring confirm_degenerate).
 _PRESET_NONE = "none"
+PERIODIC_SECTION = "periodic"
 _SCHEDULE_PRESETS: dict[str, dict[str, int]] = {
     # Native parity cycles. every_day additionally zeroes the periodic
     # fields back to weekly semantics (period_length 1, synchro_day 0).
@@ -467,10 +489,11 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
     """Handle integration options."""
 
     _selected_program_index: int = 0
-    # Two-phase preset guard (issue #129): True between a preset apply
-    # re-render and the next submit, so a re-rendered default preset value
-    # (or a stray resubmit carrying the preset) cannot re-apply forever.
-    _preset_applied: bool = False
+    # Pending state for the preview-only confirm steps (issue #129): the
+    # program parsed from the last submit, kept until the user confirms
+    # (writes) or declines (fresh editor). Cleared on a fresh editor render.
+    _pending_program: IrrigationProgram | None = None
+    _pending_program_index: int | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -610,28 +633,46 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 except vol.Invalid:
                     errors["base"] = "invalid_program"
                 else:
-                    preset_result = self._preset_apply_result(
-                        user_input, coordinator, program_index
-                    )
-                    if preset_result is not None:
-                        return preset_result
+                    if user_input.get(
+                        ATTR_SCHEDULE_PRESET, _PRESET_NONE
+                    ) != _PRESET_NONE:
+                        # Preset submit (issue #129): do NOT write. Apply the
+                        # preset to the parsed program and show the
+                        # preview-only confirm step.
+                        applied = self._apply_preset(
+                            str(user_input[ATTR_SCHEDULE_PRESET]),
+                            user_input,
+                            num_stations=coordinator.num_stations,
+                            station_names=self._station_names(coordinator),
+                            current_program=coordinator.irrigation_programs.get(
+                                program_index
+                            ),
+                        )
+                        applied_reason = is_degenerate_schedule(applied)
+                        if applied_reason is not None:
+                            # The applied schedule is degenerate: show the
+                            # degenerate confirm instead of the plain one.
+                            return self._show_degenerate_confirm(
+                                applied, coordinator, program_index, applied_reason
+                            )
+                        return self._show_apply_confirm(
+                            applied, coordinator, program_index
+                        )
                     reason = is_degenerate_schedule(program)
-                    if reason is not None and not user_input.get(
-                        CONFIRM_DEGENERATE, False
-                    ):
-                        # Non-blocking warning (issue #129): re-render with
-                        # the submitted values, a schedule preview, the
-                        # warning, and a confirm checkbox. No write yet.
-                        return self._show_degenerate_warning(
+                    if reason is not None:
+                        # Non-blocking warning (issue #129): show the
+                        # preview-only confirm step. No write yet.
+                        return self._show_degenerate_confirm(
                             program, coordinator, program_index, reason
                         )
                     return await self._attempt_write(program_index, program)
 
         current_program = coordinator.irrigation_programs.get(program_index)
         if user_input is None:
-            # Fresh render (menu entry): any pending preset-apply state is
-            # stale — the user restarted the edit.
-            self._preset_applied = False
+            # Fresh render (menu entry or a declined confirm): any pending
+            # confirm state is stale — the user restarted the edit.
+            self._pending_program = None
+            self._pending_program_index = None
         return self.async_show_form(
             step_id="program_edit",
             data_schema=self._program_schema(
@@ -667,87 +708,107 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             )
         return ""
 
-    def _preset_apply_result(
+    def _show_apply_confirm(
         self,
-        user_input: dict[str, Any],
+        program: IrrigationProgram,
         coordinator: Any,
         program_index: int,
-    ) -> ConfigFlowResult | None:
-        """Apply a freshly submitted schedule preset (two-phase, issue #129).
+    ) -> ConfigFlowResult:
+        """Render the preview-only apply-confirmation step (issue #129).
 
-        Mirrors the confirm_degenerate pattern: do NOT write. Applies the
-        preset to the parsed program, then re-renders with the APPLIED values
-        as defaults, the schedule preview, and the preset default reset to
-        "none" so the second submit parses as preset=none and writes. The
-        flow flag guards a stray re-submit that still carries the preset
-        against an infinite apply loop.
-
-        Returns the re-render when a preset was applied, ``None`` when there
-        is no preset to apply (caller proceeds to the degenerate/write paths).
+        After a preset submit the user sees ONLY the schedule preview and a
+        confirm checkbox — not the full form again. The parsed program is
+        kept as pending state; confirming writes it, declining returns to a
+        fresh editor.
         """
-        if (
-            user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE) == _PRESET_NONE
-            or self._preset_applied
-        ):
-            return None
-        self._preset_applied = True
-        applied = self._apply_preset(
-            str(user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)),
-            user_input,
-            num_stations=coordinator.num_stations,
-            station_names=self._station_names(coordinator),
-        )
-        reason = is_degenerate_schedule(applied)
-        warning = (
-            _DEGENERATE_WARNINGS.get(reason, reason) if reason is not None else ""
-        )
-        if reason is not None:
-            # The applied schedule is degenerate: show the warning and the
-            # confirm checkbox on this render.
-            return self._show_degenerate_warning(
-                applied, coordinator, program_index, reason
-            )
+        self._pending_program = program
+        self._pending_program_index = program_index
         return self.async_show_form(
-            step_id="program_edit",
-            data_schema=self._program_schema(
-                applied,
-                station_names=self._station_names(coordinator),
+            step_id="program_apply_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("confirm_apply", default=True): selector(
+                        {"boolean": {}}
+                    )
+                }
             ),
-            errors={},
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
-                "preview": self._schedule_preview(applied, coordinator),
-                "warning": warning,
+                "preview": self._schedule_preview(program, coordinator),
+                "warning": "",
             },
         )
 
-    def _show_degenerate_warning(
+    def _show_degenerate_confirm(
         self,
         program: IrrigationProgram,
         coordinator: Any,
         program_index: int,
         reason: str,
     ) -> ConfigFlowResult:
-        """Re-render the editor with the degenerate-schedule warning.
+        """Render the preview-only degenerate-schedule confirm step.
 
-        Non-blocking (issue #129): shows the submitted values as defaults,
-        a schedule preview, the warning, and a confirm checkbox. No write
-        happens until the user re-submits with the checkbox set.
+        Non-blocking (issue #129): shows ONLY the schedule preview, the
+        warning, and a confirm checkbox — not the full form again. The
+        parsed program is kept as pending state; confirming writes it,
+        declining returns to a fresh editor.
         """
+        self._pending_program = program
+        self._pending_program_index = program_index
         return self.async_show_form(
-            step_id="program_edit",
-            data_schema=self._program_schema(
-                program,
-                station_names=self._station_names(coordinator),
-                confirm_degenerate=True,
+            step_id="program_degenerate_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONFIRM_DEGENERATE, default=False): selector(
+                        {"boolean": {}}
+                    )
+                }
             ),
-            errors={},
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
                 "preview": self._schedule_preview(program, coordinator),
                 "warning": _DEGENERATE_WARNINGS.get(reason, reason),
             },
         )
+
+    async def async_step_program_apply_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the preview-only apply confirmation."""
+        if user_input is None:
+            return self._show_apply_confirm(
+                self._pending_program,  # type: ignore[arg-type]
+                self._coordinator,
+                self._pending_program_index or 0,
+            )
+        pending = self._pending_program
+        pending_index = self._pending_program_index
+        if user_input.get("confirm_apply") and pending is not None:
+            return await self._attempt_write(pending_index or 0, pending)
+        # Declined (or stale): back to a fresh editor.
+        self._pending_program = None
+        self._pending_program_index = None
+        return await self.async_step_program_edit(None)
+
+    async def async_step_program_degenerate_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the preview-only degenerate-schedule confirmation."""
+        if user_input is None:
+            return self._show_degenerate_confirm(
+                self._pending_program,  # type: ignore[arg-type]
+                self._coordinator,
+                self._pending_program_index or 0,
+                "",
+            )
+        pending = self._pending_program
+        pending_index = self._pending_program_index
+        if user_input.get(CONFIRM_DEGENERATE) and pending is not None:
+            return await self._attempt_write(pending_index or 0, pending)
+        # Declined (or stale): back to a fresh editor.
+        self._pending_program = None
+        self._pending_program_index = None
+        return await self.async_step_program_edit(None)
 
     async def _attempt_write(
         self, program_index: int, program: IrrigationProgram
@@ -764,13 +825,12 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 PROGRAM_LABELS[program_index],
             )
             errors["base"] = "set_program_failed"
-            # The two-phase preset cycle did NOT complete: reset the flag so
-            # a different preset picked after this failed write is honored
-            # instead of being silently ignored (issue #129).
-            self._preset_applied = False
+            # The pending confirm cycle did NOT complete: drop it so a fresh
+            # preset pick after this failed write is honored instead of
+            # being silently ignored (issue #129).
+            self._pending_program = None
+            self._pending_program_index = None
         else:
-            # Write done: the two-phase preset cycle is complete.
-            self._preset_applied = False
             return self.async_create_entry(
                 title="",
                 data=dict(self.config_entry.options),
@@ -804,6 +864,31 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         manager = getattr(coordinator, "station_name_manager", None)
         return manager if isinstance(manager, StationNameManager) else None
 
+    async def _refresh_with_retry(
+        self, manager: StationNameManager, *, accept_current: bool = False
+    ) -> None:
+        """Read the station-name snapshot once, retrying after a delay.
+
+        The editor-open read is polling-safe but the freshly released
+        link (or a proxy hiccup) can fail the first attempt (issue
+        #136). Only recoverable failures are retried: a fragment-loss
+        ``InvalidSnapshot`` or a stall-shaped ``asyncio.TimeoutError``.
+        A confirmed-dead link (``SolemConnectionError``) or anything
+        else has no recovery odds, so it propagates immediately to the
+        existing abort handling.
+        """
+        try:
+            await manager.refresh(accept_current=accept_current)
+        except (InvalidSnapshot, asyncio.TimeoutError) as err:
+            _LOGGER.debug(
+                "Station-name read failed on the first attempt (%s: %s); "
+                "retrying once after the link settles",
+                type(err).__name__,
+                str(err)[:120],
+            )
+            await asyncio.sleep(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+            await manager.refresh(accept_current=accept_current)
+
     async def async_step_station_select(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -819,7 +904,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             return self.async_abort(reason="not_loaded")
         if user_input is not None and user_input.get(ATTR_ACCEPT_CURRENT):
             try:
-                await manager.refresh(accept_current=True)
+                await self._refresh_with_retry(manager, accept_current=True)
             except Exception:
                 _LOGGER.exception(
                     "Failed to reconcile pending station-name journal"
@@ -833,7 +918,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             self._selected_station = selected
             return await self.async_step_station_name()
         try:
-            await manager.refresh()
+            await self._refresh_with_retry(manager)
         except Exception:
             _LOGGER.exception("Failed to read onboard station names")
             return self.async_abort(reason="station_names_read_failed")
@@ -922,7 +1007,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         program: IrrigationProgram | None,
         *,
         station_names: dict[int, str] | None = None,
-        confirm_degenerate: bool = False,
     ) -> vol.Schema:
         # D1 (issue #122): size the duration fields from the ACTIVE width —
         # the device-derived coordinator width when loaded — not the
@@ -995,7 +1079,9 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # slots are the normal case (most programs use 1-2 of 8 slots).
             # Non-empty values still go through the selector's validation.
             fields[vol.Optional(key, default=defaults[key])] = (
-                _StartSlotSelector({})
+                # no_second is accepted by our CONFIG_SCHEMA but not HA core's
+                # TimeSelectorConfig TypedDict (frontend-only flag).
+                _StartSlotSelector({"no_second": True})  # type: ignore[arg-type]
             )
         for station in range(1, num_stations + 1):
             default_key = self._station_key(station)
@@ -1004,26 +1090,27 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 vol.Coerce(float),
                 vol.Range(min=0, max=MAX_PROGRAM_DURATION_MINUTES),
             )
-        # Advanced (periodic cycle) fields: rendered LAST so the main flow
-        # ends at the station durations. HA options-flow forms have no
-        # collapsible sections, so the grouping is purely positional; the
-        # step description explains the layout (issue #129).
+        # Advanced (periodic cycle) fields: collapsed inside an expandable
+        # section rendered LAST so the main flow ends at the station
+        # durations (issue #129). The frontend submits the inner values
+        # nested under the section key; the flow steps flatten them before
+        # parsing. ``synchro_day`` is not a form field: the parser derives
+        # it from the anchor-date shift.
         fields[vol.Required(
-            ATTR_PERIOD_START_DATE,
-            default=defaults[ATTR_PERIOD_START_DATE],
-        )] = selector({"date": {}})
-        fields[vol.Required(
-            ATTR_PERIOD_LENGTH,
-            default=defaults[ATTR_PERIOD_LENGTH],
-        )] = vol.All(vol.Coerce(int), vol.Range(min=1, max=255))
-        fields[vol.Required(
-            ATTR_SYNCHRO_DAY,
-            default=defaults[ATTR_SYNCHRO_DAY],
-        )] = vol.All(vol.Coerce(int), vol.Range(min=0, max=255))
-        if confirm_degenerate:
-            fields[vol.Required(CONFIRM_DEGENERATE, default=False)] = selector(
-                {"boolean": {}}
-            )
+            PERIODIC_SECTION,
+        )] = section(
+            vol.Schema({
+                vol.Required(
+                    ATTR_PERIOD_START_DATE,
+                    default=defaults[ATTR_PERIOD_START_DATE],
+                ): selector({"date": {}}),
+                vol.Required(
+                    ATTR_PERIOD_LENGTH,
+                    default=defaults[ATTR_PERIOD_LENGTH],
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+            }),
+            {"collapsed": True},
+        )
         return vol.Schema(fields)
 
     def _schedule_preview(
@@ -1109,7 +1196,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             ),
             ATTR_PERIOD_START_DATE: period_start_date or date.today(),
             ATTR_PERIOD_LENGTH: int(program_data.get("period_length", 1)),
-            ATTR_SYNCHRO_DAY: int(program_data.get("synchro_day", 0)),
             ATTR_WATER_BUDGET: int(program_data.get("water_budget", 100)),
             ATTR_INTER_STATION_DELAY: int(program_data.get("inter_station_delay", 0)),
         }
@@ -1132,7 +1218,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         current_program: IrrigationProgram | None = None,
     ) -> IrrigationProgram:
         return _parse_program_input(
-            data,
+            _flatten_periodic_section(data),
             num_stations=num_stations,
             station_names=station_names,
             current_program=current_program,
@@ -1145,12 +1231,14 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         *,
         num_stations: int | None = None,
         station_names: dict[int, str] | None = None,
+        current_program: IrrigationProgram | None = None,
     ) -> IrrigationProgram:
         """Apply a schedule preset to a parsed program-editor input.
 
         Pure function: builds the program via ``_program_from_options_input``
-        (which derives ``synchro_day`` when the anchor date changed) and, for
-        a non-``none`` preset, overlays the preset's encoding on the result.
+        (which derives ``synchro_day`` from the anchor-date shift, keeping the
+        stored phase when the anchor is unchanged) and, for a non-``none``
+        preset, overlays the preset's encoding on the result.
         The anchored presets keep the form's ``period_start_date`` as their
         anchor; ``every_day`` resets the periodic fields to weekly semantics.
         When ``num_stations`` is not given, it is inferred from the duration
@@ -1165,9 +1253,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             )
             num_stations = max(num_stations, 1)
         program = _parse_program_input(
-            form_input,
+            _flatten_periodic_section(form_input),
             num_stations=num_stations,
             station_names=station_names,
+            current_program=current_program,
         )
         if preset == _PRESET_NONE:
             return program
@@ -1192,6 +1281,9 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         *,
         station_names: dict[int, str] | None = None,
     ) -> str:
+        # Dynamic label when the station has an on-device name (issue #129
+        # field testing round 3): the user prefers the real station name on
+        # the field even untranslated over a static translated label.
         name = (station_names or {}).get(station)
         if not name:
             return SolemOptionsFlowHandler._station_key(station)
@@ -1294,6 +1386,23 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         return mask
 
 
+def _flatten_periodic_section(data: dict[str, Any]) -> dict[str, Any]:
+    """Merge the ``periodic`` section's contents into the flat namespace.
+
+    The program-edit form renders the periodic fields inside an expandable
+    section, so the frontend submits them nested under ``"periodic"`` while
+    ``_parse_program_input`` (and the preset overlays) work on flat keys.
+    Flat keys already present in the input win over the section's values.
+    The nested ``PERIODIC_SECTION`` key survives in the merged output
+    (harmless: the parser ignores unknown keys). The input object is
+    returned as-is when there is nothing to merge.
+    """
+    periodic = data.get(PERIODIC_SECTION)
+    if not isinstance(periodic, dict):
+        return data
+    return {**periodic, **data}
+
+
 def _parse_program_input(
     data: dict[str, Any],
     *,
@@ -1304,7 +1413,13 @@ def _parse_program_input(
     """Parse program-editor form input into an IrrigationProgram.
 
     Module-level so the pure preset applier can reuse it without an
-    instance. Derives ``synchro_day`` when the anchor date changed.
+    instance. ``synchro_day`` is derived, not taken from the form:
+    when the anchor date changed it shifts with the anchor
+    (``(stored_synchro_day + anchor_delta) % period_length``, so the
+    cycle content moves with the anchor), it is kept from the stored
+    program when the anchor is unchanged, and it starts at 0 on a
+    fresh create. A ``synchro_day`` key arriving in the form data is
+    ignored.
     """
     start_times = [
         SolemOptionsFlowHandler._parse_optional_time(
@@ -1321,13 +1436,18 @@ def _parse_program_input(
         else None
     )
     period_length = int(data[ATTR_PERIOD_LENGTH])
-    synchro_day = int(data[ATTR_SYNCHRO_DAY])
+    stored_synchro_day = (
+        int(current_program.get("synchro_day", 0)) if current_program is not None else 0
+    )
     if period_start_date != previous_period_start_date:
         synchro_day = (
-            (period_start_date - previous_period_start_date).days % period_length
+            (stored_synchro_day + (period_start_date - previous_period_start_date).days)
+            % period_length
             if previous_period_start_date is not None
             else 0
         )
+    else:
+        synchro_day = stored_synchro_day
     return {
         "name": str(data[ATTR_NAME]),
         "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
