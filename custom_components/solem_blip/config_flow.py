@@ -686,9 +686,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 # parse); it must never block or crash a write.
                 "preview": self._editor_preview(user_input, program, coordinator),
                 "warning": "",
-                # On-device station names (issue #129): labels can't be
-                # dynamic, so the mapping lives in the description.
-                "stations": self._stations_placeholder(coordinator),
             },
         )
 
@@ -1258,13 +1255,13 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         *,
         station_names: dict[int, str] | None = None,
     ) -> str:
-        # Static key only (issue #129 field testing): dynamic per-station
-        # labels match no strings.json entry and render raw, so HA shows
-        # the untranslated key whenever a station has a name. The static
-        # station_N_duration keys exist in all four locales and translate;
-        # the station identity stays visible from form order and the
-        # summary/preview text.
-        return SolemOptionsFlowHandler._station_key(station)
+        # Dynamic label when the station has an on-device name (issue #129
+        # field testing round 3): the user prefers the real station name on
+        # the field even untranslated over a static translated label.
+        name = (station_names or {}).get(station)
+        if not name:
+            return SolemOptionsFlowHandler._station_key(station)
+        return f"{name} (station {station}) duration (minutes)"
 
     @staticmethod
     def _station_duration_value(
@@ -1285,25 +1282,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
     def _station_names(coordinator: Any | None) -> dict[int, str]:
         station_names = getattr(coordinator, "station_names", None)
         return station_names if isinstance(station_names, dict) else {}
-
-    @staticmethod
-    def _stations_placeholder(coordinator: Any | None) -> str:
-        """"1 = Siepe · 2 = Prato N · …" from the on-device station names.
-
-        HA options flows render field labels only from static strings.json
-        keys — no per-field dynamic-label mechanism exists — so the on-device
-        names ride along in the program_edit description's {stations}
-        placeholder instead (issue #129 field testing). Empty/missing names
-        are skipped; "" when nothing is known.
-        """
-        parts = [
-            f"{station} = {name}"
-            for station, name in sorted(
-                SolemOptionsFlowHandler._station_names(coordinator).items()
-            )
-            if name
-        ]
-        return " · ".join(parts)
 
     def _program_select_options(self, coordinator: Any | None) -> list[dict[str, str]]:
         return [

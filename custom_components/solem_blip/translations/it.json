@@ -96,7 +96,7 @@
           "station_8_duration": "Durata stazione 8 (minuti)",
           "confirm_degenerate": "Innaffia comunque nonostante l'avviso"
         },
-        "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.\n\nI campi del ciclo periodico (data iniziale, intervallo) sono raggruppati in una sezione Avanzate comprimibile in fondo al modulo.\n\nAnteprima programma: {preview}\n\n{warning}\n\nMappatura stazioni: {stations}",
+        "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.\n\nI campi del ciclo periodico (data iniziale, intervallo) sono raggruppati in una sezione Avanzate comprimibile in fondo al modulo.\n\nAnteprima programma: {preview}\n\n{warning}",
         "title": "Modifica programmazione sul dispositivo",
         "sections": {
           "periodic": {

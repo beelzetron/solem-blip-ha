@@ -96,7 +96,7 @@
           "station_8_duration": "Durée de la station 8 (minutes)",
           "confirm_degenerate": "Arroser malgré l'avertissement"
         },
-        "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.\n\nLes champs du cycle périodique (date de début, intervalle) sont regroupés dans une section Avancé repliable en bas du formulaire.\n\nAperçu du programme : {preview}\n\n{warning}\n\nCorrespondance des stations : {stations}",
+        "description": "Modifiez {program}. Les heures de démarrage laissées vides sont désactivées. Le programmateur n'est mis à jour qu'après la validation de ce formulaire.\n\nLes champs du cycle périodique (date de début, intervalle) sont regroupés dans une section Avancé repliable en bas du formulaire.\n\nAperçu du programme : {preview}\n\n{warning}",
         "title": "Modifier une programmation sur l'appareil",
         "sections": {
           "periodic": {

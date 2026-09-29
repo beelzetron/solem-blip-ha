@@ -1050,11 +1050,12 @@ def test_options_flow_program_edit_schema_serializes(
 def test_options_flow_program_edit_schema_uses_station_names(
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Duration field keys are static so strings.json labels translate.
+    """Duration fields use the dynamic station-name label when a name exists.
 
-    Dynamic keys (``<Name> (station N) duration (minutes)``) match no
-    strings.json entry and render raw; the static ``station_N_duration``
-    keys exist in all four locales (issue #129 field testing).
+    ``<Name> (station N) duration (minutes)`` is preferred by field testing
+    (issue #129 round 3): the real station name on the field beats a static
+    translated label. Unnamed stations keep the raw ``station_N_duration``
+    key.
     """
     handler = SolemOptionsFlowHandler()
 
@@ -1073,9 +1074,8 @@ def test_options_flow_program_edit_schema_uses_station_names(
         )
 
     field_names = {field["name"] for field in serialized}
-    assert "station_1_duration" in field_names
-    assert "station_2_duration" in field_names
-    assert not any("(station" in name for name in field_names)
+    assert "Front lawn (station 1) duration (minutes)" in field_names
+    assert "Herbs (station 2) duration (minutes)" in field_names
 
 
 def test_program_schema_sizes_from_coordinator_width_not_config_knob(
@@ -1198,69 +1198,6 @@ async def test_program_edit_form_renders_grown_width(
         str(key.schema) for key in result["data_schema"].schema
     }
     assert sum(1 for name in field_names if name.startswith("station_")) == 7
-
-
-@pytest.mark.asyncio
-async def test_program_edit_description_lists_station_mapping(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    """The editor description carries the on-device station mapping (issue #129).
-
-    HA options flows render labels only from static strings.json keys, so the
-    per-station on-device names ride along in a {stations} placeholder.
-    """
-    mock_config_entry.add_to_hass(hass)
-    coordinator = MagicMock()
-    coordinator.num_stations = 3
-    coordinator.station_names = {1: "Siepe", 2: "Prato N", 3: "Orto"}
-    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
-    coordinator._irrigation_active = False
-    coordinator._is_watering = False
-    coordinator.set_irrigation_program = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator)
-    handler = SolemOptionsFlowHandler()
-    handler._selected_program_index = 1
-
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=mock_config_entry,
-    ):
-        result = await handler.async_step_program_edit(None)
-
-    assert result["type"] == "form"
-    stations = result["description_placeholders"]["stations"]
-    assert stations == "1 = Siepe · 2 = Prato N · 3 = Orto"
-
-
-@pytest.mark.asyncio
-async def test_program_edit_station_mapping_empty_when_no_names(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    """Without on-device names the {stations} placeholder is an empty string."""
-    mock_config_entry.add_to_hass(hass)
-    coordinator = MagicMock()
-    coordinator.num_stations = 2
-    coordinator.station_names = {}
-    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
-    coordinator._irrigation_active = False
-    coordinator._is_watering = False
-    coordinator.set_irrigation_program = AsyncMock()
-    mock_config_entry.runtime_data = RuntimeData(coordinator)
-    handler = SolemOptionsFlowHandler()
-    handler._selected_program_index = 1
-
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=mock_config_entry,
-    ):
-        result = await handler.async_step_program_edit(None)
-
-    assert result["type"] == "form"
-    assert result["description_placeholders"]["stations"] == ""
 
 
 @pytest.mark.asyncio
