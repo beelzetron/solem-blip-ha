@@ -2429,21 +2429,21 @@ wheels = [
 
 [[package]]
 name = "solem-blip-ble"
-version = "0.3.2b7"
+version = "0.3.2b8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
     { name = "bleak-retry-connector" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/4d/7c71d869bcf2ac6182a307616dc7dab84c2ec0f0d40ba5119c0de0fcfaa6/solem_blip_ble-0.3.2b7.tar.gz", hash = "sha256:dcb5bc6633c6380b736da611b5c841d9e45f37cc23c4b5c0859a4e426f2e40e0", size = 97028, upload-time = "2026-09-27T16:59:45.643Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/44/73d2ca4bc2eb34b297619448d6accf29fe0a9cc7e68376a94929a889cd08/solem_blip_ble-0.3.2b8.tar.gz", hash = "sha256:2bb28043388461932d03ad77485d25abe252e047861657fc6032a208ea88a868", size = 97761, upload-time = "2026-09-29T12:58:55.802Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/48/b0/ad374ae3269357476eadea99643b307250b05059563ff5ed9235f867dc5e/solem_blip_ble-0.3.2b7-py3-none-any.whl", hash = "sha256:81117e30b6ce91716fa65382e2c19713385e4ce9e7352d840935249e02e784d8", size = 63853, upload-time = "2026-09-27T16:59:44.18Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/6d/4e35ba4c3c7a77b589d45895c89a8e8ccd655eabe868f7360fc00c44a0af/solem_blip_ble-0.3.2b8-py3-none-any.whl", hash = "sha256:13eecebc489793880db69f40864ef10cf925cd91603fa578ea21059301308d40", size = 64280, upload-time = "2026-09-29T12:58:54.53Z" },
 ]
 
 [[package]]
 name = "solem-blip-ha"
-version = "1.3.5b12"
+version = "1.3.5b13"
 source = { editable = "." }
 dependencies = [
     { name = "solem-blip-ble" },
@@ -2465,7 +2465,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-homeassistant-custom-component", marker = "extra == 'dev'", specifier = "==0.13.366" },
-    { name = "solem-blip-ble", specifier = "==0.3.2b7" },
+    { name = "solem-blip-ble", specifier = "==0.3.2b8" },
 ]
 provides-extras = ["dev"]
 
