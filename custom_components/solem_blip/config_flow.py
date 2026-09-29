@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import TimeSelector, selector
 from homeassistant.util import dt as dt_util
 
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
+from solem_blip_ble.exceptions import InvalidSnapshot
 
 from .bluetooth import (
     async_get_connectable_device,
@@ -870,17 +871,20 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
 
         The editor-open read is polling-safe but the freshly released
         link (or a proxy hiccup) can fail the first attempt (issue
-        #136); retry all exceptions once after the same settle delay
-        the setup validation uses, then let the final failure propagate
-        to the existing abort handling.
+        #136). Only recoverable failures are retried: a fragment-loss
+        ``InvalidSnapshot`` or a stall-shaped ``asyncio.TimeoutError``.
+        A confirmed-dead link (``SolemConnectionError``) or anything
+        else has no recovery odds, so it propagates immediately to the
+        existing abort handling.
         """
         try:
             await manager.refresh(accept_current=accept_current)
-        except Exception as err:
+        except (InvalidSnapshot, asyncio.TimeoutError) as err:
             _LOGGER.debug(
-                "Station-name read failed on the first attempt (%s); "
+                "Station-name read failed on the first attempt (%s: %s); "
                 "retrying once after the link settles",
                 type(err).__name__,
+                str(err)[:120],
             )
             await asyncio.sleep(CONFIG_FLOW_CONNECT_RETRY_DELAY)
             await manager.refresh(accept_current=accept_current)

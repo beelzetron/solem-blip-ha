@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, time
 from pathlib import Path
@@ -2135,17 +2136,12 @@ def _snapshot_with_names() -> SimpleNamespace:
     )
 
 
-@pytest.mark.asyncio
-async def test_station_select_read_retries_once(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    """A first failed editor read retries once before showing the form."""
-    handler, coordinator, manager, entry = _editor_flow(
-        hass,
-        mock_config_entry,
-        [SolemConnectionError("link dropped"), _snapshot_with_names()],
-    )
+@contextmanager
+def _editor_patches(entry: MockConfigEntry):
+    """Patch config_entry + the retry sleep for the editor-read tests.
 
+    Yields the (mocked) sleep coroutine so tests can assert on it.
+    """
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
@@ -2155,40 +2151,68 @@ async def test_station_select_read_retries_once(
         "custom_components.solem_blip.config_flow.asyncio.sleep",
         new=AsyncMock(),
     ) as mock_sleep:
-        result = await handler.async_step_station_select()
-
-    assert result["step_id"] == "station_select"
-    assert api_read_count(manager) == 2
-    mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+        yield mock_sleep
 
 
 @pytest.mark.asyncio
-async def test_station_select_read_retries_invalid_snapshot(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+@pytest.mark.parametrize(
+    ("first_error", "expected_reads"),
+    [
+        (InvalidSnapshot("Incomplete station-name response"), 2),
+        (asyncio.TimeoutError("read stalled"), 2),
+        (SolemConnectionError("link dropped"), 1),
+        (OSError("offline"), 1),
+    ],
+    ids=["invalid-snapshot-retry", "timeout-retry", "connection-error-abort", "generic-error-abort"],
+)
+async def test_station_select_first_read_error_policy(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry,
+    first_error: Exception, expected_reads: int,
 ) -> None:
-    """InvalidSnapshot is retried too: it is cheap and polling-safe."""
+    """Recoverable errors retry once; everything else aborts on attempt one."""
+    effects = [first_error, _snapshot_with_names()]
     handler, coordinator, manager, entry = _editor_flow(
-        hass,
-        mock_config_entry,
-        [
-            InvalidSnapshot("Incomplete station-name response"),
-            _snapshot_with_names(),
-        ],
+        hass, mock_config_entry, effects
     )
 
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=entry,
-    ), patch(
-        "custom_components.solem_blip.config_flow.asyncio.sleep",
-        new=AsyncMock(),
-    ):
+    with _editor_patches(entry) as mock_sleep, patch.object(
+        config_flow_module._LOGGER, "exception"
+    ) as mock_exception:
         result = await handler.async_step_station_select()
 
-    assert result["step_id"] == "station_select"
-    assert api_read_count(manager) == 2
+    if expected_reads == 2:
+        assert result["step_id"] == "station_select"
+        mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+        mock_exception.assert_not_called()
+    else:
+        assert result["type"] == "abort"
+        assert result["reason"] == "station_names_read_failed"
+        mock_sleep.assert_not_awaited()
+        mock_exception.assert_called_once()
+    assert api_read_count(manager) == expected_reads
+
+
+async def _step_station_select(
+    handler: SolemOptionsFlowHandler, entry: MockConfigEntry
+) -> tuple:
+    """Run station_select under the editor patches + exception logging spy.
+
+    Returns (result, sleep mock, exception-logger mock).
+    """
+    with _editor_patches(entry) as mock_sleep, patch.object(
+        config_flow_module._LOGGER, "exception"
+    ) as mock_exception:
+        result = await handler.async_step_station_select()
+    return result, mock_sleep, mock_exception
+
+
+async def _assert_read_aborted(
+    result: dict, manager: StationNameManager, *, reads: int
+) -> None:
+    """Assert the flow aborted with the station-name read failure."""
+    assert result["type"] == "abort"
+    assert result["reason"] == "station_names_read_failed"
+    assert api_read_count(manager) == reads
 
 
 @pytest.mark.asyncio
@@ -2197,25 +2221,20 @@ async def test_station_select_read_failure_after_retry_aborts(
 ) -> None:
     """Both attempts failing aborts as before, with the exception logged."""
     handler, coordinator, manager, entry = _editor_flow(
-        hass, mock_config_entry, [OSError("offline"), OSError("offline")]
+        hass,
+        mock_config_entry,
+        [
+            InvalidSnapshot("Incomplete station-name response"),
+            InvalidSnapshot("Incomplete station-name response"),
+        ],
     )
 
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=entry,
-    ), patch(
-        "custom_components.solem_blip.config_flow.asyncio.sleep",
-        new=AsyncMock(),
-    ), patch.object(
-        config_flow_module._LOGGER, "exception"
-    ) as mock_exception:
-        result = await handler.async_step_station_select()
+    result, mock_sleep, mock_exception = await _step_station_select(
+        handler, entry
+    )
 
-    assert result["type"] == "abort"
-    assert result["reason"] == "station_names_read_failed"
-    assert api_read_count(manager) == 2
+    await _assert_read_aborted(result, manager, reads=2)
+    mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
     mock_exception.assert_called_once()
 
 
@@ -2227,19 +2246,14 @@ async def test_station_select_recovery_read_retries_once(
     handler, coordinator, manager, entry = _editor_flow(
         hass,
         mock_config_entry,
-        [OSError("offline"), _snapshot_with_names(), _snapshot_with_names()],
+        [
+            asyncio.TimeoutError("reconcile stalled"),
+            _snapshot_with_names(),
+            _snapshot_with_names(),
+        ],
     )
     manager.pending = {"before_revision": "old", "expected_revision": "new"}
-
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=entry,
-    ), patch(
-        "custom_components.solem_blip.config_flow.asyncio.sleep",
-        new=AsyncMock(),
-    ) as mock_sleep:
+    with _editor_patches(entry) as mock_sleep:
         result = await handler.async_step_station_select(
             {"station": "1", "accept_current": True}
         )
@@ -2256,27 +2270,24 @@ async def test_station_select_recovery_read_retries_once(
 async def test_station_select_first_failure_logs_debug(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """The first failed read logs a debug line before retrying."""
+    """The first failed read logs a debug line with the error message before retrying."""
     handler, coordinator, manager, entry = _editor_flow(
         hass,
         mock_config_entry,
-        [SolemConnectionError("link dropped"), _snapshot_with_names()],
+        [
+            asyncio.TimeoutError("read stalled after 30s"),
+            _snapshot_with_names(),
+        ],
     )
 
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=entry,
-    ), patch(
-        "custom_components.solem_blip.config_flow.asyncio.sleep",
-        new=AsyncMock(),
-    ), patch.object(
+    with _editor_patches(entry), patch.object(
         config_flow_module._LOGGER, "debug"
     ) as mock_debug:
         await handler.async_step_station_select()
 
     mock_debug.assert_called_once()
+    debug_args = [str(arg) for arg in mock_debug.call_args.args[1:]]
+    assert "read stalled after 30s" in " ".join(debug_args)
 
 
 def api_read_count(manager: StationNameManager) -> int:
