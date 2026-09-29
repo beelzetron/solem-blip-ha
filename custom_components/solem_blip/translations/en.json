@@ -76,9 +76,6 @@
           "schedule_preset": "Schedule preset",
           "cycle": "Cycle",
           "week_days": "Weekdays",
-          "period_start_date": "Period start date",
-          "period_length": "Period length",
-          "synchro_day": "Synchro day",
           "water_budget": "Water budget (%)",
           "inter_station_delay": "Inter-station delay (seconds)",
           "start_time_1": "Start time 1",
@@ -99,10 +96,16 @@
           "station_8_duration": "Station 8 duration (minutes)",
           "confirm_degenerate": "Water anyway despite warning"
         },
-        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.\n\nPeriodic-cycle fields (start date, interval, day offset) are grouped at the bottom under Advanced.\n\nSchedule preview: {preview}\n\n{warning}",
+        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.\n\nThe periodic-cycle fields (start date, interval) are collapsed under the Advanced section at the bottom.\n\nSchedule preview: {preview}\n\n{warning}",
         "title": "Edit on-device schedule",
-        "data_description": {
-          "synchro_day": "Auto-derived from the start date; override only on expert advice"
+        "sections": {
+          "periodic": {
+            "name": "Advanced",
+            "data": {
+              "period_start_date": "Period start date",
+              "period_length": "Period length"
+            }
+          }
         }
       },
       "station_select": {

@@ -76,9 +76,6 @@
           "schedule_preset": "Programmazione preimpostata",
           "cycle": "Ciclo",
           "week_days": "Giorni della settimana",
-          "period_start_date": "Data inizio periodo",
-          "period_length": "Durata periodo",
-          "synchro_day": "Giorno di sincronizzazione",
           "water_budget": "Budget acqua (%)",
           "inter_station_delay": "Ritardo tra stazioni (secondi)",
           "start_time_1": "Ora di avvio 1",
@@ -99,10 +96,16 @@
           "station_8_duration": "Durata stazione 8 (minuti)",
           "confirm_degenerate": "Innaffia comunque nonostante l'avviso"
         },
-        "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.\n\nI campi del ciclo periodico (data iniziale, intervallo, giorno di sincronizzazione) sono raggruppati in fondo alla sezione Avanzate.\n\nAnteprima programma: {preview}\n\n{warning}",
+        "description": "Aggiorna {program}. Le ore di avvio vuote sono disabilitate. Il controller viene scritto solo dopo l'invio di questo modulo.\n\nI campi del ciclo periodico (data iniziale, intervallo) sono raggruppati in una sezione Avanzate comprimibile in fondo al modulo.\n\nAnteprima programma: {preview}\n\n{warning}",
         "title": "Modifica programmazione sul dispositivo",
-        "data_description": {
-          "synchro_day": "Derivato automaticamente dalla data iniziale; modificare solo se necessario"
+        "sections": {
+          "periodic": {
+            "name": "Avanzate",
+            "data": {
+              "period_start_date": "Data inizio periodo",
+              "period_length": "Durata periodo"
+            }
+          }
         }
       },
       "station_select": {

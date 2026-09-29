@@ -18,6 +18,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import section
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import TimeSelector, selector
 from homeassistant.util import dt as dt_util
@@ -74,7 +75,6 @@ ATTR_NAME = "name"
 ATTR_PERIOD_LENGTH = "period_length"
 ATTR_PERIOD_START_DATE = "period_start_date"
 ATTR_PROGRAM = "program"
-ATTR_SYNCHRO_DAY = "synchro_day"
 ATTR_WATER_BUDGET = "water_budget"
 ATTR_WEEK_DAYS = "week_days"
 MAX_PROGRAM_DURATION_SECONDS = 0xFFFFFF
@@ -693,7 +693,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         self._preset_applied = True
         applied = self._apply_preset(
             str(user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)),
-            user_input,
+            _flatten_periodic_section(user_input),
             num_stations=coordinator.num_stations,
             station_names=self._station_names(coordinator),
             current_program=coordinator.irrigation_programs.get(program_index),
@@ -1005,22 +1005,31 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 vol.Coerce(float),
                 vol.Range(min=0, max=MAX_PROGRAM_DURATION_MINUTES),
             )
-        # Advanced (periodic cycle) fields: rendered LAST so the main flow
-        # ends at the station durations. HA options-flow forms have no
-        # collapsible sections, so the grouping is purely positional; the
-        # step description explains the layout (issue #129).
+        # Advanced (periodic cycle) fields: collapsed inside an expandable
+        # section rendered LAST so the main flow ends at the station
+        # durations (issue #129). The frontend submits the inner values
+        # nested under the section key; the flow steps flatten them before
+        # parsing. ``synchro_day`` is not a form field: the parser derives
+        # it from the anchor-date shift.
         fields[vol.Required(
-            ATTR_PERIOD_START_DATE,
-            default=defaults[ATTR_PERIOD_START_DATE],
-        )] = selector({"date": {}})
-        fields[vol.Required(
-            ATTR_PERIOD_LENGTH,
-            default=defaults[ATTR_PERIOD_LENGTH],
-        )] = vol.All(vol.Coerce(int), vol.Range(min=1, max=255))
-        fields[vol.Required(
-            ATTR_SYNCHRO_DAY,
-            default=defaults[ATTR_SYNCHRO_DAY],
-        )] = vol.All(vol.Coerce(int), vol.Range(min=0, max=255))
+            "periodic",
+            default={
+                ATTR_PERIOD_START_DATE: defaults[ATTR_PERIOD_START_DATE],
+                ATTR_PERIOD_LENGTH: defaults[ATTR_PERIOD_LENGTH],
+            },
+        )] = section(
+            vol.Schema({
+                vol.Required(
+                    ATTR_PERIOD_START_DATE,
+                    default=defaults[ATTR_PERIOD_START_DATE],
+                ): selector({"date": {}}),
+                vol.Required(
+                    ATTR_PERIOD_LENGTH,
+                    default=defaults[ATTR_PERIOD_LENGTH],
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+            }),
+            {"collapsed": True},
+        )
         if confirm_degenerate:
             fields[vol.Required(CONFIRM_DEGENERATE, default=False)] = selector(
                 {"boolean": {}}
@@ -1110,7 +1119,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             ),
             ATTR_PERIOD_START_DATE: period_start_date or date.today(),
             ATTR_PERIOD_LENGTH: int(program_data.get("period_length", 1)),
-            ATTR_SYNCHRO_DAY: int(program_data.get("synchro_day", 0)),
             ATTR_WATER_BUDGET: int(program_data.get("water_budget", 100)),
             ATTR_INTER_STATION_DELAY: int(program_data.get("inter_station_delay", 0)),
         }
@@ -1133,7 +1141,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         current_program: IrrigationProgram | None = None,
     ) -> IrrigationProgram:
         return _parse_program_input(
-            data,
+            _flatten_periodic_section(data),
             num_stations=num_stations,
             station_names=station_names,
             current_program=current_program,
@@ -1168,7 +1176,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             )
             num_stations = max(num_stations, 1)
         program = _parse_program_input(
-            form_input,
+            _flatten_periodic_section(form_input),
             num_stations=num_stations,
             station_names=station_names,
             current_program=current_program,
@@ -1298,6 +1306,20 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         return mask
 
 
+def _flatten_periodic_section(data: dict[str, Any]) -> dict[str, Any]:
+    """Merge the ``periodic`` section's contents into the flat namespace.
+
+    The program-edit form renders the periodic fields inside an expandable
+    section, so the frontend submits them nested under ``"periodic"`` while
+    ``_parse_program_input`` (and the preset overlays) work on flat keys.
+    Flat keys already present in the input win over the section's values.
+    """
+    periodic = data.get("periodic")
+    if not isinstance(periodic, dict):
+        return data
+    return {**periodic, **data}
+
+
 def _parse_program_input(
     data: dict[str, Any],
     *,
@@ -1314,7 +1336,7 @@ def _parse_program_input(
     cycle content moves with the anchor), it is kept from the stored
     program when the anchor is unchanged, and it starts at 0 on a
     fresh create. A ``synchro_day`` key arriving in the form data is
-    ignored (the schema still renders the field until it is removed).
+    ignored.
     """
     start_times = [
         SolemOptionsFlowHandler._parse_optional_time(

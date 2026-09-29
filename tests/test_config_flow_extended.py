@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
+import voluptuous as vol
 from probatio import to_field_list
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_SCAN_INTERVAL
@@ -87,12 +88,24 @@ def _entry_with_num_stations(num_stations: int) -> MockConfigEntry:
 
 
 def _program_editor_input(**overrides: object) -> dict[str, object]:
+    """Form input as the frontend submits it: periodic fields nested.
+
+    ``period_length``/``period_start_date`` overrides are applied INSIDE
+    the section (that is where the form renders them); any other override
+    lands top-level.
+    """
+    periodic: dict[str, object] = {
+        "period_start_date": date(2026, 6, 18),
+        "period_length": 1,
+    }
+    for key in ("period_start_date", "period_length"):
+        if key in overrides:
+            periodic[key] = overrides.pop(key)
     data: dict[str, object] = {
         "name": "Vasi",
         "cycle": "periodic",
         "week_days": ["monday", "wednesday"],
-        "period_start_date": date(2026, 6, 18),
-        "period_length": 1,
+        "periodic": periodic,
         "synchro_day": 0,
         "water_budget": 100,
         "inter_station_delay": 0,
@@ -1506,15 +1519,28 @@ async def test_bluetooth_step_aborts_duplicate(hass: HomeAssistant) -> None:
 
 
 def _schema_defaults(schema: vol.Schema) -> dict[str, object]:
-    """Resolve a rendered schema's defaults (HA wraps them in factories)."""
+    """Resolve a rendered schema's defaults (HA wraps them in factories).
+
+    Expandable sections are flattened: inner defaults surface under their
+    own names prefixed by ``<section>.``.
+    """
     def marker_default(key: object) -> object:
         default = getattr(key, "default", None)
         return default() if callable(default) else default
 
-    return {
-        str(key.schema): marker_default(key)
-        for key in schema.schema
-    }
+    defaults: dict[str, object] = {}
+    for key, validator in schema.schema.items():
+        inner = getattr(validator, "schema", None)
+        if isinstance(inner, vol.Schema):  # section: descend into it
+            section_default = marker_default(key) or {}
+            for inner_key in inner.schema:
+                inner_default = marker_default(inner_key)
+                if inner_default is None and str(inner_key.schema) in section_default:
+                    inner_default = section_default[str(inner_key.schema)]
+                defaults[f"{key.schema}.{inner_key.schema}"] = inner_default
+            continue
+        defaults[str(key.schema)] = marker_default(key)
+    return defaults
 
 
 def test_apply_preset_every_day() -> None:
@@ -1561,10 +1587,11 @@ def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
 
 def test_apply_preset_anchored_periodic() -> None:
     """Anchored presets set the periodic cycle and keep the picked anchor."""
-    program = SolemOptionsFlowHandler._apply_preset("every_3_days", _program_editor_input())
+    inp = _program_editor_input()
+    program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
 
     assert program["cycle"] == 4 and program["period_length"] == 3
-    assert program["period_start_date"] == _program_editor_input()["period_start_date"]
+    assert program["period_start_date"] == inp["periodic"]["period_start_date"]
 
 
 def test_apply_preset_none_returns_input_unchanged() -> None:
@@ -1636,7 +1663,7 @@ def test_program_schema_has_preset_field_first(
 def test_program_schema_orders_advanced_fields_last(
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Periodic-cycle fields render after station durations; synchro_day is last."""
+    """Periodic fields live in a collapsed 'periodic' section, rendered last."""
     handler = SolemOptionsFlowHandler()
 
     with patch.object(
@@ -1651,12 +1678,49 @@ def test_program_schema_orders_advanced_fields_last(
         )
 
     names = [field["name"] for field in serialized]
+    assert "synchro_day" not in names
+    assert names[-1] == "periodic"
+    section_field = serialized[-1]
+    assert section_field["type"] == "expandable"
+    assert section_field["expanded"] is False
+    inner_names = [field["name"] for field in section_field["schema"]]
+    assert inner_names == ["period_start_date", "period_length"]
     last_station_duration = max(
         i for i, name in enumerate(names) if name.endswith("_duration")
     )
-    for advanced in ("period_start_date", "period_length"):
-        assert names.index(advanced) > last_station_duration, names
-    assert names[-1] == "synchro_day"
+    assert last_station_duration < names.index("periodic")
+
+
+def test_program_schema_periodic_section_defaults_are_nested(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """The section renders the stored program's periodic values as defaults."""
+    handler = SolemOptionsFlowHandler()
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(
+                {
+                    **MOCK_IRRIGATION_PROGRAMS[1],
+                    "period_length": 5,
+                    "period_start_date": date(2026, 3, 1),
+                }
+            ),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    section_field = next(
+        field for field in serialized if field["name"] == "periodic"
+    )
+    defaults = {field["name"]: field["default"] for field in section_field["schema"]}
+    assert defaults["period_length"] == 5
+    # probatio may keep the date default raw or serialize it to ISO.
+    assert str(defaults["period_start_date"]) == "2026-03-01"
 
 
 @pytest.mark.asyncio
@@ -1684,7 +1748,7 @@ async def test_program_edit_preset_submit_rerenders_with_preview(
     # The re-rendered defaults carry the APPLIED values (period_length 3),
     # and the preset default is reset to "none" so the next submit writes.
     defaults = _schema_defaults(result["data_schema"])
-    assert defaults["period_length"] == 3
+    assert defaults["periodic.period_length"] == 3
     assert defaults["schedule_preset"] == "none"
     assert defaults["cycle"] == "periodic"
 
@@ -1707,6 +1771,7 @@ async def test_program_edit_preset_confirmed_second_submit_writes(
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
     _, program = coordinator.set_irrigation_program.await_args.args
+    # The nested section value reached the parser flat (period_length=3).
     assert program["period_length"] == 3
 
 
@@ -1758,7 +1823,7 @@ async def test_program_edit_preset_apply_degenerate_warns_without_write(
     assert result["description_placeholders"].get("warning")
     # The rendered defaults carry the APPLIED periodic encoding.
     defaults = _schema_defaults(result["data_schema"])
-    assert defaults["period_length"] == 3
+    assert defaults["periodic.period_length"] == 3
 
 
 @pytest.mark.asyncio
@@ -1798,7 +1863,7 @@ async def test_program_edit_failed_write_then_different_preset_is_applied(
     # phase 3 must re-apply the new preset, not silently write.
     assert coordinator.set_irrigation_program.await_count == 1
     defaults = _schema_defaults(third["data_schema"])
-    assert defaults["period_length"] == 2
+    assert defaults["periodic.period_length"] == 2
     assert defaults["schedule_preset"] == "none"
 
 
@@ -1870,10 +1935,17 @@ def _stored_periodic_program(synchro_day: int) -> IrrigationProgram:
     }
 
 
+def _flat_editor_input(**overrides: object) -> dict[str, object]:
+    """Editor input flattened to the parser's namespace (as the flow does)."""
+    data = _program_editor_input(**overrides)
+    periodic = data.pop("periodic")
+    return {**periodic, **data}
+
+
 def _parse_after_anchor_shift(period_start_date: str) -> IrrigationProgram:
     """Re-parse the editor form after moving the anchor to period_start_date."""
     previous = _stored_periodic_program(synchro_day=1)
-    data = _program_editor_input(
+    data = _flat_editor_input(
         period_start_date=period_start_date,
         period_length=3,
     )
@@ -1900,7 +1972,7 @@ def test_parse_program_input_negative_anchor_shift() -> None:
 def test_parse_program_input_keeps_synchro_day_when_anchor_unchanged() -> None:
     """Unchanged anchor date keeps the stored synchro_day, ignoring the form."""
     previous = _stored_periodic_program(synchro_day=1)
-    data = _program_editor_input(
+    data = _flat_editor_input(
         period_start_date="2026-09-01",
         period_length=5,
     )
