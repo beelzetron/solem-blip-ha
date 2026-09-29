@@ -30,8 +30,10 @@ from custom_components.solem_blip.config_flow import (
     validate_input,
 )
 from custom_components.solem_blip.config_entry import RuntimeData
+from custom_components.solem_blip.station_names import StationNameManager
 from custom_components.solem_blip.const import (
     BLUETOOTH_TIMEOUT,
+    CONFIG_FLOW_CONNECT_RETRY_DELAY,
     CONTROLLER_MAC_ADDRESS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -39,7 +41,9 @@ from custom_components.solem_blip.const import (
     PERSISTENT_CONNECTION,
     SOLEM_API_MOCK,
 )
+from custom_components.solem_blip import config_flow as config_flow_module
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
+from solem_blip_ble.exceptions import InvalidSnapshot
 from contextlib import contextmanager
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
 
@@ -2087,3 +2091,194 @@ def test_parse_program_input_keeps_synchro_day_when_anchor_unchanged() -> None:
     parsed = _parse_program_input(data, num_stations=2, current_program=previous)
 
     assert parsed["synchro_day"] == 1
+
+
+# --- Issue #136: station-name editor read retry -----------------------------
+
+
+def _editor_flow(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    snapshot_effects: list | None = None,
+) -> tuple:
+    """Options-flow handler wired to a real manager over a failing API.
+
+    ``snapshot_effects`` drives ``api.get_station_name_snapshot``;
+    ``manager.refresh`` runs its REAL logic so journal reconciliation
+    behaves as in production.
+    """
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.adopt_device_station_count = MagicMock()
+    api = MagicMock()
+    api.station_count = 2
+    api.max_station_num = 2
+    api.get_station_name_snapshot = AsyncMock(
+        side_effect=snapshot_effects
+        if snapshot_effects is not None
+        else [_snapshot_with_names()]
+    )
+    manager = StationNameManager(hass, "retry-test", api)
+    manager.async_load = AsyncMock()
+    manager.store.async_save = AsyncMock()
+    coordinator.station_name_manager = manager
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    return handler, coordinator, manager, mock_config_entry
+
+
+def _snapshot_with_names() -> SimpleNamespace:
+    return SimpleNamespace(
+        names={1: "Zone 1", 2: "Zone 2"},
+        revision="r",
+        raw_names={1: b"1", 2: b"2"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_station_select_read_retries_once(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A first failed editor read retries once before showing the form."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass,
+        mock_config_entry,
+        [SolemConnectionError("link dropped"), _snapshot_with_names()],
+    )
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ), patch(
+        "custom_components.solem_blip.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ) as mock_sleep:
+        result = await handler.async_step_station_select()
+
+    assert result["step_id"] == "station_select"
+    assert api_read_count(manager) == 2
+    mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+
+
+@pytest.mark.asyncio
+async def test_station_select_read_retries_invalid_snapshot(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """InvalidSnapshot is retried too: it is cheap and polling-safe."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass,
+        mock_config_entry,
+        [
+            InvalidSnapshot("Incomplete station-name response"),
+            _snapshot_with_names(),
+        ],
+    )
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ), patch(
+        "custom_components.solem_blip.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        result = await handler.async_step_station_select()
+
+    assert result["step_id"] == "station_select"
+    assert api_read_count(manager) == 2
+
+
+@pytest.mark.asyncio
+async def test_station_select_read_failure_after_retry_aborts(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Both attempts failing aborts as before, with the exception logged."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass, mock_config_entry, [OSError("offline"), OSError("offline")]
+    )
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ), patch(
+        "custom_components.solem_blip.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ), patch.object(
+        config_flow_module._LOGGER, "exception"
+    ) as mock_exception:
+        result = await handler.async_step_station_select()
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "station_names_read_failed"
+    assert api_read_count(manager) == 2
+    mock_exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_station_select_recovery_read_retries_once(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The accept-current reconcile read retries once too."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass,
+        mock_config_entry,
+        [OSError("offline"), _snapshot_with_names(), _snapshot_with_names()],
+    )
+    manager.pending = {"before_revision": "old", "expected_revision": "new"}
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ), patch(
+        "custom_components.solem_blip.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ) as mock_sleep:
+        result = await handler.async_step_station_select(
+            {"station": "1", "accept_current": True}
+        )
+
+    # The reconcile read retried once and cleared the journal; with the
+    # station submitted the flow advances straight to the name form.
+    assert result["step_id"] == "station_name"
+    assert manager.pending is None
+    assert api_read_count(manager) == 2
+    mock_sleep.assert_awaited_once_with(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+
+
+@pytest.mark.asyncio
+async def test_station_select_first_failure_logs_debug(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The first failed read logs a debug line before retrying."""
+    handler, coordinator, manager, entry = _editor_flow(
+        hass,
+        mock_config_entry,
+        [SolemConnectionError("link dropped"), _snapshot_with_names()],
+    )
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=entry,
+    ), patch(
+        "custom_components.solem_blip.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ), patch.object(
+        config_flow_module._LOGGER, "debug"
+    ) as mock_debug:
+        await handler.async_step_station_select()
+
+    mock_debug.assert_called_once()
+
+
+def api_read_count(manager: StationNameManager) -> int:
+    """Number of snapshot reads issued against the manager's API."""
+    return manager.api.get_station_name_snapshot.await_count

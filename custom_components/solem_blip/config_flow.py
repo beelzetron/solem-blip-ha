@@ -863,6 +863,28 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         manager = getattr(coordinator, "station_name_manager", None)
         return manager if isinstance(manager, StationNameManager) else None
 
+    async def _refresh_with_retry(
+        self, manager: StationNameManager, *, accept_current: bool = False
+    ) -> None:
+        """Read the station-name snapshot once, retrying after a delay.
+
+        The editor-open read is polling-safe but the freshly released
+        link (or a proxy hiccup) can fail the first attempt (issue
+        #136); retry all exceptions once after the same settle delay
+        the setup validation uses, then let the final failure propagate
+        to the existing abort handling.
+        """
+        try:
+            await manager.refresh(accept_current=accept_current)
+        except Exception as err:
+            _LOGGER.debug(
+                "Station-name read failed on the first attempt (%s); "
+                "retrying once after the link settles",
+                type(err).__name__,
+            )
+            await asyncio.sleep(CONFIG_FLOW_CONNECT_RETRY_DELAY)
+            await manager.refresh(accept_current=accept_current)
+
     async def async_step_station_select(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -878,7 +900,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             return self.async_abort(reason="not_loaded")
         if user_input is not None and user_input.get(ATTR_ACCEPT_CURRENT):
             try:
-                await manager.refresh(accept_current=True)
+                await self._refresh_with_retry(manager, accept_current=True)
             except Exception:
                 _LOGGER.exception(
                     "Failed to reconcile pending station-name journal"
@@ -892,7 +914,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             self._selected_station = selected
             return await self.async_step_station_name()
         try:
-            await manager.refresh()
+            await self._refresh_with_retry(manager)
         except Exception:
             _LOGGER.exception("Failed to read onboard station names")
             return self.async_abort(reason="station_names_read_failed")
