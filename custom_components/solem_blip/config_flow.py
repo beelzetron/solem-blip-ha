@@ -1206,10 +1206,13 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         *,
         station_names: dict[int, str] | None = None,
     ) -> str:
-        name = (station_names or {}).get(station)
-        if not name:
-            return SolemOptionsFlowHandler._station_key(station)
-        return f"{name} (station {station}) duration (minutes)"
+        # Static key only (issue #129 field testing): dynamic per-station
+        # labels match no strings.json entry and render raw, so HA shows
+        # the untranslated key whenever a station has a name. The static
+        # station_N_duration keys exist in all four locales and translate;
+        # the station identity stays visible from form order and the
+        # summary/preview text.
+        return SolemOptionsFlowHandler._station_key(station)
 
     @staticmethod
     def _station_duration_value(

@@ -909,7 +909,7 @@ def test_options_flow_program_edit_resets_synchro_day_without_current_anchor() -
 async def test_options_flow_program_edit_writes_named_station_fields(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Program editor accepts dynamic duration fields named after stations."""
+    """Program editor writes duration values read from the static keys."""
     mock_config_entry.add_to_hass(hass)
     coordinator = MagicMock()
     coordinator.num_stations = 2
@@ -922,10 +922,6 @@ async def test_options_flow_program_edit_writes_named_station_fields(
     handler = SolemOptionsFlowHandler()
     handler._selected_program_index = 1
     user_input = _program_editor_input()
-    del user_input["station_1_duration"]
-    del user_input["station_2_duration"]
-    user_input["Front lawn (station 1) duration (minutes)"] = 0
-    user_input["Herbs (station 2) duration (minutes)"] = 2
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
@@ -1053,7 +1049,12 @@ def test_options_flow_program_edit_schema_serializes(
 def test_options_flow_program_edit_schema_uses_station_names(
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Program editor schema exposes loaded station names in duration labels."""
+    """Duration field keys are static so strings.json labels translate.
+
+    Dynamic keys (``<Name> (station N) duration (minutes)``) match no
+    strings.json entry and render raw; the static ``station_N_duration``
+    keys exist in all four locales (issue #129 field testing).
+    """
     handler = SolemOptionsFlowHandler()
 
     with patch.object(
@@ -1071,8 +1072,9 @@ def test_options_flow_program_edit_schema_uses_station_names(
         )
 
     field_names = {field["name"] for field in serialized}
-    assert "Front lawn (station 1) duration (minutes)" in field_names
-    assert "Herbs (station 2) duration (minutes)" in field_names
+    assert "station_1_duration" in field_names
+    assert "station_2_duration" in field_names
+    assert not any("(station" in name for name in field_names)
 
 
 def test_program_schema_sizes_from_coordinator_width_not_config_knob(
@@ -1607,12 +1609,12 @@ def test_apply_preset_none_returns_input_unchanged() -> None:
 
 
 def test_apply_preset_uses_named_station_fields() -> None:
-    """The applier sizes stations from named duration fields too."""
+    """The applier sizes stations from static duration field keys too."""
     inp = _program_editor_input()
     del inp["station_1_duration"]
     del inp["station_2_duration"]
-    inp["Front lawn (station 1) duration (minutes)"] = 1
-    inp["Herbs (station 2) duration (minutes)"] = 2
+    inp["station_1_duration"] = 1
+    inp["station_2_duration"] = 2
 
     program = SolemOptionsFlowHandler._apply_preset(
         "every_2_days",
