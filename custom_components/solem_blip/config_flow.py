@@ -100,6 +100,11 @@ class _StartSlotSelector(TimeSelector):
     def __call__(self, data: Any) -> Any:
         if data == _START_TIME_EMPTY:
             return data
+        # HA's time input shows a seconds field only when the value carries
+        # ":SS" (issue #129 field testing): strip submitted seconds so the
+        # picker stays minutes-only. The parser accepts both shapes.
+        if isinstance(data, str) and len(data) == 8 and data[2] == ":" == data[5]:
+            data = data[:5]
         TimeSelector.__call__(self, data)
         return data
 

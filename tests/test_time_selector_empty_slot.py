@@ -41,10 +41,28 @@ def test_cleared_start_slot_validates_to_empty_string() -> None:
     schema = _schema_for_two_starts()
     result = schema({"start_time_1": "", "start_time_2": "17:30:00"})
     assert result["start_time_1"] == ""
-    assert result["start_time_2"] == "17:30:00"
+    assert result["start_time_2"] == "17:30"
     # Absent keys fall back to the schema defaults (form partial submit).
     fallback = schema({"start_time_2": "17:30:00"})
     assert fallback["start_time_1"] == "06:30"
+
+
+def test_seconds_are_stripped_from_submitted_values() -> None:
+    """Submitted seconds must be stripped: the picker must not show them.
+
+    HA's time input shows a seconds field only when the value carries
+    ":SS" — normalizing to HH:MM keeps the picker seconds-free.
+    """
+    schema = _schema_for_two_starts()
+    result = schema({"start_time_1": "17:30:45"})
+    assert result["start_time_1"] == "17:30"
+
+
+def test_defaults_are_seconds_free() -> None:
+    """_format_minutes defaults must stay HH:MM (no seconds)."""
+    assert SolemOptionsFlowHandler._format_minutes(390) == "06:30"
+    assert SolemOptionsFlowHandler._format_minutes(0) == "00:00"
+    assert SolemOptionsFlowHandler._format_minutes(None) == ""
 
 
 def test_filled_start_slot_still_validates() -> None:
@@ -52,7 +70,7 @@ def test_filled_start_slot_still_validates() -> None:
     schema = _schema_for_two_starts()
     result = schema({"start_time_1": "05:00", "start_time_2": "17:30:45"})
     assert result["start_time_1"] == "05:00"
-    assert result["start_time_2"] == "17:30:45"
+    assert result["start_time_2"] == "17:30"
 
 
 def test_invalid_time_still_rejected() -> None:
