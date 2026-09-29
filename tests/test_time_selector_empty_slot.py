@@ -101,4 +101,40 @@ def test_start_slot_selector_serializes_like_plain_time_selector(
     ]
     assert len(start_fields) == 8
     for field in start_fields:
-        assert field["selector"] == {"time": {}}
+        assert field["selector"] == {"time": {"no_second": True}}
+
+
+def test_start_time_pickers_hide_seconds_via_no_second(
+    mock_config_entry: Any,
+) -> None:
+    """Start pickers must declare no_second so the frontend hides :SS (issue #129).
+
+    HA core's TimeSelectorConfig doesn't know ``no_second`` (frontend PR 21073
+    only added the client-side handling), so the subclass must accept it in
+    CONFIG_SCHEMA and serialize it back out for the frontend.
+    """
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        serialized = to_field_list(
+            handler._program_schema(MOCK_IRRIGATION_PROGRAMS[0]),
+            custom_serializer=cv.custom_serializer,
+        )
+
+    start_fields = [
+        field for field in serialized if field["name"].startswith("start_time_")
+    ]
+    assert len(start_fields) == 8
+    for field in start_fields:
+        assert field["selector"] == {"time": {"no_second": True}}
+    # Non-start (plain) fields are unaffected: the flag only appears on the
+    # start-slot pickers (some fields carry no selector at all).
+    assert all(
+        "time" not in field.get("selector", {})
+        for field in serialized
+        if not field["name"].startswith("start_time_")
+    )

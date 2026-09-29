@@ -92,10 +92,25 @@ class _StartSlotSelector(TimeSelector):
     """Time selector that tolerates an empty (cleared/disabled) slot.
 
     Defined as a subclass rather than an instance override so the value stays
-    a proper Selector for Home Assistant's serializer; the config validation
-    quirk that affects unregistered selector subclasses only triggers for
-    non-empty configs, and we always pass the empty config.
+    a proper Selector for Home Assistant's serializer.
+
+    The CONFIG_SCHEMA additionally accepts ``no_second`` (frontend PR 21073
+    hides the seconds input when the time selector declares it) even though
+    HA core's TimeSelectorConfig doesn't declare it — passing it to the bare
+    TimeSelector raises "not a valid option". The flag serializes back out so
+    the frontend picks it up (issue #129 field testing: the start pickers
+    must stay minutes-only).
     """
+
+    CONFIG_SCHEMA = vol.Schema(
+        vol.All(
+            lambda v: {} if v is None else v,
+            {
+                vol.Optional("read_only"): bool,
+                vol.Optional("no_second"): bool,
+            },
+        )
+    )
 
     def __call__(self, data: Any) -> Any:
         if data == _START_TIME_EMPTY:
@@ -1038,7 +1053,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # slots are the normal case (most programs use 1-2 of 8 slots).
             # Non-empty values still go through the selector's validation.
             fields[vol.Optional(key, default=defaults[key])] = (
-                _StartSlotSelector({})
+                _StartSlotSelector({"no_second": True})
             )
         for station in range(1, num_stations + 1):
             default_key = self._station_key(station)
