@@ -1854,45 +1854,52 @@ def test_program_edit_preset_translations_exist(translation_file: Path) -> None:
     assert all(options.values())
 
 
-def test_parse_program_input_derives_synchro_day_from_anchor_shift() -> None:
-    """synchro_day is derived from the anchor-date shift, not a form field."""
-    previous: IrrigationProgram = {
+def _stored_periodic_program(synchro_day: int) -> IrrigationProgram:
+    """A stored periodic program with the given phase, anchor 2026-09-01."""
+    return {
         "name": "Vasi",
         "inter_station_delay": 0,
         "water_budget": 100,
         "cycle": 4,
         "week_days": 0x05,
         "period_length": 3,
-        "synchro_day": 0,
+        "synchro_day": synchro_day,
         "period_start_date": date(2026, 9, 1),
         "start_times": [1060] + [None] * 7,
         "station_durations": [1200, 0],
     }
+
+
+def _parse_after_anchor_shift(period_start_date: str) -> IrrigationProgram:
+    """Re-parse the editor form after moving the anchor to period_start_date."""
+    previous = _stored_periodic_program(synchro_day=1)
     data = _program_editor_input(
-        period_start_date="2026-09-03",
+        period_start_date=period_start_date,
         period_length=3,
     )
     data.pop("synchro_day")
+    return _parse_program_input(data, num_stations=2, current_program=previous)
 
-    parsed = _parse_program_input(data, num_stations=2, current_program=previous)
 
-    assert parsed["synchro_day"] == 2  # 2-day shift % period_length 3
+def test_parse_program_input_derives_synchro_day_from_anchor_shift() -> None:
+    """synchro_day shifts WITH the anchor, not just by the delta alone."""
+    parsed = _parse_after_anchor_shift("2026-09-03")
+
+    # (stored 1 + 2-day shift) % period 3 = 0; delta-only would give 2.
+    assert parsed["synchro_day"] == 0
+
+
+def test_parse_program_input_negative_anchor_shift() -> None:
+    """A backward anchor shift wraps via Python's non-negative modulo."""
+    parsed = _parse_after_anchor_shift("2026-08-31")
+
+    # (stored 1 + (-1)-day shift) % period 3 = 0, not negative.
+    assert parsed["synchro_day"] == 0
 
 
 def test_parse_program_input_keeps_synchro_day_when_anchor_unchanged() -> None:
     """Unchanged anchor date keeps the stored synchro_day, ignoring the form."""
-    previous: IrrigationProgram = {
-        "name": "Vasi",
-        "inter_station_delay": 0,
-        "water_budget": 100,
-        "cycle": 4,
-        "week_days": 0x05,
-        "period_length": 3,
-        "synchro_day": 1,
-        "period_start_date": date(2026, 9, 1),
-        "start_times": [1060] + [None] * 7,
-        "station_durations": [1200, 0],
-    }
+    previous = _stored_periodic_program(synchro_day=1)
     data = _program_editor_input(
         period_start_date="2026-09-01",
         period_length=5,

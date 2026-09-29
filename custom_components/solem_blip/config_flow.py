@@ -1308,10 +1308,13 @@ def _parse_program_input(
     """Parse program-editor form input into an IrrigationProgram.
 
     Module-level so the pure preset applier can reuse it without an
-    instance. ``synchro_day`` is not a form field: it is derived from
-    the anchor-date shift when the anchor changed, and kept from the
-    stored program otherwise. A ``synchro_day`` key in the form data is
-    ignored.
+    instance. ``synchro_day`` is derived, not taken from the form:
+    when the anchor date changed it shifts with the anchor
+    (``(stored_synchro_day + anchor_delta) % period_length``, so the
+    cycle content moves with the anchor), it is kept from the stored
+    program when the anchor is unchanged, and it starts at 0 on a
+    fresh create. A ``synchro_day`` key arriving in the form data is
+    ignored (the schema still renders the field until it is removed).
     """
     start_times = [
         SolemOptionsFlowHandler._parse_optional_time(
@@ -1329,11 +1332,12 @@ def _parse_program_input(
     )
     period_length = int(data[ATTR_PERIOD_LENGTH])
     stored_synchro_day = (
-        int(current_program["synchro_day"]) if current_program is not None else 0
+        int(current_program.get("synchro_day", 0)) if current_program is not None else 0
     )
     if period_start_date != previous_period_start_date:
         synchro_day = (
-            (period_start_date - previous_period_start_date).days % period_length
+            (stored_synchro_day + (period_start_date - previous_period_start_date).days)
+            % period_length
             if previous_period_start_date is not None
             else 0
         )
