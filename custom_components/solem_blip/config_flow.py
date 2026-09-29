@@ -119,6 +119,7 @@ ATTR_SCHEDULE_PRESET = "schedule_preset"
 # preset default to "none" so the second submit parses as preset=none and
 # writes (two-phase, mirroring confirm_degenerate).
 _PRESET_NONE = "none"
+PERIODIC_SECTION = "periodic"
 _SCHEDULE_PRESETS: dict[str, dict[str, int]] = {
     # Native parity cycles. every_day additionally zeroes the periodic
     # fields back to weekly semantics (period_length 1, synchro_day 0).
@@ -693,7 +694,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         self._preset_applied = True
         applied = self._apply_preset(
             str(user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)),
-            _flatten_periodic_section(user_input),
+            user_input,
             num_stations=coordinator.num_stations,
             station_names=self._station_names(coordinator),
             current_program=coordinator.irrigation_programs.get(program_index),
@@ -1012,11 +1013,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         # parsing. ``synchro_day`` is not a form field: the parser derives
         # it from the anchor-date shift.
         fields[vol.Required(
-            "periodic",
-            default={
-                ATTR_PERIOD_START_DATE: defaults[ATTR_PERIOD_START_DATE],
-                ATTR_PERIOD_LENGTH: defaults[ATTR_PERIOD_LENGTH],
-            },
+            PERIODIC_SECTION,
         )] = section(
             vol.Schema({
                 vol.Required(
@@ -1313,8 +1310,11 @@ def _flatten_periodic_section(data: dict[str, Any]) -> dict[str, Any]:
     section, so the frontend submits them nested under ``"periodic"`` while
     ``_parse_program_input`` (and the preset overlays) work on flat keys.
     Flat keys already present in the input win over the section's values.
+    The nested ``PERIODIC_SECTION`` key survives in the merged output
+    (harmless: the parser ignores unknown keys). The input object is
+    returned as-is when there is nothing to merge.
     """
-    periodic = data.get("periodic")
+    periodic = data.get(PERIODIC_SECTION)
     if not isinstance(periodic, dict):
         return data
     return {**periodic, **data}
