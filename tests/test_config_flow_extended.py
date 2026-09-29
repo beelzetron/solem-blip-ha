@@ -24,6 +24,7 @@ from custom_components.solem_blip.config_flow import (
     MENU_SETTINGS,
     SolemConfigFlow,
     SolemOptionsFlowHandler,
+    _parse_program_input,
     validate_input,
 )
 from custom_components.solem_blip.config_entry import RuntimeData
@@ -36,7 +37,7 @@ from custom_components.solem_blip.const import (
     PERSISTENT_CONNECTION,
     SOLEM_API_MOCK,
 )
-from solem_blip_ble import SolemConnectionError
+from solem_blip_ble import IrrigationProgram, SolemConnectionError
 from contextlib import contextmanager
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
 
@@ -1533,10 +1534,26 @@ def test_apply_preset_even_and_odd() -> None:
 
 
 def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
-    """An anchored preset renormalizes the parsed phase into its new period."""
-    inp = _program_editor_input(period_start_date=None, synchro_day=5)
+    """An anchored preset renormalizes the stored phase into its new period."""
+    previous: IrrigationProgram = {
+        "name": "Vasi",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x05,
+        "period_length": 5,
+        "synchro_day": 5,
+        "period_start_date": date(2026, 6, 18),
+        "start_times": [1060] + [None] * 7,
+        "station_durations": [0, 2],
+    }
+    inp = _program_editor_input(
+        period_start_date=date(2026, 6, 18), period_length=5
+    )
 
-    program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
+    program = SolemOptionsFlowHandler._apply_preset(
+        "every_3_days", inp, current_program=previous
+    )
 
     assert program["period_length"] == 3
     assert program["synchro_day"] == 5 % 3
@@ -1835,3 +1852,53 @@ def test_program_edit_preset_translations_exist(translation_file: Path) -> None:
         "every_4_days",
     }
     assert all(options.values())
+
+
+def test_parse_program_input_derives_synchro_day_from_anchor_shift() -> None:
+    """synchro_day is derived from the anchor-date shift, not a form field."""
+    previous: IrrigationProgram = {
+        "name": "Vasi",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x05,
+        "period_length": 3,
+        "synchro_day": 0,
+        "period_start_date": date(2026, 9, 1),
+        "start_times": [1060] + [None] * 7,
+        "station_durations": [1200, 0],
+    }
+    data = _program_editor_input(
+        period_start_date="2026-09-03",
+        period_length=3,
+    )
+    data.pop("synchro_day")
+
+    parsed = _parse_program_input(data, num_stations=2, current_program=previous)
+
+    assert parsed["synchro_day"] == 2  # 2-day shift % period_length 3
+
+
+def test_parse_program_input_keeps_synchro_day_when_anchor_unchanged() -> None:
+    """Unchanged anchor date keeps the stored synchro_day, ignoring the form."""
+    previous: IrrigationProgram = {
+        "name": "Vasi",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x05,
+        "period_length": 3,
+        "synchro_day": 1,
+        "period_start_date": date(2026, 9, 1),
+        "start_times": [1060] + [None] * 7,
+        "station_durations": [1200, 0],
+    }
+    data = _program_editor_input(
+        period_start_date="2026-09-01",
+        period_length=5,
+    )
+    data["synchro_day"] = 0
+
+    parsed = _parse_program_input(data, num_stations=2, current_program=previous)
+
+    assert parsed["synchro_day"] == 1

@@ -696,6 +696,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             user_input,
             num_stations=coordinator.num_stations,
             station_names=self._station_names(coordinator),
+            current_program=coordinator.irrigation_programs.get(program_index),
         )
         reason = is_degenerate_schedule(applied)
         warning = (
@@ -1145,12 +1146,14 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         *,
         num_stations: int | None = None,
         station_names: dict[int, str] | None = None,
+        current_program: IrrigationProgram | None = None,
     ) -> IrrigationProgram:
         """Apply a schedule preset to a parsed program-editor input.
 
         Pure function: builds the program via ``_program_from_options_input``
-        (which derives ``synchro_day`` when the anchor date changed) and, for
-        a non-``none`` preset, overlays the preset's encoding on the result.
+        (which derives ``synchro_day`` from the anchor-date shift, keeping the
+        stored phase when the anchor is unchanged) and, for a non-``none``
+        preset, overlays the preset's encoding on the result.
         The anchored presets keep the form's ``period_start_date`` as their
         anchor; ``every_day`` resets the periodic fields to weekly semantics.
         When ``num_stations`` is not given, it is inferred from the duration
@@ -1168,6 +1171,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             form_input,
             num_stations=num_stations,
             station_names=station_names,
+            current_program=current_program,
         )
         if preset == _PRESET_NONE:
             return program
@@ -1304,7 +1308,10 @@ def _parse_program_input(
     """Parse program-editor form input into an IrrigationProgram.
 
     Module-level so the pure preset applier can reuse it without an
-    instance. Derives ``synchro_day`` when the anchor date changed.
+    instance. ``synchro_day`` is not a form field: it is derived from
+    the anchor-date shift when the anchor changed, and kept from the
+    stored program otherwise. A ``synchro_day`` key in the form data is
+    ignored.
     """
     start_times = [
         SolemOptionsFlowHandler._parse_optional_time(
@@ -1321,13 +1328,17 @@ def _parse_program_input(
         else None
     )
     period_length = int(data[ATTR_PERIOD_LENGTH])
-    synchro_day = int(data[ATTR_SYNCHRO_DAY])
+    stored_synchro_day = (
+        int(current_program["synchro_day"]) if current_program is not None else 0
+    )
     if period_start_date != previous_period_start_date:
         synchro_day = (
             (period_start_date - previous_period_start_date).days % period_length
             if previous_period_start_date is not None
             else 0
         )
+    else:
+        synchro_day = stored_synchro_day
     return {
         "name": str(data[ATTR_NAME]),
         "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
