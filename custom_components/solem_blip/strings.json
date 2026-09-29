@@ -126,6 +126,20 @@
             }
           }
         }
+      },
+      "program_apply_confirm": {
+        "title": "Confirm schedule",
+        "description": "Review the schedule preview for {program}, then apply it.\n\nSchedule preview: {preview}\n\n{warning}",
+        "data": {
+          "confirm_apply": "Apply this schedule"
+        }
+      },
+      "program_degenerate_confirm": {
+        "title": "Warning",
+        "description": "This schedule can never (or always) water as configured. Review the preview for {program} and decide.\n\nSchedule preview: {preview}\n\n{warning}",
+        "data": {
+          "confirm_degenerate": "Water anyway despite warning"
+        }
       }
     }
   },

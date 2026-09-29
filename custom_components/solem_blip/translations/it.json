@@ -122,6 +122,20 @@
         },
         "description": "Fino a 32 byte UTF-8. Il controller viene scritto solo dopo l'invio del modulo.",
         "title": "Rinomina uscita"
+      },
+      "program_apply_confirm": {
+        "title": "Conferma programma",
+        "description": "Controlla l'anteprima del programma per {program}, poi applicala.\n\nAnteprima programma: {preview}\n\n{warning}",
+        "data": {
+          "confirm_apply": "Applica questo programma"
+        }
+      },
+      "program_degenerate_confirm": {
+        "title": "Avviso",
+        "description": "Questo programma non innaffierebbe mai (o sempre) come configurato. Controlla l'anteprima per {program} e decidi.\n\nAnteprima programma: {preview}\n\n{warning}",
+        "data": {
+          "confirm_degenerate": "Innaffia comunque nonostante l'avviso"
+        }
       }
     },
     "abort": {

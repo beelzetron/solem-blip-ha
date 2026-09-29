@@ -473,10 +473,11 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
     """Handle integration options."""
 
     _selected_program_index: int = 0
-    # Two-phase preset guard (issue #129): True between a preset apply
-    # re-render and the next submit, so a re-rendered default preset value
-    # (or a stray resubmit carrying the preset) cannot re-apply forever.
-    _preset_applied: bool = False
+    # Pending state for the preview-only confirm steps (issue #129): the
+    # program parsed from the last submit, kept until the user confirms
+    # (writes) or declines (fresh editor). Cleared on a fresh editor render.
+    _pending_program: IrrigationProgram | None = None
+    _pending_program_index: int | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -616,28 +617,46 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 except vol.Invalid:
                     errors["base"] = "invalid_program"
                 else:
-                    preset_result = self._preset_apply_result(
-                        user_input, coordinator, program_index
-                    )
-                    if preset_result is not None:
-                        return preset_result
+                    if user_input.get(
+                        ATTR_SCHEDULE_PRESET, _PRESET_NONE
+                    ) != _PRESET_NONE:
+                        # Preset submit (issue #129): do NOT write. Apply the
+                        # preset to the parsed program and show the
+                        # preview-only confirm step.
+                        applied = self._apply_preset(
+                            str(user_input[ATTR_SCHEDULE_PRESET]),
+                            user_input,
+                            num_stations=coordinator.num_stations,
+                            station_names=self._station_names(coordinator),
+                            current_program=coordinator.irrigation_programs.get(
+                                program_index
+                            ),
+                        )
+                        applied_reason = is_degenerate_schedule(applied)
+                        if applied_reason is not None:
+                            # The applied schedule is degenerate: show the
+                            # degenerate confirm instead of the plain one.
+                            return self._show_degenerate_confirm(
+                                applied, coordinator, program_index, applied_reason
+                            )
+                        return self._show_apply_confirm(
+                            applied, coordinator, program_index
+                        )
                     reason = is_degenerate_schedule(program)
-                    if reason is not None and not user_input.get(
-                        CONFIRM_DEGENERATE, False
-                    ):
-                        # Non-blocking warning (issue #129): re-render with
-                        # the submitted values, a schedule preview, the
-                        # warning, and a confirm checkbox. No write yet.
-                        return self._show_degenerate_warning(
+                    if reason is not None:
+                        # Non-blocking warning (issue #129): show the
+                        # preview-only confirm step. No write yet.
+                        return self._show_degenerate_confirm(
                             program, coordinator, program_index, reason
                         )
                     return await self._attempt_write(program_index, program)
 
         current_program = coordinator.irrigation_programs.get(program_index)
         if user_input is None:
-            # Fresh render (menu entry): any pending preset-apply state is
-            # stale — the user restarted the edit.
-            self._preset_applied = False
+            # Fresh render (menu entry or a declined confirm): any pending
+            # confirm state is stale — the user restarted the edit.
+            self._pending_program = None
+            self._pending_program_index = None
         return self.async_show_form(
             step_id="program_edit",
             data_schema=self._program_schema(
@@ -673,88 +692,107 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             )
         return ""
 
-    def _preset_apply_result(
+    def _show_apply_confirm(
         self,
-        user_input: dict[str, Any],
+        program: IrrigationProgram,
         coordinator: Any,
         program_index: int,
-    ) -> ConfigFlowResult | None:
-        """Apply a freshly submitted schedule preset (two-phase, issue #129).
+    ) -> ConfigFlowResult:
+        """Render the preview-only apply-confirmation step (issue #129).
 
-        Mirrors the confirm_degenerate pattern: do NOT write. Applies the
-        preset to the parsed program, then re-renders with the APPLIED values
-        as defaults, the schedule preview, and the preset default reset to
-        "none" so the second submit parses as preset=none and writes. The
-        flow flag guards a stray re-submit that still carries the preset
-        against an infinite apply loop.
-
-        Returns the re-render when a preset was applied, ``None`` when there
-        is no preset to apply (caller proceeds to the degenerate/write paths).
+        After a preset submit the user sees ONLY the schedule preview and a
+        confirm checkbox — not the full form again. The parsed program is
+        kept as pending state; confirming writes it, declining returns to a
+        fresh editor.
         """
-        if (
-            user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE) == _PRESET_NONE
-            or self._preset_applied
-        ):
-            return None
-        self._preset_applied = True
-        applied = self._apply_preset(
-            str(user_input.get(ATTR_SCHEDULE_PRESET, _PRESET_NONE)),
-            user_input,
-            num_stations=coordinator.num_stations,
-            station_names=self._station_names(coordinator),
-            current_program=coordinator.irrigation_programs.get(program_index),
-        )
-        reason = is_degenerate_schedule(applied)
-        warning = (
-            _DEGENERATE_WARNINGS.get(reason, reason) if reason is not None else ""
-        )
-        if reason is not None:
-            # The applied schedule is degenerate: show the warning and the
-            # confirm checkbox on this render.
-            return self._show_degenerate_warning(
-                applied, coordinator, program_index, reason
-            )
+        self._pending_program = program
+        self._pending_program_index = program_index
         return self.async_show_form(
-            step_id="program_edit",
-            data_schema=self._program_schema(
-                applied,
-                station_names=self._station_names(coordinator),
+            step_id="program_apply_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("confirm_apply", default=True): selector(
+                        {"boolean": {}}
+                    )
+                }
             ),
-            errors={},
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
-                "preview": self._schedule_preview(applied, coordinator),
-                "warning": warning,
+                "preview": self._schedule_preview(program, coordinator),
+                "warning": "",
             },
         )
 
-    def _show_degenerate_warning(
+    def _show_degenerate_confirm(
         self,
         program: IrrigationProgram,
         coordinator: Any,
         program_index: int,
         reason: str,
     ) -> ConfigFlowResult:
-        """Re-render the editor with the degenerate-schedule warning.
+        """Render the preview-only degenerate-schedule confirm step.
 
-        Non-blocking (issue #129): shows the submitted values as defaults,
-        a schedule preview, the warning, and a confirm checkbox. No write
-        happens until the user re-submits with the checkbox set.
+        Non-blocking (issue #129): shows ONLY the schedule preview, the
+        warning, and a confirm checkbox — not the full form again. The
+        parsed program is kept as pending state; confirming writes it,
+        declining returns to a fresh editor.
         """
+        self._pending_program = program
+        self._pending_program_index = program_index
         return self.async_show_form(
-            step_id="program_edit",
-            data_schema=self._program_schema(
-                program,
-                station_names=self._station_names(coordinator),
-                confirm_degenerate=True,
+            step_id="program_degenerate_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONFIRM_DEGENERATE, default=False): selector(
+                        {"boolean": {}}
+                    )
+                }
             ),
-            errors={},
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
                 "preview": self._schedule_preview(program, coordinator),
                 "warning": _DEGENERATE_WARNINGS.get(reason, reason),
             },
         )
+
+    async def async_step_program_apply_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the preview-only apply confirmation."""
+        if user_input is None:
+            return self._show_apply_confirm(
+                self._pending_program,  # type: ignore[arg-type]
+                self._coordinator,
+                self._pending_program_index or 0,
+            )
+        pending = self._pending_program
+        pending_index = self._pending_program_index
+        if user_input.get("confirm_apply") and pending is not None:
+            return await self._attempt_write(pending_index or 0, pending)
+        # Declined (or stale): back to a fresh editor.
+        self._pending_program = None
+        self._pending_program_index = None
+        return await self.async_step_program_edit(None)
+
+    async def async_step_program_degenerate_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle the preview-only degenerate-schedule confirmation."""
+        if user_input is None:
+            return self._show_degenerate_confirm(
+                self._pending_program,  # type: ignore[arg-type]
+                self._coordinator,
+                self._pending_program_index or 0,
+                "",
+            )
+        pending = self._pending_program
+        pending_index = self._pending_program_index
+        if user_input.get(CONFIRM_DEGENERATE) and pending is not None:
+            return await self._attempt_write(pending_index or 0, pending)
+        # Declined (or stale): back to a fresh editor.
+        self._pending_program = None
+        self._pending_program_index = None
+        return await self.async_step_program_edit(None)
 
     async def _attempt_write(
         self, program_index: int, program: IrrigationProgram
@@ -771,13 +809,12 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 PROGRAM_LABELS[program_index],
             )
             errors["base"] = "set_program_failed"
-            # The two-phase preset cycle did NOT complete: reset the flag so
-            # a different preset picked after this failed write is honored
-            # instead of being silently ignored (issue #129).
-            self._preset_applied = False
+            # The pending confirm cycle did NOT complete: drop it so a fresh
+            # preset pick after this failed write is honored instead of
+            # being silently ignored (issue #129).
+            self._pending_program = None
+            self._pending_program_index = None
         else:
-            # Write done: the two-phase preset cycle is complete.
-            self._preset_applied = False
             return self.async_create_entry(
                 title="",
                 data=dict(self.config_entry.options),
@@ -929,7 +966,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         program: IrrigationProgram | None,
         *,
         station_names: dict[int, str] | None = None,
-        confirm_degenerate: bool = False,
     ) -> vol.Schema:
         # D1 (issue #122): size the duration fields from the ACTIVE width —
         # the device-derived coordinator width when loaded — not the
@@ -1032,10 +1068,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             }),
             {"collapsed": True},
         )
-        if confirm_degenerate:
-            fields[vol.Required(CONFIRM_DEGENERATE, default=False)] = selector(
-                {"boolean": {}}
-            )
         return vol.Schema(fields)
 
     def _schedule_preview(

@@ -18,6 +18,7 @@ import homeassistant.helpers.config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.config_flow import (
+    CONFIRM_DEGENERATE,
     CannotConnect,
     CannotConnectSlots,
     MENU_EDIT_PROGRAM,
@@ -1356,7 +1357,7 @@ def _loaded_editor_handler(
 async def test_program_edit_week_days_zero_warns_and_does_not_write(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """A weekly program with no day selected re-renders with a warning, no write."""
+    """A weekly program with no day selected shows the preview-only confirm step."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
     with patch.object(
         SolemOptionsFlowHandler,
@@ -1367,37 +1368,22 @@ async def test_program_edit_week_days_zero_warns_and_does_not_write(
         result = await handler.async_step_program_edit(_degenerate_editor_input())
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_degenerate_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
+    # Preview-only: the confirm step carries the single boolean and nothing else.
     field_names = {str(key.schema) for key in result["data_schema"].schema}
-    assert "confirm_degenerate" in field_names
+    assert field_names == {"confirm_degenerate"}
     placeholders = result["description_placeholders"]
     assert "never start" in placeholders["warning"]
-    # The user's submitted values carry over as defaults.
     assert placeholders.get("preview")
-    # The re-rendered defaults carry the SUBMITTED values, not the old
-    # persisted program (quality review follow-up, issue #129): program 1
-    # persists as "Programma B" with no start times. HA's patched
-    # voluptuous wraps defaults in a default_factory lambda, so resolve
-    # callables before comparing.
-    def marker_default(key: object) -> object:
-        default = getattr(key, "default", None)
-        return default() if callable(default) else default
-
-    defaults = {
-        str(key.schema): marker_default(key)
-        for key in result["data_schema"].schema
-    }
-    assert defaults["name"] == "Vasi"
-    assert defaults["start_time_1"] == "06:30"
 
 
 @pytest.mark.asyncio
 async def test_program_edit_no_start_times_warns_and_does_not_write(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """A program with all start slots cleared re-renders with a warning, no write."""
+    """A program with all start slots cleared shows the preview-only confirm step."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
     with patch.object(
         SolemOptionsFlowHandler,
@@ -1408,11 +1394,11 @@ async def test_program_edit_no_start_times_warns_and_does_not_write(
         result = await handler.async_step_program_edit(_no_starts_editor_input())
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_degenerate_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
     field_names = {str(key.schema) for key in result["data_schema"].schema}
-    assert "confirm_degenerate" in field_names
+    assert field_names == {"confirm_degenerate"}
     placeholders = result["description_placeholders"]
     assert "start times" in placeholders["warning"]
     assert placeholders.get("preview")
@@ -1422,17 +1408,19 @@ async def test_program_edit_no_start_times_warns_and_does_not_write(
 async def test_program_edit_no_start_times_confirm_resubmit_writes(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Confirming the no-start-times warning proceeds to the write."""
+    """Confirming the degenerate warning proceeds to the write."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _no_starts_editor_input()
-    user_input["confirm_degenerate"] = True
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        result = await handler.async_step_program_edit(user_input)
+        warned = await handler.async_step_program_edit(_no_starts_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: True}
+        )
 
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
@@ -1444,18 +1432,68 @@ async def test_program_edit_degenerate_confirm_resubmit_writes(
 ) -> None:
     """Confirming the degenerate warning proceeds to the write."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _degenerate_editor_input()
-    user_input["confirm_degenerate"] = True
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        result = await handler.async_step_program_edit(user_input)
+        warned = await handler.async_step_program_edit(_degenerate_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: True}
+        )
 
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_program_edit_degenerate_declined_returns_to_fresh_editor(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Declining the degenerate warning returns to a fresh program editor."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(_degenerate_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: False}
+        )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    coordinator.set_irrigation_program.assert_not_awaited()
+    # Pending state cleared: the fresh editor shows the stored program.
+    assert handler._pending_program is None
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["name"] == "Programma B"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_fresh_render_clears_pending_state(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A fresh (menu-entry) editor render clears any pending confirmation."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(_degenerate_editor_input())
+        assert warned["step_id"] == "program_degenerate_confirm"
+        assert handler._pending_program is not None
+        await handler.async_step_program_edit(None)
+
+    assert handler._pending_program is None
+    assert handler._pending_program_index is None
 
 
 @pytest.mark.asyncio
@@ -1726,10 +1764,10 @@ def test_program_schema_periodic_section_defaults_are_nested(
 
 
 @pytest.mark.asyncio
-async def test_program_edit_preset_submit_rerenders_with_preview(
+async def test_program_edit_preset_submit_shows_apply_confirm(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Submitting a preset re-renders with applied values + preview, no write."""
+    """Submitting a preset shows the preview-only confirm step, no write."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
     user_input = _program_editor_input(schedule_preset="every_3_days")
     with patch.object(
@@ -1741,40 +1779,77 @@ async def test_program_edit_preset_submit_rerenders_with_preview(
         result = await handler.async_step_program_edit(user_input)
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_apply_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
+    # Preview-only: the confirm step carries the single boolean and nothing else.
+    field_names = {str(key.schema) for key in result["data_schema"].schema}
+    assert field_names == {"confirm_apply"}
     placeholders = result["description_placeholders"]
     assert placeholders.get("preview")
     assert placeholders.get("warning") == ""
-    # The re-rendered defaults carry the APPLIED values (period_length 3),
-    # and the preset default is reset to "none" so the next submit writes.
-    defaults = _schema_defaults(result["data_schema"])
-    assert defaults["periodic.period_length"] == 3
-    assert defaults["schedule_preset"] == "none"
-    assert defaults["cycle"] == "periodic"
+    # The pending program carries the applied encoding (period_length 3).
+    assert handler._pending_program is not None
+    assert handler._pending_program["period_length"] == 3
+    assert handler._pending_program_index == 1
 
 
 @pytest.mark.asyncio
 async def test_program_edit_preset_confirmed_second_submit_writes(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
-    """The second submit (preset back to none, applied values) writes."""
+    """Confirming the preview writes the pending (applied) program."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _program_editor_input(schedule_preset="none", period_length=3)
+    user_input = _program_editor_input(schedule_preset="every_3_days")
     with patch.object(
         SolemOptionsFlowHandler,
         "config_entry",
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        result = await handler.async_step_program_edit(user_input)
+        warned = await handler.async_step_program_edit(user_input)
+        assert warned["step_id"] == "program_apply_confirm"
+        result = await handler.async_step_program_apply_confirm(
+            {"confirm_apply": True}
+        )
 
     assert result["type"] == "create_entry"
     coordinator.set_irrigation_program.assert_awaited_once()
     _, program = coordinator.set_irrigation_program.await_args.args
-    # The nested section value reached the parser flat (period_length=3).
+    # The pending program (applied preset encoding) is what was written.
     assert program["period_length"] == 3
+    assert program["cycle"] == 4
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_declined_returns_to_fresh_editor(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Declining the preview returns to a fresh program editor, no write."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(
+            _program_editor_input(schedule_preset="every_3_days")
+        )
+        assert warned["step_id"] == "program_apply_confirm"
+        result = await handler.async_step_program_apply_confirm(
+            {"confirm_apply": False}
+        )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_edit"
+    coordinator.set_irrigation_program.assert_not_awaited()
+    assert handler._pending_program is None
+    # Fresh editor: the preset default is back to "none" and the stored
+    # program's values render as defaults.
+    defaults = _schema_defaults(result["data_schema"])
+    assert defaults["schedule_preset"] == "none"
+    assert defaults["name"] == "Programma B"
 
 
 @pytest.mark.asyncio
@@ -1817,15 +1892,44 @@ async def test_program_edit_preset_apply_degenerate_warns_without_write(
         result = await handler.async_step_program_edit(user_input)
 
     assert result["type"] == "form"
-    assert result["step_id"] == "program_edit"
+    assert result["step_id"] == "program_degenerate_confirm"
     assert "base" not in (result["errors"] or {})
     coordinator.set_irrigation_program.assert_not_awaited()
     field_names = {str(key.schema) for key in result["data_schema"].schema}
-    assert "confirm_degenerate" in field_names
+    assert field_names == {"confirm_degenerate"}
     assert result["description_placeholders"].get("warning")
-    # The rendered defaults carry the APPLIED periodic encoding.
-    defaults = _schema_defaults(result["data_schema"])
-    assert defaults["periodic.period_length"] == 3
+    # The pending program carries the APPLIED periodic encoding.
+    assert handler._pending_program is not None
+    assert handler._pending_program["period_length"] == 3
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_degenerate_confirm_writes(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Confirming a degenerate preset-applied schedule writes it anyway."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    user_input = _program_editor_input(
+        schedule_preset="every_3_days",
+        station_1_duration=0,
+        station_2_duration=0,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        warned = await handler.async_step_program_edit(user_input)
+        assert warned["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {CONFIRM_DEGENERATE: True}
+        )
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["period_length"] == 3
 
 
 @pytest.mark.asyncio
@@ -1843,53 +1947,28 @@ async def test_program_edit_failed_write_then_different_preset_is_applied(
         new_callable=PropertyMock,
         return_value=mock_config_entry,
     ):
-        # Phase 1: pick a preset (two-phase apply renders the preview).
+        # Phase 1: pick a preset (preview-only confirm renders).
         first = await handler.async_step_program_edit(
             _program_editor_input(schedule_preset="every_3_days")
         )
-        assert first["type"] == "form"
-        # Phase 2: confirm-submit the applied values; the write fails.
-        second = await handler.async_step_program_edit(
-            _program_editor_input(schedule_preset="none", period_length=3)
+        assert first["step_id"] == "program_apply_confirm"
+        # Phase 2: confirm; the write fails and re-renders the editor.
+        second = await handler.async_step_program_apply_confirm(
+            {"confirm_apply": True}
         )
         assert second["errors"] == {"base": "set_program_failed"}
         # Phase 3: pick a DIFFERENT preset — it must re-apply (fresh
-        # re-render with the new preset's values), not silently write.
+        # preview with the new preset's values), not silently write.
         third = await handler.async_step_program_edit(
             _program_editor_input(schedule_preset="every_2_days")
         )
 
-    assert third["type"] == "form"
-    assert "base" not in (third["errors"] or {})
+    assert third["step_id"] == "program_apply_confirm"
     # The only write attempt is the expected failed one from phase 2 —
     # phase 3 must re-apply the new preset, not silently write.
     assert coordinator.set_irrigation_program.await_count == 1
-    defaults = _schema_defaults(third["data_schema"])
-    assert defaults["periodic.period_length"] == 2
-    assert defaults["schedule_preset"] == "none"
-
-
-@pytest.mark.asyncio
-async def test_program_edit_preset_resubmit_does_not_reapply(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    """Resubmitting while the applied state is set does not loop the re-render."""
-    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    user_input = _program_editor_input(schedule_preset="every_3_days")
-    with patch.object(
-        SolemOptionsFlowHandler,
-        "config_entry",
-        new_callable=PropertyMock,
-        return_value=mock_config_entry,
-    ):
-        first = await handler.async_step_program_edit(user_input)
-        assert first["type"] == "form"
-        # A stray second submit still carrying the preset must NOT re-apply
-        # (the flow-internal applied state guards it); it writes instead.
-        second = await handler.async_step_program_edit(user_input)
-
-    assert second["type"] == "create_entry"
-    coordinator.set_irrigation_program.assert_awaited_once()
+    assert handler._pending_program is not None
+    assert handler._pending_program["period_length"] == 2
 
 
 @pytest.mark.parametrize(
@@ -1919,6 +1998,31 @@ def test_program_edit_preset_translations_exist(translation_file: Path) -> None:
         "every_4_days",
     }
     assert all(options.values())
+
+
+@pytest.mark.parametrize(
+    "translation_file",
+    [
+        Path("custom_components/solem_blip/strings.json"),
+        Path("custom_components/solem_blip/translations/en.json"),
+        Path("custom_components/solem_blip/translations/it.json"),
+        Path("custom_components/solem_blip/translations/fr.json"),
+    ],
+)
+def test_program_edit_confirm_steps_translations_exist(
+    translation_file: Path,
+) -> None:
+    """The two confirm steps and their labels exist in all four locales."""
+    translations = json.loads(translation_file.read_text())
+    steps = translations["options"]["step"]
+
+    for step_id in ("program_apply_confirm", "program_degenerate_confirm"):
+        step = steps[step_id]
+        assert step["title"]
+        assert "{preview}" in step["description"]
+
+    assert steps["program_apply_confirm"]["data"]["confirm_apply"]
+    assert steps["program_degenerate_confirm"]["data"]["confirm_degenerate"]
 
 
 def _stored_periodic_program(synchro_day: int) -> IrrigationProgram:

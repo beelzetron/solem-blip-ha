@@ -122,6 +122,20 @@
         },
         "description": "Jusqu'à 32 octets UTF-8. Le contrôleur n'est écrit qu'après la soumission du formulaire.",
         "title": "Renommer la sortie"
+      },
+      "program_apply_confirm": {
+        "title": "Confirmer le programme",
+        "description": "Vérifiez l'aperçu du programme pour {program}, puis appliquez-le.\n\nAperçu du programme : {preview}\n\n{warning}",
+        "data": {
+          "confirm_apply": "Appliquer ce programme"
+        }
+      },
+      "program_degenerate_confirm": {
+        "title": "Avertissement",
+        "description": "Ce programme n'arroserait jamais (ou toujours) comme configuré. Vérifiez l'aperçu pour {program} et décidez.\n\nAperçu du programme : {preview}\n\n{warning}",
+        "data": {
+          "confirm_degenerate": "Arroser malgré l'avertissement"
+        }
       }
     },
     "abort": {
