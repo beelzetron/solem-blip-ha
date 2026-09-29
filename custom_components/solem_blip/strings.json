@@ -115,7 +115,7 @@
           "station_8_duration": "Station 8 duration (minutes)",
           "confirm_degenerate": "Water anyway despite warning"
         },
-        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.\n\nThe periodic-cycle fields (start date, interval) are collapsed under the Advanced section at the bottom.\n\nSchedule preview: {preview}\n\n{warning}",
+        "description": "Update {program}. Blank start times are disabled. The controller is written only after you submit this form.\n\nThe periodic-cycle fields (start date, interval) are collapsed under the Advanced section at the bottom.\n\nSchedule preview: {preview}\n\n{warning}\n\nStation mapping: {stations}",
         "title": "Edit on-device schedule",
         "sections": {
           "periodic": {

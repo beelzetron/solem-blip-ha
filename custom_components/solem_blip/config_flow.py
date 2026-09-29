@@ -686,6 +686,9 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 # parse); it must never block or crash a write.
                 "preview": self._editor_preview(user_input, program, coordinator),
                 "warning": "",
+                # On-device station names (issue #129): labels can't be
+                # dynamic, so the mapping lives in the description.
+                "stations": self._stations_placeholder(coordinator),
             },
         )
 
@@ -1053,7 +1056,9 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # slots are the normal case (most programs use 1-2 of 8 slots).
             # Non-empty values still go through the selector's validation.
             fields[vol.Optional(key, default=defaults[key])] = (
-                _StartSlotSelector({"no_second": True})
+                # no_second is accepted by our CONFIG_SCHEMA but not HA core's
+                # TimeSelectorConfig TypedDict (frontend-only flag).
+                _StartSlotSelector({"no_second": True})  # type: ignore[arg-type]
             )
         for station in range(1, num_stations + 1):
             default_key = self._station_key(station)
@@ -1280,6 +1285,25 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
     def _station_names(coordinator: Any | None) -> dict[int, str]:
         station_names = getattr(coordinator, "station_names", None)
         return station_names if isinstance(station_names, dict) else {}
+
+    @staticmethod
+    def _stations_placeholder(coordinator: Any | None) -> str:
+        """"1 = Siepe · 2 = Prato N · …" from the on-device station names.
+
+        HA options flows render field labels only from static strings.json
+        keys — no per-field dynamic-label mechanism exists — so the on-device
+        names ride along in the program_edit description's {stations}
+        placeholder instead (issue #129 field testing). Empty/missing names
+        are skipped; "" when nothing is known.
+        """
+        parts = [
+            f"{station} = {name}"
+            for station, name in sorted(
+                SolemOptionsFlowHandler._station_names(coordinator).items()
+            )
+            if name
+        ]
+        return " · ".join(parts)
 
     def _program_select_options(self, coordinator: Any | None) -> list[dict[str, str]]:
         return [

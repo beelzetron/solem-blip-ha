@@ -1201,6 +1201,69 @@ async def test_program_edit_form_renders_grown_width(
 
 
 @pytest.mark.asyncio
+async def test_program_edit_description_lists_station_mapping(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The editor description carries the on-device station mapping (issue #129).
+
+    HA options flows render labels only from static strings.json keys, so the
+    per-station on-device names ride along in a {stations} placeholder.
+    """
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 3
+    coordinator.station_names = {1: "Siepe", 2: "Prato N", 3: "Orto"}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(None)
+
+    assert result["type"] == "form"
+    stations = result["description_placeholders"]["stations"]
+    assert stations == "1 = Siepe · 2 = Prato N · 3 = Orto"
+
+
+@pytest.mark.asyncio
+async def test_program_edit_station_mapping_empty_when_no_names(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Without on-device names the {stations} placeholder is an empty string."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.station_names = {}
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(None)
+
+    assert result["type"] == "form"
+    assert result["description_placeholders"]["stations"] == ""
+
+
+@pytest.mark.asyncio
 async def test_options_flow_program_edit_rejects_active_watering(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
@@ -1314,7 +1377,7 @@ def test_program_schema_start_times_use_time_selector(
     ]
     assert len(start_fields) == 8
     for field in start_fields:
-        assert field["selector"] == {"time": {}}
+        assert field["selector"] == {"time": {"no_second": True}}
 
 
 def _degenerate_editor_input(**overrides: object) -> dict[str, object]:
