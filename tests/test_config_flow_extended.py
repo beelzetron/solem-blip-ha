@@ -2165,7 +2165,7 @@ def _editor_patches(entry: MockConfigEntry):
     (asyncio.TimeoutError("read stalled"), 2),
     (
         # 0/N dead-link shape (issue #136): reclassified as
-        # SolemConnectionError by solem-blip-ble 0.3.2b8; a fresh
+        # SolemConnectionError by solem-blip-ble 0.3.2b9; a fresh
         # connection is exactly the recovery it needs.
         SolemConnectionError(
             "No station-name notifications received; the BLE link is unresponsive"
