@@ -2158,12 +2158,30 @@ def _editor_patches(entry: MockConfigEntry):
 @pytest.mark.parametrize(
     ("first_error", "expected_reads"),
     [
-        (InvalidSnapshot("Incomplete station-name response"), 2),
-        (asyncio.TimeoutError("read stalled"), 2),
-        (SolemConnectionError("link dropped"), 1),
-        (OSError("offline"), 1),
+    (
+        InvalidSnapshot("Incomplete station-name response"),
+        2,
+    ),
+    (asyncio.TimeoutError("read stalled"), 2),
+    (
+        # 0/N dead-link shape (issue #136): reclassified as
+        # SolemConnectionError by solem-blip-ble 0.3.2b8; a fresh
+        # connection is exactly the recovery it needs.
+        SolemConnectionError(
+            "No station-name notifications received; the BLE link is unresponsive"
+        ),
+        2,
+    ),
+    (SolemConnectionError("link dropped"), 2),
+    (OSError("offline"), 1),
     ],
-    ids=["invalid-snapshot-retry", "timeout-retry", "connection-error-abort", "generic-error-abort"],
+    ids=[
+        "invalid-snapshot-retry",
+        "timeout-retry",
+        "zero-frame-dead-link-retry",
+        "connection-error-retry",
+        "generic-error-abort",
+    ],
 )
 async def test_station_select_first_read_error_policy(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry,
