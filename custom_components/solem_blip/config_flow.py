@@ -874,11 +874,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         #136). Recoverable failures are retried: a fragment-loss
         ``InvalidSnapshot``, a stall-shaped ``asyncio.TimeoutError``, or
         a zero-frame dead link. The dead-link case arrives as
-        ``SolemConnectionError`` since solem-blip-ble PR #66 (merged into
-        main 2026-09-30; the library reclassified 0/N responses as
-        transport verdicts): a fresh connection is exactly what it needs,
-        so it is retried on equal footing with the other recoverable
-        shapes. Anything else
+        ``SolemConnectionError`` since solem-blip-ble 0.3.2b9 (the
+        library reclassified 0/N responses as transport verdicts): a
+        fresh connection is exactly what it needs, so it is retried on
+        equal footing with the other recoverable shapes. Anything else
         propagates immediately to the existing abort handling.
         """
         try:
