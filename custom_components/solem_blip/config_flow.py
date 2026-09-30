@@ -871,15 +871,22 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
 
         The editor-open read is polling-safe but the freshly released
         link (or a proxy hiccup) can fail the first attempt (issue
-        #136). Only recoverable failures are retried: a fragment-loss
-        ``InvalidSnapshot`` or a stall-shaped ``asyncio.TimeoutError``.
-        A confirmed-dead link (``SolemConnectionError``) or anything
-        else has no recovery odds, so it propagates immediately to the
-        existing abort handling.
+        #136). Recoverable failures are retried: a fragment-loss
+        ``InvalidSnapshot``, a stall-shaped ``asyncio.TimeoutError``, or
+        a zero-frame dead link. The dead-link case arrives as
+        ``SolemConnectionError`` since solem-blip-ble 0.3.2b9 (the
+        library reclassified 0/N responses as transport verdicts): a
+        fresh connection is exactly what it needs, so it is retried on
+        equal footing with the other recoverable shapes. Anything else
+        propagates immediately to the existing abort handling.
         """
         try:
             await manager.refresh(accept_current=accept_current)
-        except (InvalidSnapshot, asyncio.TimeoutError) as err:
+        except (
+            InvalidSnapshot,
+            asyncio.TimeoutError,
+            SolemConnectionError,
+        ) as err:
             _LOGGER.debug(
                 "Station-name read failed on the first attempt (%s: %s); "
                 "retrying once after the link settles",
