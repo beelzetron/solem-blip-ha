@@ -95,6 +95,22 @@ refresh_programs:
         device:
           integration: solem_blip
 
+run_name_read_probe:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: solem_blip
+    delay:
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 120
+          mode: box
+          unit_of_measurement: seconds
+
 restore_programs:
   fields:
     device_id:
