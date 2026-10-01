@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 import voluptuous as vol
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -15,6 +15,7 @@ from solem_blip_ble import IrrigationProgram
 
 from .config_entry import MyConfigEntry
 from .const import DOMAIN, PROGRAM_LABELS
+from .name_read_probe import run_name_read_probe
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
@@ -23,9 +24,11 @@ _LOGGER = logging.getLogger(__name__)
 
 SERVICE_REFRESH_PROGRAMS = "refresh_programs"
 SERVICE_RESTORE_PROGRAMS = "restore_programs"
+SERVICE_RUN_NAME_READ_PROBE = "run_name_read_probe"
 SERVICE_SET_PROGRAM = "set_program"
 
 ATTR_CYCLE = "cycle"
+ATTR_DELAY = "delay"
 ATTR_DEVICE_ID = "device_id"
 ATTR_INTER_STATION_DELAY = "inter_station_delay"
 ATTR_NAME = "name"
@@ -65,6 +68,13 @@ _WEEKDAYS = {
 _COMMON_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
+    }
+)
+_PROBE_SCHEMA = _COMMON_SERVICE_SCHEMA.extend(
+    {
+        vol.Optional(ATTR_DELAY, default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=120)
+        ),
     }
 )
 _SET_PROGRAM_SCHEMA = _COMMON_SERVICE_SCHEMA.extend(
@@ -164,6 +174,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 translation_key="refresh_programs_failed",
             ) from err
 
+    async def handle_run_name_read_probe(call: ServiceCall) -> ServiceResponse:
+        coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
+        result = await run_name_read_probe(
+            coordinator, int(call.data.get(ATTR_DELAY, 5))
+        )
+        return {"result": result}
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_PROGRAM,
@@ -182,6 +199,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         handle_refresh_programs,
         schema=_COMMON_SERVICE_SCHEMA,
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RUN_NAME_READ_PROBE,
+        handle_run_name_read_probe,
+        schema=_PROBE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
 
 def async_unload_services(hass: HomeAssistant) -> None:
@@ -190,6 +214,7 @@ def async_unload_services(hass: HomeAssistant) -> None:
         SERVICE_SET_PROGRAM,
         SERVICE_RESTORE_PROGRAMS,
         SERVICE_REFRESH_PROGRAMS,
+        SERVICE_RUN_NAME_READ_PROBE,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
