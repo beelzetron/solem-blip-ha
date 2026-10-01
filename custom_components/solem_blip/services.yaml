@@ -110,6 +110,19 @@ run_name_read_probe:
           max: 120
           mode: box
           unit_of_measurement: seconds
+    shape_a_delay:
+      default: 0
+      description: >-
+        If set, runs an extra "shape A-delayed" pass: holds a fresh
+        connection, waits this many seconds with no transaction, then reads
+        the names. Discriminates a plain post-connect wait from the status
+        transaction. Requires "Keep BLE connection between polls".
+      selector:
+        number:
+          min: 0
+          max: 120
+          mode: box
+          unit_of_measurement: seconds
 
 restore_programs:
   fields:
