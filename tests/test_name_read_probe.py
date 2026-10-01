@@ -151,3 +151,95 @@ async def test_probe_reports_b_name_failure_verdict(
     assert result["shape_b"]["ok"] is True  # status succeeded...
     assert "name_error" in result["shape_b"]  # ...names did not
     assert "preceding commit" in result["verdict"]
+
+
+@pytest.mark.asyncio
+async def test_shape_a_delayed_runs_and_drives_verdict(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """shape_a_delay > 0 inserts the A-delayed shape; its result informs the verdict."""
+    coordinator, device_id = await _setup_probe_target(hass, mock_config_entry)
+
+    clients: list[MagicMock] = []
+
+    def make_client(*args, **kwargs):
+        client = create_mock_solem_client(2)
+        _snapshot_mock(client)
+        client.hold_link = AsyncMock()
+        if len(clients) < 2:
+            # Shape A and its single connect-retry: the name-first read fails.
+            client.get_station_name_snapshot = AsyncMock(
+                side_effect=SolemConnectionError("silent link")
+            )
+        # Shape A-delayed (index 2) and shape B: succeed via the defaults.
+        clients.append(client)
+        return client
+
+    async def instant_sleep(_seconds: float) -> None:
+        pass
+
+    with patch(
+        "custom_components.solem_blip.name_read_probe.build_solem_client",
+        side_effect=make_client,
+    ), patch(
+        "custom_components.solem_blip.name_read_probe.asyncio.sleep",
+        side_effect=instant_sleep,
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RUN_NAME_READ_PROBE,
+            {"device_id": device_id, "delay": 0, "shape_a_delay": 10},
+            blocking=True,
+            return_response=True,
+        )
+
+    result = response["result"]
+    # One fresh client per shape attempt: A (+1 retry), A-delayed, B.
+    assert len(clients) == 4
+    clients[2].hold_link.assert_awaited_once()
+    assert result["shape_a_delayed"]["ok"] is True
+    assert "10s post-connect wait" in result["shape_a_delayed"]["detail"]
+    assert (
+        "a plain post-connect wait is enough" in result["verdict"]
+        and "status transaction is irrelevant" in result["verdict"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_shape_a_delayed_skipped_without_hold_link(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A stateless client (no hold_link) reports the A-delayed shape skipped."""
+    coordinator, device_id = await _setup_probe_target(hass, mock_config_entry)
+
+    def make_client(*args, **kwargs):
+        client = create_mock_solem_client(2)
+        _snapshot_mock(client)
+        del client.hold_link  # simulate the stateless client surface
+        return client
+
+    async def instant_sleep(_seconds: float) -> None:
+        pass
+
+    with patch(
+        "custom_components.solem_blip.name_read_probe.build_solem_client",
+        side_effect=make_client,
+    ), patch(
+        "custom_components.solem_blip.name_read_probe.asyncio.sleep",
+        side_effect=instant_sleep,
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RUN_NAME_READ_PROBE,
+            {"device_id": device_id, "delay": 0, "shape_a_delay": 10},
+            blocking=True,
+            return_response=True,
+        )
+
+    result = response["result"]
+    assert result["shape_a_delayed"] == {"skipped": "requires persistent mode"}
+    # The verdict stays the plain A/B interpretation.
+    assert "post-connect wait" not in result["verdict"]
+    assert result["verdict"] == "both shapes worked in this run"

@@ -433,8 +433,8 @@ async def test_polling_filter_uses_grown_device_count(
 
 
 @pytest.mark.asyncio
-async def test_pin_is_solem_blip_ble_0_3_2_b11() -> None:
-    """The manifest and pyproject pin solem-blip-ble==0.3.2b11."""
+async def test_pin_is_solem_blip_ble_0_3_2_b12() -> None:
+    """The manifest and pyproject pin solem-blip-ble==0.3.2b12."""
     import pathlib
 
     import tomllib
@@ -443,8 +443,8 @@ async def test_pin_is_solem_blip_ble_0_3_2_b11() -> None:
     manifest = json.loads(
         (root / "custom_components/solem_blip/manifest.json").read_text()
     )
-    assert "solem-blip-ble==0.3.2b11" in manifest["requirements"]
+    assert "solem-blip-ble==0.3.2b12" in manifest["requirements"]
 
     pyproject = tomllib.loads((root / "pyproject.toml").read_text())
     deps = pyproject["project"]["dependencies"]
-    assert "solem-blip-ble==0.3.2b11" in deps
+    assert "solem-blip-ble==0.3.2b12" in deps

@@ -9,12 +9,18 @@ same backend — so the result is diagnostic for the production code path:
 
 - **Shape A** — station-name snapshot as the FIRST operation on a fresh
   connection (no status poll first).
+- **Shape A-delayed** (optional, ``shape_a_delay`` > 0) — hold a fresh
+  connection, wait ``shape_a_delay`` seconds with no transaction, then
+  read the names. Discriminates "the status transaction warms the link"
+  from "the link merely needs settle time after connect".
 - **Shape B** — status poll first, then (after ``delay`` seconds, on the
   same held link) the station-name snapshot.
 
 A works while B fails  → the trigger is the preceding commit on the link.
 Both fail              → the firmware refuses the ``35 00`` request in
 every state on this firmware.
+A fails while A-delayed works → a plain post-connect wait is enough; the
+status transaction itself is irrelevant.
 """
 
 from __future__ import annotations
@@ -93,9 +99,17 @@ async def _with_fresh_client(
 
 
 async def run_name_read_probe(
-    coordinator: SolemCoordinator, delay: int
+    coordinator: SolemCoordinator,
+    delay: int,
+    shape_a_delay: int = 0,
 ) -> dict[str, Any]:
-    """Execute both discriminating shapes and return the result matrix."""
+    """Execute both discriminating shapes and return the result matrix.
+
+    When ``shape_a_delay`` > 0, an extra shape A-delayed run is inserted
+    between A and B: hold a fresh link, wait, then read the names — no
+    status transaction. Requires persistent mode (a stateless client cannot
+    hold a link across the wait) and is reported as skipped otherwise.
+    """
     mac = coordinator.controller_mac_address
 
     async def _shape_a(client: Any) -> dict[str, Any]:
@@ -119,6 +133,45 @@ async def run_name_read_probe(
     # Let the controller leave the post-disconnect quiet window before
     # shape B opens its own connection.
     await asyncio.sleep(_PROBE_SETTLE_SECONDS)
+
+    shape_a_delayed: dict[str, Any] | None = None
+    if shape_a_delay > 0:
+
+        async def _shape_a_delayed(client: Any) -> dict[str, Any]:
+            hold = getattr(client, "hold_link", None)
+            if hold is None:
+                # Stateless client: no link survives across the wait.
+                return {"skipped": "requires persistent mode"}
+            await hold()
+            await asyncio.sleep(shape_a_delay)
+            started = asyncio.get_running_loop().time()
+            snapshot = await client.get_station_name_snapshot()
+            elapsed = asyncio.get_running_loop().time() - started
+            return {
+                "ok": True,
+                "detail": (
+                    f"ok in {elapsed:.1f}s after a {shape_a_delay}s "
+                    f"post-connect wait; "
+                    f"{snapshot.reported_count} output(s) reported"
+                ),
+            }
+
+        shape_a_delayed = await _with_fresh_client(
+            coordinator, "shape A-delayed (wait, no status op)", _shape_a_delayed
+        )
+        skipped = "skipped" in shape_a_delayed
+        _LOGGER.info(
+            "%s - Probe shape A-delayed (wait %ss, no status op): %s",
+            mac,
+            shape_a_delay,
+            (
+                shape_a_delayed["skipped"]
+                if skipped
+                else shape_a_delayed.get("detail") or shape_a_delayed.get("error")
+            ),
+        )
+        if not skipped:
+            await asyncio.sleep(_PROBE_SETTLE_SECONDS)
 
     async def _shape_b(client: Any) -> dict[str, Any]:
         started = asyncio.get_running_loop().time()
@@ -179,9 +232,25 @@ async def run_name_read_probe(
     else:
         verdict = "mixed outcome — run the probe again before concluding"
 
+    if shape_a_delay > 0 and shape_a_delayed is not None:
+        a_delayed_ok = shape_a_delayed.get("ok") is True
+        if not a_ok and a_delayed_ok:
+            verdict += (
+                " — a plain post-connect wait is enough (shape A-delayed "
+                "read the names); the status transaction is irrelevant"
+            )
+        elif not a_ok and "skipped" not in shape_a_delayed:
+            verdict += (
+                " — waiting alone did not help (shape A-delayed also "
+                "failed); the status transaction warms the link"
+            )
+
     _LOGGER.info("%s - Probe verdict: %s", mac, verdict)
-    return {
+    result: dict[str, Any] = {
         "shape_a": shape_a,
         "shape_b": shape_b,
         "verdict": verdict,
     }
+    if shape_a_delay > 0 and shape_a_delayed is not None:
+        result["shape_a_delayed"] = shape_a_delayed
+    return result

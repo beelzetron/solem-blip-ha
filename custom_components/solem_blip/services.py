@@ -31,6 +31,7 @@ ATTR_CYCLE = "cycle"
 ATTR_DELAY = "delay"
 ATTR_DEVICE_ID = "device_id"
 ATTR_INTER_STATION_DELAY = "inter_station_delay"
+ATTR_SHAPE_A_DELAY = "shape_a_delay"
 ATTR_NAME = "name"
 ATTR_PERIOD_LENGTH = "period_length"
 ATTR_PERIOD_START_DATE = "period_start_date"
@@ -73,6 +74,9 @@ _COMMON_SERVICE_SCHEMA = vol.Schema(
 _PROBE_SCHEMA = _COMMON_SERVICE_SCHEMA.extend(
     {
         vol.Optional(ATTR_DELAY, default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=120)
+        ),
+        vol.Optional(ATTR_SHAPE_A_DELAY, default=0): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=120)
         ),
     }
@@ -177,7 +181,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_run_name_read_probe(call: ServiceCall) -> ServiceResponse:
         coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
         result = await run_name_read_probe(
-            coordinator, int(call.data.get(ATTR_DELAY, 5))
+            coordinator,
+            int(call.data.get(ATTR_DELAY, 5)),
+            int(call.data.get(ATTR_SHAPE_A_DELAY, 0)),
         )
         return {"result": result}
 
