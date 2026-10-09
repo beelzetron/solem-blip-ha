@@ -16,7 +16,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=7.0",
-    "pytest-homeassistant-custom-component==0.13.367",
+    "pytest-homeassistant-custom-component==0.13.368",
     # Full-setup tests walk the real bluetooth -> usb dependency chain;
     # these HA optional deps are not pulled in by the test harness itself.
     "aiousbwatcher>=1.1",
