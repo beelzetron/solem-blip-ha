@@ -1085,7 +1085,12 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # specified"), so the slot validator tolerates empty: disabled
             # slots are the normal case (most programs use 1-2 of 8 slots).
             # Non-empty values still go through the selector's validation.
-            fields[vol.Optional(key, default=defaults[key])] = (
+            # Prefill via suggested_value, NOT vol default (issue #151): the
+            # X-cleared time picker fires value-changed with undefined, the
+            # frontend JSON-drops the key, and FlowManager re-applies this
+            # schema to the submission — a vol default would resurrect the
+            # old start time instead of writing the cleared slot.
+            fields[vol.Optional(key, description={"suggested_value": defaults[key]})] = (
                 # no_second is accepted by our CONFIG_SCHEMA but not HA core's
                 # TimeSelectorConfig TypedDict (frontend-only flag).
                 _StartSlotSelector({"no_second": True})  # type: ignore[arg-type]

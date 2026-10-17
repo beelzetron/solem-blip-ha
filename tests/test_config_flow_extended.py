@@ -942,6 +942,95 @@ async def test_options_flow_program_edit_writes_named_station_fields(
 
 
 @pytest.mark.asyncio
+async def test_program_edit_cleared_last_start_is_written_disabled(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Removing the last start time writes an all-disabled slot list (issue #151).
+
+    The X-cleared time picker fires value-changed with ``undefined`` and the
+    frontend JSON-drops the key; FlowManager then re-applies the shown schema
+    to the submission. The editor must prefill via suggested_value — a vol
+    default would resurrect the removed start time.
+    """
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        # Single 20:00 start on the program under edit, like the reporter.
+        current = dict(MOCK_IRRIGATION_PROGRAMS[1])
+        current["start_times"] = [1200, None, None, None, None, None, None, None]
+        coordinator.irrigation_programs = {
+            **MOCK_IRRIGATION_PROGRAMS,
+            1: current,
+        }
+
+        shown = await handler.async_step_program_edit(None)
+        assert shown["step_id"] == "program_edit"
+
+        # Frontend submission for a cleared slot: the key is absent entirely.
+        user_input = _program_editor_input()
+        user_input.pop("synchro_day")  # lives inside the periodic section
+        del user_input["start_time_1"]
+        # FlowManager validates the submission against the shown schema.
+        validated = shown["data_schema"](user_input)
+
+        result = await handler.async_step_program_edit(validated)
+        # The removal makes the schedule degenerate: warning + confirm first.
+        assert result["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {"confirm_degenerate": True}
+        )
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"] == [None] * 8
+
+
+@pytest.mark.asyncio
+async def test_program_edit_cleared_middle_start_keeps_others(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Clearing one of several start times removes only that slot (issue #151)."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    user_input = _program_editor_input(start_time_2="17:40")
+    del user_input["start_time_2"]  # 17:40 slot X-cleared, 06:30 slot kept
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"] == [390, None, None, None, None, None, None, None]
+
+
+@pytest.mark.asyncio
 async def test_program_edit_accepts_time_object_start(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
@@ -1049,7 +1138,10 @@ def test_options_flow_program_edit_schema_serializes(
     start_field = next(
         field for field in serialized_a if field["name"] == "start_time_1"
     )
-    assert start_field["default"] == "17:40"
+    # Prefill rides on suggested_value, not vol default (issue #151): a vol
+    # default resurrects a X-cleared slot because the frontend JSON-drops
+    # cleared keys and FlowManager re-applies the schema to the submission.
+    assert start_field["description"]["suggested_value"] == "17:40"
 
 
 def test_options_flow_program_edit_schema_uses_station_names(
