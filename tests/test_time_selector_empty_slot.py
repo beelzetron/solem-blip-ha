@@ -13,7 +13,7 @@ from unittest.mock import PropertyMock, patch
 
 import homeassistant.helpers.config_validation as cv
 import pytest
-import voluptuous as vol
+import probatio as vol
 from probatio import to_field_list
 
 from custom_components.solem_blip.config_flow import (

@@ -6,7 +6,7 @@ from datetime import date
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-import voluptuous as vol
+import probatio as vol
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
