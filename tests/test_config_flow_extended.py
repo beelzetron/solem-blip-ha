@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-import voluptuous as vol
+import probatio as vol
 from probatio import to_field_list
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_SCAN_INTERVAL
