@@ -309,8 +309,14 @@ def _differs_only_by_period_start_date(
     return True
 
 def _program_changes(program: IrrigationProgram) -> dict[str, Any]:
-    """Return snapshot patch fields for one protected logical program."""
-    changes: dict[str, Any] = {
+    """Return snapshot patch fields for one protected logical program.
+
+    ``period_start_date`` is the client-side write anchor and
+    ``controller_date`` the controller-owned header date: neither is a patch
+    field (the snapshot rejects the anchor outright), and a restore reproduces
+    the captured header bytes unchanged.
+    """
+    return {
         "name": program["name"],
         "inter_station_delay": program["inter_station_delay"],
         "water_budget": program["water_budget"],
@@ -324,9 +330,6 @@ def _program_changes(program: IrrigationProgram) -> dict[str, Any]:
             for station, seconds in enumerate(program["station_durations"], start=1)
         },
     }
-    if program.get("period_start_date") is not None:
-        changes["period_start_date"] = program["period_start_date"]
-    return changes
 
 
 def _has_scheduled_program(programs: dict[int, IrrigationProgram]) -> bool:
@@ -339,18 +342,25 @@ def _has_scheduled_program(programs: dict[int, IrrigationProgram]) -> bool:
 
 
 def _serialize_program(program: IrrigationProgram) -> dict[str, Any]:
-    """Convert an irrigation program to JSON-safe storage data."""
+    """Convert an irrigation program to JSON-safe storage data.
+
+    Both the client anchor and the controller-owned header date are stored as
+    ISO strings when present; older entries that carry neither key keep
+    loading unchanged.
+    """
     data = dict(program)
-    period_start_date = data.get("period_start_date")
-    if isinstance(period_start_date, date):
-        data["period_start_date"] = period_start_date.isoformat()
+    for key in ("period_start_date", "controller_date"):
+        value = data.get(key)
+        if isinstance(value, date):
+            data[key] = value.isoformat()
     return data
 
 
 def _deserialize_program(data: dict[str, Any]) -> IrrigationProgram:
     """Restore an irrigation program from JSON-safe storage data."""
     restored = dict(data)
-    period_start_date = restored.get("period_start_date")
-    if isinstance(period_start_date, str):
-        restored["period_start_date"] = date.fromisoformat(period_start_date)
+    for key in ("period_start_date", "controller_date"):
+        value = restored.get(key)
+        if isinstance(value, str):
+            restored[key] = date.fromisoformat(value)
     return cast(IrrigationProgram, restored)

@@ -304,6 +304,10 @@ def _program_from_service_data(
         raise vol.Invalid("start_times must contain at most 8 entries")
     start_times.extend([None] * (8 - len(start_times)))
 
+    # The anchor is optional and write-only: when it is supplied the library
+    # derives the cycle-4 countdown from it at pack time, and when it is absent
+    # the caller's synchro_day stands as given. A readback never carries it, so
+    # nothing here may assume the key has a value.
     period_start_date = data.get(ATTR_PERIOD_START_DATE)
     if isinstance(period_start_date, str):
         period_start_date = date.fromisoformat(period_start_date)
