@@ -28,6 +28,7 @@ from custom_components.solem_blip.config_flow import (
     MENU_SETTINGS,
     SolemConfigFlow,
     SolemOptionsFlowHandler,
+    _countdown_for_anchor,
     _parse_program_input,
     validate_input,
 )
@@ -1803,8 +1804,21 @@ def test_apply_preset_even_and_odd() -> None:
     """even_days/odd_days map to the native parity cycles."""
     even = SolemOptionsFlowHandler._apply_preset("even_days", _program_editor_input())
     assert even["cycle"] == 1
+    assert even["synchro_day"] == 0
     odd = SolemOptionsFlowHandler._apply_preset("odd_days", _program_editor_input())
     assert odd["cycle"] == 2
+    assert odd["synchro_day"] == 0
+
+
+def test_countdown_for_anchor_none_anchor_is_zero() -> None:
+    """A cycle-4 anchor that is absent yields 0 instead of a ``ValueError``.
+
+    ``period_start_to_synchro`` raises on ``None``, and the program editor only
+    catches ``vol.Invalid``, so the helper guards the anchor itself. The form
+    always supplies one today, so this is defensive.
+    """
+    assert _countdown_for_anchor(4, None, 3) == 0
+    assert _countdown_for_anchor(0, None, 1) == 0
 
 
 def test_apply_preset_rederives_countdown_for_preset_period() -> None:

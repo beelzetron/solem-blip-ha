@@ -693,6 +693,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 # ``synchro_day`` is not smaller than its ``period_length``)
                 # must fail before any journal entry exists: the pending
                 # restore point stays untouched and no frame is written.
+                # The slot-naming message below is for the log only: both
+                # entry points (button, service) re-raise the generic
+                # translated ``restore_programs_failed`` key, so the UI shows
+                # that text and never this one.
                 raise HomeAssistantError(
                     f"Cannot restore program {PROGRAM_LABELS[program_index]}: "
                     f"the backed-up schedule is not a valid controller state "

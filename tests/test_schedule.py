@@ -331,6 +331,10 @@ def test_next_start_datetime_interval_naive_now_uses_default_zone() -> None:
 
     assert result == datetime(2026, 10, 21, 4, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE)
     assert result is not None
+    # Instant equality alone passes on a host whose local zone already is
+    # DEFAULT_TIME_ZONE, so assert the zone itself: the naive input must be
+    # interpreted in HA's default zone, not the host's.
+    assert result.tzinfo is dt_util.DEFAULT_TIME_ZONE
     assert result.hour == 4 and result.minute == 30
 
 
@@ -396,7 +400,7 @@ def test_next_start_datetime_interval_fixed_offset_crosses_fall_back() -> None:
     """A fixed-offset ``now`` keeps the wall-clock slot across fall-back.
 
     The reported case: a period-20 countdown taken in October used to place
-    the November run at 04:30+02:00 instead of the local 04:30+01:00.
+    the transition-day run at 04:30+02:00 instead of the local 04:30+01:00.
     """
     rome = ZoneInfo("Europe/Rome")
     now = datetime(2026, 10, 10, 10, 0, tzinfo=timezone(timedelta(hours=2)))

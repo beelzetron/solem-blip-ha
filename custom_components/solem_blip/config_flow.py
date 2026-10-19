@@ -1445,7 +1445,7 @@ def _flatten_periodic_section(data: dict[str, Any]) -> dict[str, Any]:
 
 def _countdown_for_anchor(
     cycle: int,
-    period_start_date: date,
+    period_start_date: date | None,
     period_length: int,
 ) -> int:
     """Return the client-side countdown for a cycle-4 anchor, else ``0``.
@@ -1458,9 +1458,12 @@ def _countdown_for_anchor(
     value is derived against today's date, so it matches what the library packs
     at write time, while a phase read back from the device can be up to one
     refresh interval old. Cycles 0-3 carry no interval phase and always submit
-    ``0``.
+    ``0``. An absent anchor also submits ``0``: ``period_start_to_synchro``
+    raises ``ValueError`` on ``None``, which the editor's ``vol.Invalid``
+    handling would not catch (defensive only; the form always supplies an
+    anchor).
     """
-    if cycle != 4:
+    if cycle != 4 or period_start_date is None:
         return 0
     return period_start_to_synchro(
         period_start_date,
