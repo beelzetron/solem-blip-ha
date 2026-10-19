@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, time
+from datetime import date, time, timedelta
 from typing import Any
 
 import probatio as vol
@@ -57,6 +57,7 @@ from .config_entry import MyConfigEntry
 from .exceptions_map import flow_error_for_exception
 from .schedule import (
     format_duration,
+    interval_phase_valid,
     is_degenerate_schedule,
     next_start_datetime,
     schedule_summary,
@@ -1106,8 +1107,8 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         # section rendered LAST so the main flow ends at the station
         # durations (issue #129). The frontend submits the inner values
         # nested under the section key; the flow steps flatten them before
-        # parsing. ``synchro_day`` is not a form field: the parser derives
-        # it from the anchor-date shift.
+        # parsing. ``synchro_day`` is not a form field: the parser submits the
+        # countdown base 0 and the library derives the phase from the anchor.
         fields[vol.Required(
             PERIODIC_SECTION,
         )] = section(
@@ -1200,13 +1201,24 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         station_durations = list(program_data.get("station_durations", []))
         station_durations.extend([0] * (num_stations - len(station_durations)))
         period_start_date = program_data.get("period_start_date")
+        if period_start_date is None:
+            # A device read never carries the client-side anchor (the header
+            # date is controller-owned), so the field falls back to the next
+            # run day: today plus the countdown for a valid cycle-4 phase,
+            # otherwise today. Picking a date still re-anchors the interval.
+            period_start_date = date.today()
+            if int(program_data.get("cycle", 0)) == 4:
+                synchro_day = int(program_data.get("synchro_day", 0))
+                period_length = int(program_data.get("period_length", 1))
+                if interval_phase_valid(period_length, synchro_day):
+                    period_start_date += timedelta(days=synchro_day)
         defaults: dict[str, Any] = {
             ATTR_NAME: program_data.get("name", ""),
             ATTR_CYCLE: _CYCLE_NAMES.get(int(program_data.get("cycle", 0)), "custom"),
             ATTR_WEEK_DAYS: self._weekdays_from_mask(
                 int(program_data.get("week_days", 0x7F))
             ),
-            ATTR_PERIOD_START_DATE: period_start_date or date.today(),
+            ATTR_PERIOD_START_DATE: period_start_date,
             ATTR_PERIOD_LENGTH: int(program_data.get("period_length", 1)),
             ATTR_WATER_BUDGET: int(program_data.get("water_budget", 100)),
             ATTR_INTER_STATION_DELAY: int(program_data.get("inter_station_delay", 0)),
@@ -1248,11 +1260,14 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         """Apply a schedule preset to a parsed program-editor input.
 
         Pure function: builds the program via ``_program_from_options_input``
-        (which derives ``synchro_day`` from the anchor-date shift, keeping the
-        stored phase when the anchor is unchanged) and, for a non-``none``
-        preset, overlays the preset's encoding on the result.
+        (which submits the countdown base ``synchro_day`` 0 and passes the
+        form's anchor through untouched) and, for a non-``none`` preset,
+        overlays the preset's encoding on the result.
         The anchored presets keep the form's ``period_start_date`` as their
-        anchor; ``every_day`` resets the periodic fields to weekly semantics.
+        anchor and the library derives the interval phase from it at pack
+        time, so no client-side renormalization is applied when the preset
+        changes the period length. ``every_day`` resets the periodic fields to
+        weekly semantics.
         When ``num_stations`` is not given, it is inferred from the duration
         fields present in the input (plain or station-name-labelled).
         """
@@ -1273,10 +1288,6 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         if preset == _PRESET_NONE:
             return program
         program.update(_SCHEDULE_PRESETS[preset])  # type: ignore[typeddict-item]
-        if program["cycle"] == 4 and program["period_length"] > 1:
-            # The overlay changed the period length: renormalize the parsed
-            # phase into the new period so the anchor stays meaningful.
-            program["synchro_day"] %= program["period_length"]
         return program
 
     @staticmethod
@@ -1425,13 +1436,14 @@ def _parse_program_input(
     """Parse program-editor form input into an IrrigationProgram.
 
     Module-level so the pure preset applier can reuse it without an
-    instance. ``synchro_day`` is derived, not taken from the form:
-    when the anchor date changed it shifts with the anchor
-    (``(stored_synchro_day + anchor_delta) % period_length``, so the
-    cycle content moves with the anchor), it is kept from the stored
-    program when the anchor is unchanged, and it starts at 0 on a
-    fresh create. A ``synchro_day`` key arriving in the form data is
-    ignored.
+    instance. ``synchro_day`` is never derived here: the parser always
+    submits the countdown base 0 and passes the form's picked
+    ``period_start_date`` through as the client-side anchor. For cycle 4
+    the library derives the countdown from that anchor at pack time
+    (``period_start_to_synchro``), so a stored phase from a previous read
+    is never reused. A ``synchro_day`` key arriving in the form data is
+    ignored. ``current_program`` is accepted for call-site compatibility;
+    the readback no longer carries a usable anchor or phase.
     """
     start_times = [
         SolemOptionsFlowHandler._parse_optional_time(
@@ -1442,24 +1454,7 @@ def _parse_program_input(
     period_start_date = data[ATTR_PERIOD_START_DATE]
     if isinstance(period_start_date, str):
         period_start_date = date.fromisoformat(period_start_date)
-    previous_period_start_date = (
-        current_program.get("period_start_date")
-        if current_program is not None
-        else None
-    )
     period_length = int(data[ATTR_PERIOD_LENGTH])
-    stored_synchro_day = (
-        int(current_program.get("synchro_day", 0)) if current_program is not None else 0
-    )
-    if period_start_date != previous_period_start_date:
-        synchro_day = (
-            (stored_synchro_day + (period_start_date - previous_period_start_date).days)
-            % period_length
-            if previous_period_start_date is not None
-            else 0
-        )
-    else:
-        synchro_day = stored_synchro_day
     return {
         "name": str(data[ATTR_NAME]),
         "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
@@ -1469,7 +1464,7 @@ def _parse_program_input(
             list(data[ATTR_WEEK_DAYS])
         ),
         "period_length": period_length,
-        "synchro_day": synchro_day,
+        "synchro_day": 0,
         "period_start_date": period_start_date,
         "start_times": start_times,
         "station_durations": [

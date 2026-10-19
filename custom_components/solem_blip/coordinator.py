@@ -675,10 +675,11 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                     if station <= self.num_stations
                 },
             }
-            # period_start_date is controller-owned restore metadata.
-            # Real BL-IP hardware normalizes/retains the fresh controller date
-            # after a write, so replaying the backup date makes an otherwise
-            # successful restore fail the byte-for-byte revision check.
+            # The header date is controller-owned restore metadata, and the
+            # client-side anchor is write-only (the snapshot rejects it as a
+            # patch field). Real BL-IP hardware normalizes/retains the fresh
+            # controller date after a write, so replaying a stored date would
+            # make an otherwise successful restore fail the revision check.
             program_frames, expected = expected.patch(
                 program_index,
                 changes,

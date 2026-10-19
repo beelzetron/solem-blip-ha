@@ -9,7 +9,11 @@ import pytest
 from homeassistant.core import HomeAssistant
 from solem_blip_ble.snapshot import InvalidSnapshot
 
-from custom_components.solem_blip.program_backup import ProgramBackupStore
+from custom_components.solem_blip.program_backup import (
+    ProgramBackupStore,
+    _program_changes,
+    _serialize_program,
+)
 
 
 PROGRAMS = {
@@ -51,6 +55,56 @@ async def test_backup_round_trip(hass: HomeAssistant) -> None:
 
     assert restored.programs == PROGRAMS
     assert restored.programs[0]["period_start_date"] == date(2026, 6, 1)
+
+
+@pytest.mark.asyncio
+async def test_backup_round_trips_controller_date(hass: HomeAssistant) -> None:
+    """The controller-owned header date survives persistence as a date."""
+    program = {**PROGRAMS[0], "controller_date": date(2026, 10, 19)}
+    backup = ProgramBackupStore(hass, "entry")
+    assert await backup.async_save_if_non_empty({0: program})
+
+    assert _serialize_program(program)["controller_date"] == "2026-10-19"
+
+    restored = ProgramBackupStore(hass, "entry")
+    await restored.async_load()
+
+    assert restored.programs[0]["controller_date"] == date(2026, 10, 19)
+    assert restored.programs[0]["period_start_date"] == date(2026, 6, 1)
+
+
+@pytest.mark.asyncio
+async def test_backup_tolerates_missing_date_keys(hass: HomeAssistant) -> None:
+    """Entries written without the anchor or header-date keys still load."""
+    program = {
+        key: value
+        for key, value in PROGRAMS[0].items()
+        if key not in ("period_start_date", "controller_date")
+    }
+    backup = ProgramBackupStore(hass, "entry")
+    assert await backup.async_save_if_non_empty({0: program})
+
+    restored = ProgramBackupStore(hass, "entry")
+    await restored.async_load()
+
+    assert "period_start_date" not in restored.programs[0]
+    assert "controller_date" not in restored.programs[0]
+    assert restored.programs[0]["name"] == "Morning"
+
+
+def test_program_changes_never_carry_dates() -> None:
+    """Restore patches must not replay the anchor or the header date.
+
+    ``period_start_date`` is write-only (the snapshot rejects it) and the
+    header date belongs to the controller, so both stay out of the patch.
+    """
+    changes = _program_changes(
+        {**PROGRAMS[0], "controller_date": date(2026, 10, 19)}
+    )
+
+    assert "period_start_date" not in changes
+    assert "controller_date" not in changes
+    assert changes["synchro_day"] == 0
 
 
 @pytest.mark.asyncio

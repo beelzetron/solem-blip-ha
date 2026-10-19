@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -2778,20 +2778,20 @@ wheels = [
 
 [[package]]
 name = "solem-blip-ble"
-version = "0.4.0b2"
+version = "0.4.0b3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
     { name = "bleak-retry-connector" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/21/f8/92854c138e4735f3dc86ecf30baa2548ba683753cb68b2096b3bbc9a91f2/solem_blip_ble-0.4.0b2.tar.gz", hash = "sha256:f378a081eed9769a6419fbccfd2d3305abc1456781a810083468c73b7a66dc72", size = 98781, upload-time = "2026-10-17T10:55:33.827Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/9d/3ce775de2f159524bfb392c8947e865ebf9104c6739208aa46e39428f471/solem_blip_ble-0.4.0b3.tar.gz", hash = "sha256:a07ae92962d5b5d8e1efac58fb4577de219655ab10989d2861ef454a5f15e137", size = 105191, upload-time = "2026-10-19T09:26:33.827Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/23/c86dfd86ff8c053d4c17668f6dddfd800f21854ccf893fd154ea4530a719/solem_blip_ble-0.4.0b2-py3-none-any.whl", hash = "sha256:1b97c769132f8c3657a83b88d972e815a477e2b708b4a962e3dbf37287c66cb6", size = 64545, upload-time = "2026-10-17T10:55:32.304Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/13/5610b0357a28082a7815fd83dd1bf46aea6c56844d62d0b4c6a1653710e5/solem_blip_ble-0.4.0b3-py3-none-any.whl", hash = "sha256:8aee869a5cac26633dfe3373dd5741876227f46f0b6d983727fa670f9f76dd7a", size = 66841, upload-time = "2026-10-19T09:26:32.601Z" },
 ]
 
 [[package]]
 name = "solem-blip-ha"
-version = "1.3.5b19"
+version = "1.4.0b3"
 source = { editable = "." }
 dependencies = [
     { name = "solem-blip-ble" },
@@ -2819,7 +2819,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-homeassistant-custom-component", marker = "extra == 'dev'", specifier = "==0.13.372" },
     { name = "serialx", marker = "extra == 'dev'", specifier = ">=1.11" },
-    { name = "solem-blip-ble", specifier = "==0.4.0b2" },
+    { name = "solem-blip-ble", specifier = "==0.4.0b3" },
 ]
 provides-extras = ["dev"]
 

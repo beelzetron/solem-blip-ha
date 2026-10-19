@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, time
+from datetime import date, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -44,6 +44,10 @@ from custom_components.solem_blip.const import (
 )
 from custom_components.solem_blip import config_flow as config_flow_module
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
+from solem_blip_ble.protocol import (
+    normalize_irrigation_program_for_write,
+    period_start_to_synchro,
+)
 from solem_blip_ble.exceptions import InvalidSnapshot
 from contextlib import contextmanager
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
@@ -853,8 +857,12 @@ async def test_options_flow_program_edit_writes_program(
     assert program["station_durations"] == [0, 120]
 
 
-def test_options_flow_program_edit_preserves_synchro_day_when_start_date_unchanged() -> None:
-    """Program editor keeps the existing phase when the period start is unchanged."""
+def test_options_flow_program_edit_submits_countdown_base_unchanged_anchor() -> None:
+    """An unchanged anchor keeps the picked date and submits synchro_day 0.
+
+    The stored phase is never reused: the library derives the countdown from
+    the anchor at pack time.
+    """
     handler = SolemOptionsFlowHandler()
 
     program = handler._program_from_options_input(
@@ -867,11 +875,12 @@ def test_options_flow_program_edit_preserves_synchro_day_when_start_date_unchang
         current_program=MOCK_IRRIGATION_PROGRAMS[2],
     )
 
-    assert program["synchro_day"] == 1
+    assert program["period_start_date"] == date(2026, 6, 1)
+    assert program["synchro_day"] == 0
 
 
-def test_options_flow_program_edit_derives_synchro_day_from_current_anchor() -> None:
-    """Changing the desired start date shifts phase from the controller anchor."""
+def test_options_flow_program_edit_reanchors_on_changed_date() -> None:
+    """A changed anchor is passed through as the new client anchor."""
     handler = SolemOptionsFlowHandler()
     current_program = {
         **MOCK_IRRIGATION_PROGRAMS[2],
@@ -891,7 +900,7 @@ def test_options_flow_program_edit_derives_synchro_day_from_current_anchor() -> 
     )
 
     assert program["period_start_date"] == date(2026, 6, 28)
-    assert program["synchro_day"] == 1
+    assert program["synchro_day"] == 0
 
 
 def test_options_flow_program_edit_resets_synchro_day_without_current_anchor() -> None:
@@ -1103,6 +1112,70 @@ def test_options_flow_program_edit_defaults_show_duration_minutes() -> None:
     assert defaults["station_2_duration"] == 25
     assert defaults["station_3_duration"] == 25
     assert defaults["station_4_duration"] == 0
+
+
+def test_program_defaults_keep_stored_anchor() -> None:
+    """A stored anchor (legacy backup) is prefilled exactly as it was."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {**MOCK_IRRIGATION_PROGRAMS[2], "period_start_date": date(2026, 6, 1)},
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == date(2026, 6, 1)
+
+
+def test_program_defaults_show_next_run_for_countdown() -> None:
+    """A device read has no anchor: cycle 4 shows today + synchro_day."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {
+            **MOCK_IRRIGATION_PROGRAMS[2],
+            "period_start_date": None,
+            "period_length": 3,
+            "synchro_day": 2,
+        },
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == date.today() + timedelta(days=2)
+
+
+def test_program_defaults_show_today_for_invalid_phase() -> None:
+    """An out-of-range countdown has no next run, so today is the fallback."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {
+            **MOCK_IRRIGATION_PROGRAMS[2],
+            "period_start_date": None,
+            "period_length": 3,
+            "synchro_day": 3,
+        },
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == date.today()
+
+
+def test_program_defaults_show_today_for_non_interval_cycles() -> None:
+    """Cycles 0-3 never apply a countdown to the prefilled date."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {
+            **MOCK_IRRIGATION_PROGRAMS[2],
+            "cycle": 0,
+            "period_start_date": None,
+            "period_length": 3,
+            "synchro_day": 2,
+        },
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == date.today()
 
 
 def test_options_flow_program_edit_schema_serializes(
@@ -1696,8 +1769,13 @@ def test_apply_preset_even_and_odd() -> None:
     assert odd["cycle"] == 2
 
 
-def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
-    """An anchored preset renormalizes the stored phase into its new period."""
+def test_apply_preset_keeps_anchor_and_countdown_base() -> None:
+    """An anchored preset keeps the form's anchor and submits synchro_day 0.
+
+    The stored period/phase of the program under edit is never renormalized
+    into the preset's period: the library derives the countdown from the
+    picked anchor when the program is packed for the wire.
+    """
     previous: IrrigationProgram = {
         "name": "Vasi",
         "inter_station_delay": 0,
@@ -1719,7 +1797,8 @@ def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
     )
 
     assert program["period_length"] == 3
-    assert program["synchro_day"] == 5 % 3
+    assert program["synchro_day"] == 0
+    assert program["period_start_date"] == date(2026, 6, 18)
 
 
 def test_apply_preset_anchored_periodic() -> None:
@@ -2145,45 +2224,59 @@ def _flat_editor_input(**overrides: object) -> dict[str, object]:
     return {**periodic, **data}
 
 
-def _parse_after_anchor_shift(period_start_date: str) -> IrrigationProgram:
-    """Re-parse the editor form after moving the anchor to period_start_date."""
-    previous = _stored_periodic_program(synchro_day=1)
-    data = _flat_editor_input(
-        period_start_date=period_start_date,
-        period_length=3,
-    )
-    data.pop("synchro_day")
-    return _parse_program_input(data, num_stations=2, current_program=previous)
-
-
-def test_parse_program_input_derives_synchro_day_from_anchor_shift() -> None:
-    """synchro_day shifts WITH the anchor, not just by the delta alone."""
-    parsed = _parse_after_anchor_shift("2026-09-03")
-
-    # (stored 1 + 2-day shift) % period 3 = 0; delta-only would give 2.
-    assert parsed["synchro_day"] == 0
-
-
-def test_parse_program_input_negative_anchor_shift() -> None:
-    """A backward anchor shift wraps via Python's non-negative modulo."""
-    parsed = _parse_after_anchor_shift("2026-08-31")
-
-    # (stored 1 + (-1)-day shift) % period 3 = 0, not negative.
-    assert parsed["synchro_day"] == 0
-
-
 def test_parse_program_input_keeps_synchro_day_when_anchor_unchanged() -> None:
-    """Unchanged anchor date keeps the stored synchro_day, ignoring the form."""
+    """The parser always submits synchro_day 0 and keeps the picked anchor.
+
+    ``period_start_date`` is a write-only client anchor, so a stored phase is
+    never reused - neither when the picked date equals the stored one nor when
+    it differs. The library derives the countdown from the anchor at pack time.
+    """
     previous = _stored_periodic_program(synchro_day=1)
-    data = _flat_editor_input(
-        period_start_date="2026-09-01",
-        period_length=5,
+
+    unchanged = _parse_program_input(
+        _flat_editor_input(period_start_date="2026-09-01", period_length=3),
+        num_stations=2,
+        current_program=previous,
     )
-    data["synchro_day"] = 0
+    changed = _parse_program_input(
+        _flat_editor_input(period_start_date="2026-09-03", period_length=3),
+        num_stations=2,
+        current_program=previous,
+    )
 
-    parsed = _parse_program_input(data, num_stations=2, current_program=previous)
+    assert unchanged["synchro_day"] == 0
+    assert unchanged["period_start_date"] == date(2026, 9, 1)
+    assert changed["synchro_day"] == 0
+    assert changed["period_start_date"] == date(2026, 9, 3)
 
-    assert parsed["synchro_day"] == 1
+
+def test_parse_program_input_ignores_form_synchro_day() -> None:
+    """A synchro_day key submitted with the form never reaches the program."""
+    data = _flat_editor_input(period_start_date="2026-09-03", period_length=3)
+    data["synchro_day"] = 2
+
+    parsed = _parse_program_input(data, num_stations=2)
+
+    assert parsed["synchro_day"] == 0
+    assert parsed["period_start_date"] == date(2026, 9, 3)
+
+
+def test_parse_program_input_anchor_drives_library_countdown() -> None:
+    """The picked anchor is what the library turns into the countdown."""
+    anchor = date.today() - timedelta(days=4)
+
+    parsed = _parse_program_input(
+        _flat_editor_input(
+            period_start_date=anchor.isoformat(),
+            period_length=3,
+        ),
+        num_stations=2,
+    )
+    normalized = normalize_irrigation_program_for_write(parsed, max_stations=6)
+
+    assert normalized["period_start_date"] == anchor
+    assert normalized["synchro_day"] == period_start_to_synchro(anchor, 3)
+    assert 0 <= normalized["synchro_day"] < 3
 
 
 # --- Issue #136: station-name editor read retry -----------------------------

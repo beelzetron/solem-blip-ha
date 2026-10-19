@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -24,29 +24,29 @@ def weekday_allowed(week_days: int, day: datetime) -> bool:
     return bool(week_days & (1 << day.weekday()))
 
 
-def periodic_start_day_matches(
-    day: datetime,
-    period_start_date: date,
-    period_length: int,
-    synchro_day: int = 0,
-) -> bool:
-    """Return whether ``day`` is on a periodic run day (start date + every N days)."""
-    if period_length <= 0:
-        return False
-    delta_days = (day.date() - period_start_date).days
-    return delta_days >= 0 and delta_days % period_length == synchro_day % period_length
+def interval_phase_valid(period_length: int, synchro_day: int) -> bool:
+    """Return whether a cycle-4 interval phase is inside its valid range.
+
+    ``synchro_day`` is a countdown from the write day to the next run, so the
+    only meaningful values are ``0 <= synchro_day < period_length``. Anything
+    else is a captured or submitted phase the client cannot interpret, and the
+    next start is unknown rather than guessed.
+    """
+    return period_length >= 1 and 0 <= synchro_day < period_length
 
 
 def day_matches_cycle(
     cycle: int,
-    period_length: int,
     week_days: int,
     day: datetime,
-    *,
-    period_start_date: date | None = None,
-    synchro_day: int = 0,
 ) -> bool:
-    """Return whether ``day`` matches the program cycle mode."""
+    """Return whether ``day`` matches the program cycle mode.
+
+    Cycle 4 (periodic/interval) is deliberately not answerable per day: the
+    device stores no absolute anchor, only a countdown phase, so interval run
+    days come from ``next_start_datetime``'s countdown path instead of a
+    calendar phase comparison. This helper always returns ``False`` for it.
+    """
     day_of_month = day.day
     if cycle == 0:
         return weekday_allowed(week_days, day)
@@ -56,15 +56,6 @@ def day_matches_cycle(
         return day_of_month % 2 == 1
     if cycle == 3:
         return day_of_month % 2 == 1 and day_of_month != 31
-    if cycle == 4:
-        if period_start_date is None:
-            return False
-        return periodic_start_day_matches(
-            day,
-            period_start_date,
-            period_length,
-            synchro_day,
-        )
     return False
 
 
@@ -142,6 +133,37 @@ def schedule_summary(
     return f"{starts} · {', '.join(durations)}"
 
 
+def _next_interval_start(
+    enabled: list[int],
+    period_length: int,
+    synchro_day: int,
+    local_now: datetime,
+) -> datetime | None:
+    """Return the next cycle-4 start from the countdown phase, or ``None``.
+
+    ``synchro_day`` is the controller's countdown in days from the write day to
+    the next run, so the first run day is local midnight today plus
+    ``synchro_day`` and later runs repeat every ``period_length`` days. The
+    scan is not clamped to ``_MAX_LOOKAHEAD_DAYS``: a period longer than the
+    lookahead window still yields its next run date.
+    """
+    if not interval_phase_valid(period_length, synchro_day):
+        return None
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    base_day = day_start + timedelta(days=synchro_day)
+    # Offset 0 is the countdown's own run day; one further period covers a
+    # start slot that has already passed today.
+    span = max(_MAX_LOOKAHEAD_DAYS, period_length * 2 + 1)
+    for offset in range(0, span, period_length):
+        candidate_day = base_day + timedelta(days=offset)
+        for minutes in sorted(enabled):
+            hour, minute = divmod(minutes, 60)
+            candidate = candidate_day.replace(hour=hour, minute=minute)
+            if candidate > local_now:
+                return candidate
+    return None
+
+
 def next_start_datetime(
     program: IrrigationProgram,
     now: datetime,
@@ -152,26 +174,23 @@ def next_start_datetime(
         return None
 
     cycle = program["cycle"]
-    period_length = program["period_length"]
-    synchro_day = program.get("synchro_day", 0)
-    week_days = program["week_days"]
-    period_start = program.get("period_start_date")
     if now.tzinfo is None:
         local_now = now.replace(tzinfo=datetime.now().astimezone().tzinfo)
     else:
         local_now = now
-    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if cycle == 4:
+        return _next_interval_start(
+            enabled,
+            program["period_length"],
+            program.get("synchro_day", 0),
+            local_now,
+        )
 
+    week_days = program["week_days"]
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     for offset in range(_MAX_LOOKAHEAD_DAYS):
         candidate_day = day_start + timedelta(days=offset)
-        if not day_matches_cycle(
-            cycle,
-            period_length,
-            week_days,
-            candidate_day,
-            period_start_date=period_start,
-            synchro_day=synchro_day,
-        ):
+        if not day_matches_cycle(cycle, week_days, candidate_day):
             continue
         for minutes in sorted(enabled):
             hour, minute = divmod(minutes, 60)
@@ -201,6 +220,9 @@ def build_schedule_attributes(
     }
     if period_start is not None:
         attrs["period_start_date"] = period_start.isoformat()
+    controller_date = program.get("controller_date")
+    if controller_date is not None:
+        attrs["controller_date"] = controller_date.isoformat()
     if program["cycle"] == 4:
         attrs["next_start_approximate"] = True
     for slot, minutes in enumerate(program["start_times"], start=1):
@@ -225,4 +247,7 @@ def schedule_context_attributes(program: IrrigationProgram) -> dict[str, Any]:
     }
     if period_start is not None:
         attrs["period_start_date"] = period_start.isoformat()
+    controller_date = program.get("controller_date")
+    if controller_date is not None:
+        attrs["controller_date"] = controller_date.isoformat()
     return attrs

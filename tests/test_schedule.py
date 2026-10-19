@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from custom_components.solem_blip.schedule import (
     build_schedule_attributes,
     day_matches_cycle,
@@ -12,9 +14,9 @@ from custom_components.solem_blip.schedule import (
     enabled_start_count,
     format_duration,
     format_start_time,
+    interval_phase_valid,
     is_degenerate_schedule,
     next_start_datetime,
-    periodic_start_day_matches,
     schedule_context_attributes,
     schedule_summary,
     weekday_allowed,
@@ -183,42 +185,115 @@ def test_next_start_datetime_none_when_disabled():
     assert next_start_datetime(CAPTURE_PROGRAM_B, now) is None
 
 
-def test_periodic_start_day_matches_program_c():
-    start = date(2026, 6, 1)
-    monday = datetime(2026, 6, 1, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
-    thursday = datetime(2026, 6, 4, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
-    friday = datetime(2026, 6, 5, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
-    assert periodic_start_day_matches(monday, start, 3)
-    assert periodic_start_day_matches(thursday, start, 3)
-    assert not periodic_start_day_matches(friday, start, 3)
+def _interval_program(
+    *,
+    period_length: int = 3,
+    synchro_day: int = 0,
+    start_minutes: int = 270,
+) -> dict:
+    """Build a cycle-4 program as a device read reports it (no anchor)."""
+    return {
+        "name": "Interval",
+        "inter_station_delay": 0,
+        "water_budget": 100,
+        "cycle": 4,
+        "week_days": 0x7F,
+        "period_length": period_length,
+        "synchro_day": synchro_day,
+        "period_start_date": None,
+        "start_times": [start_minutes] + [None] * 7,
+        "station_durations": [1500] + [0] * 5,
+    }
 
 
-def test_periodic_start_day_matches_phase_offset():
-    start = date(2026, 6, 2)
-    tuesday = datetime(2026, 6, 2, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
-    wednesday = datetime(2026, 6, 3, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
-    assert periodic_start_day_matches(tuesday, start, 2, synchro_day=0)
-    assert not periodic_start_day_matches(tuesday, start, 2, synchro_day=1)
-    assert periodic_start_day_matches(wednesday, start, 2, synchro_day=1)
+def test_interval_phase_valid_range():
+    assert interval_phase_valid(3, 0)
+    assert interval_phase_valid(3, 2)
+    assert interval_phase_valid(1, 0)
+    assert not interval_phase_valid(3, 3)
+    assert not interval_phase_valid(3, -1)
+    assert not interval_phase_valid(0, 0)
 
 
-def test_day_matches_cycle_program_c_ignores_week_days():
+def test_day_matches_cycle_cycle_four_is_not_a_calendar_phase():
     tz = ZoneInfo("Europe/Rome")
     monday = datetime(2026, 6, 1, 12, 0, tzinfo=tz)
-    thursday = datetime(2026, 6, 4, 12, 0, tzinfo=tz)
-    friday = datetime(2026, 6, 5, 12, 0, tzinfo=tz)
-    start = date(2026, 6, 1)
-    assert day_matches_cycle(4, 3, 0x11, monday, period_start_date=start)
-    assert day_matches_cycle(4, 3, 0x11, thursday, period_start_date=start)
-    assert not day_matches_cycle(4, 3, 0x11, friday, period_start_date=start)
+    assert not day_matches_cycle(4, 0x11, monday)
 
 
 def test_day_matches_cycle_custom_uses_week_days_only():
     tz = ZoneInfo("Europe/Rome")
     monday = datetime(2026, 6, 1, 12, 0, tzinfo=tz)
     tuesday = datetime(2026, 6, 2, 12, 0, tzinfo=tz)
-    assert day_matches_cycle(0, 0, 0x01, monday)
-    assert not day_matches_cycle(0, 0, 0x01, tuesday)
+    assert day_matches_cycle(0, 0x01, monday)
+    assert not day_matches_cycle(0, 0x01, tuesday)
+
+
+def test_next_start_datetime_interval_countdown_today():
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 19, 3, 0, tzinfo=tz)
+    program = _interval_program(period_length=3, synchro_day=0)
+
+    assert next_start_datetime(program, now) == datetime(
+        2026, 10, 19, 4, 30, tzinfo=tz
+    )
+
+
+def test_next_start_datetime_interval_passed_slot_rolls_one_period():
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=tz)
+    program = _interval_program(period_length=3, synchro_day=0)
+
+    assert next_start_datetime(program, now) == datetime(
+        2026, 10, 22, 4, 30, tzinfo=tz
+    )
+
+
+def test_next_start_datetime_interval_counts_down_from_today():
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=tz)
+    program = _interval_program(period_length=3, synchro_day=2)
+
+    assert next_start_datetime(program, now) == datetime(
+        2026, 10, 21, 4, 30, tzinfo=tz
+    )
+
+
+def test_next_start_datetime_interval_period_beyond_lookahead():
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=tz)
+    program = _interval_program(period_length=20, synchro_day=5)
+
+    assert next_start_datetime(program, now) == datetime(
+        2026, 10, 24, 4, 30, tzinfo=tz
+    )
+
+
+def test_next_start_datetime_interval_long_period_covers_full_cycle():
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=tz)
+    program = _interval_program(period_length=20, synchro_day=0)
+
+    # The 04:30 slot already passed today, so the next run is a whole
+    # 20-day period out - well past the 14-day lookahead window.
+    assert next_start_datetime(program, now) == datetime(
+        2026, 11, 8, 4, 30, tzinfo=tz
+    )
+
+
+@pytest.mark.parametrize(
+    ("period_length", "synchro_day"),
+    [(3, 3), (3, -1), (1, 1), (0, 0)],
+)
+def test_next_start_datetime_interval_invalid_phase_is_none(
+    period_length: int, synchro_day: int
+) -> None:
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=ZoneInfo("Europe/Rome"))
+    program = _interval_program(
+        period_length=period_length, synchro_day=synchro_day
+    )
+
+    assert next_start_datetime(program, now) is None
 
 
 def test_next_start_datetime_program_c_after_morning_on_june_1():
@@ -250,7 +325,8 @@ def test_next_start_datetime_respects_cycle_phase_for_siepe_and_vasi():
     )
 
 
-def test_next_start_datetime_uses_derived_phase_from_controller_anchor():
+def test_next_start_datetime_interval_ignores_client_anchor():
+    """The countdown, not a stored anchor, places the next interval run."""
     tz = ZoneInfo("Europe/Rome")
     now = datetime(2026, 6, 27, 10, 0, tzinfo=tz)
     program = {
@@ -260,14 +336,11 @@ def test_next_start_datetime_uses_derived_phase_from_controller_anchor():
         "period_start_date": date(2026, 6, 27),
     }
 
-    assert next_start_datetime(program, now) == datetime(
-        2026,
-        6,
-        28,
-        4,
-        30,
-        tzinfo=tz,
-    )
+    anchored = next_start_datetime(program, now)
+    program["period_start_date"] = None
+
+    assert anchored == datetime(2026, 6, 28, 4, 30, tzinfo=tz)
+    assert next_start_datetime(program, now) == anchored
 
 
 def test_build_schedule_attributes_maps_station_names():
@@ -293,25 +366,46 @@ def test_schedule_context_attributes():
     assert attrs["enabled_start_count"] == 1
 
 
-def test_periodic_start_day_matches_rejects_invalid_period():
-    day = datetime(2026, 6, 1, tzinfo=ZoneInfo("Europe/Rome"))
-    assert not periodic_start_day_matches(day, date(2026, 6, 1), 0)
+def test_schedule_attributes_expose_controller_date():
+    program = {**CAPTURE_PROGRAM_C, "controller_date": date(2026, 10, 19)}
+
+    attrs = build_schedule_attributes(program, {})
+    context = schedule_context_attributes(program)
+
+    assert attrs["controller_date"] == "2026-10-19"
+    assert context["controller_date"] == "2026-10-19"
+    # Cycle 4 stays explicitly approximate: the countdown is a client-side
+    # model, not a controller guarantee.
+    assert attrs["next_start_approximate"] is True
+
+
+def test_schedule_attributes_omit_absent_dates():
+    """A device read carries neither the anchor nor a header date."""
+    program = {
+        **CAPTURE_PROGRAM_C,
+        "period_start_date": None,
+        "controller_date": None,
+    }
+
+    attrs = build_schedule_attributes(program, {})
+    context = schedule_context_attributes(program)
+
+    assert "period_start_date" not in attrs
+    assert "controller_date" not in attrs
+    assert "period_start_date" not in context
+    assert "controller_date" not in context
 
 
 def test_day_matches_cycle_pair_odd_and_even_month_days():
     tz = ZoneInfo("Europe/Rome")
     even_day = datetime(2026, 6, 2, 12, 0, tzinfo=tz)
     odd_day = datetime(2026, 6, 1, 12, 0, tzinfo=tz)
-    assert day_matches_cycle(1, 0, 0, even_day)
-    assert not day_matches_cycle(1, 0, 0, odd_day)
-    assert day_matches_cycle(2, 0, 0, odd_day)
-    assert day_matches_cycle(3, 0, 0, odd_day)
-    assert not day_matches_cycle(99, 0, 0, odd_day)
-
-
-def test_day_matches_cycle_four_without_start_date():
-    day = datetime(2026, 6, 1, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
-    assert not day_matches_cycle(4, 3, 0, day, period_start_date=None)
+    assert day_matches_cycle(1, 0, even_day)
+    assert not day_matches_cycle(1, 0, odd_day)
+    assert day_matches_cycle(2, 0, odd_day)
+    assert day_matches_cycle(3, 0, odd_day)
+    assert not day_matches_cycle(3, 0, datetime(2026, 7, 31, 12, 0, tzinfo=tz))
+    assert not day_matches_cycle(99, 0, odd_day)
 
 
 def test_next_start_datetime_handles_naive_now():
