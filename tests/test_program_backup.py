@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from solem_blip_ble.snapshot import InvalidSnapshot
 
 from custom_components.solem_blip.program_backup import (
@@ -552,3 +553,53 @@ async def test_explicit_replace_persistence_failure_rolls_back_memory(
 
     assert backup.programs == old_programs
     assert backup.snapshot is old_snapshot
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_backup_with_out_of_range_phase(
+    hass: HomeAssistant, coordinator, mock_solem_client
+) -> None:
+    """A backup the library refuses to re-encode fails before any restore starts.
+
+    ``ProgramSnapshot.patch`` re-validates the cycle-4 interval invariant, so a
+    backup captured from an out-of-range device state (``synchro_day`` not
+    smaller than ``period_length``) raises ``InvalidSnapshot`` while the
+    restore plan is built. That must surface as a friendly
+    ``HomeAssistantError`` naming the program slot, and no restore journal may
+    be opened.
+    """
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    out_of_range = {
+        0: {
+            **PROGRAMS[0],
+            "cycle": 4,
+            "period_length": 3,
+            "synchro_day": 3,
+        }
+    }
+    assert await coordinator.program_backup.async_save_if_non_empty(out_of_range)
+
+    before = MagicMock()
+    before.revision = "before"
+    before.frames = ()
+    before.patch.side_effect = InvalidSnapshot(
+        "synchro_day 3 must be smaller than period_length 3"
+    )
+    mock_solem_client.get_program_snapshot = AsyncMock(return_value=before)
+    mock_solem_client.write_program_frames = AsyncMock()
+    coordinator.api = mock_solem_client
+
+    with patch.object(
+        coordinator.program_backup, "async_begin_restore", new=AsyncMock()
+    ) as begin_restore:
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await coordinator.restore_irrigation_programs()
+
+    message = str(exc_info.value)
+    assert "program A" in message
+    assert "synchro_day 3 must be smaller than period_length 3" in message
+    begin_restore.assert_not_awaited()
+    mock_solem_client.write_program_frames.assert_not_awaited()
+    assert coordinator.program_backup.pending is None
+    assert coordinator.program_backup.programs == out_of_range

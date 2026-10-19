@@ -197,8 +197,11 @@ class WateringActivity:
             or read_at is None
             or not 0 <= (now - read_at).total_seconds() <= 7200
             # Interval programs carry a countdown phase, not an absolute
-            # anchor: an out-of-range phase cannot be placed on a run day, so
-            # keep the run Unknown instead of guessing.
+            # anchor (expected firmware behaviour, pending hardware
+            # validation), and the phase comes from the latest config read, so
+            # it can be up to one refresh interval old. An out-of-range phase
+            # cannot be placed on a run day at all, so keep the run Unknown
+            # instead of guessing.
             or (
                 program["cycle"] == 4
                 and not interval_phase_valid(

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Literal
+
+from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from solem_blip_ble import IrrigationProgram
@@ -27,10 +29,14 @@ def weekday_allowed(week_days: int, day: datetime) -> bool:
 def interval_phase_valid(period_length: int, synchro_day: int) -> bool:
     """Return whether a cycle-4 interval phase is inside its valid range.
 
-    ``synchro_day`` is a countdown from the write day to the next run, so the
-    only meaningful values are ``0 <= synchro_day < period_length``. Anything
-    else is a captured or submitted phase the client cannot interpret, and the
-    next start is unknown rather than guessed.
+    ``synchro_day`` is expected to be a countdown from the write day to the
+    next run, so the only meaningful values are ``0 <= synchro_day <
+    period_length``. Anything else is a captured or submitted phase the client
+    cannot interpret, and the next start is unknown rather than guessed.
+
+    That countdown reading is an expectation pending hardware validation: it
+    mirrors what solem-blip-ble 0.4.0b3 assumes and what the vendor client
+    maintains, not a behaviour verified against a real controller.
     """
     return period_length >= 1 and 0 <= synchro_day < period_length
 
@@ -133,6 +139,20 @@ def schedule_summary(
     return f"{starts} · {', '.join(durations)}"
 
 
+def _first_start_after(
+    day: datetime,
+    enabled: list[int],
+    now: datetime,
+) -> datetime | None:
+    """Return the earliest enabled start slot on ``day`` that is after ``now``."""
+    for minutes in sorted(enabled):
+        hour, minute = divmod(minutes, 60)
+        candidate = day.replace(hour=hour, minute=minute)
+        if candidate > now:
+            return candidate
+    return None
+
+
 def _next_interval_start(
     enabled: list[int],
     period_length: int,
@@ -141,43 +161,69 @@ def _next_interval_start(
 ) -> datetime | None:
     """Return the next cycle-4 start from the countdown phase, or ``None``.
 
-    ``synchro_day`` is the controller's countdown in days from the write day to
-    the next run, so the first run day is local midnight today plus
-    ``synchro_day`` and later runs repeat every ``period_length`` days. The
-    scan is not clamped to ``_MAX_LOOKAHEAD_DAYS``: a period longer than the
-    lookahead window still yields its next run date.
+    ``synchro_day`` is expected to be the controller's countdown in days from
+    the write day to the next run, so the first run day is local midnight
+    today plus ``synchro_day`` and later runs repeat every ``period_length``
+    days. That is an expectation pending hardware validation, and it carries
+    two assumptions worth stating: the countdown is taken from the latest
+    config read, so a cached value can be up to one refresh interval old, and
+    ``today + synchro_day`` only holds if the firmware decrements the
+    countdown daily.
+
+    Only two candidate run days are checked: the countdown's own run day, and
+    one further period for a start slot that already passed on that first run
+    day. The scan is therefore not clamped to ``_MAX_LOOKAHEAD_DAYS``: a period
+    longer than the lookahead window still yields its next run date.
     """
     if not interval_phase_valid(period_length, synchro_day):
         return None
     day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     base_day = day_start + timedelta(days=synchro_day)
-    # Offset 0 is the countdown's own run day; one further period covers a
-    # start slot that has already passed today.
-    span = max(_MAX_LOOKAHEAD_DAYS, period_length * 2 + 1)
-    for offset in range(0, span, period_length):
-        candidate_day = base_day + timedelta(days=offset)
-        for minutes in sorted(enabled):
-            hour, minute = divmod(minutes, 60)
-            candidate = candidate_day.replace(hour=hour, minute=minute)
-            if candidate > local_now:
-                return candidate
-    return None
+    first = _first_start_after(base_day, enabled, local_now)
+    if first is not None:
+        return first
+    return _first_start_after(
+        base_day + timedelta(days=period_length), enabled, local_now
+    )
+
+
+def _dst_aware_now(now: datetime) -> datetime:
+    """Return ``now`` carrying a DST-aware local timezone.
+
+    Callers pass ``datetime.now().astimezone()`` (see
+    ``coordinator_descriptors``), whose ``tzinfo`` is a fixed offset frozen at
+    the instant it was taken: adding days across a DST boundary keeps that
+    stale offset, so the returned instant is an hour off the wall clock the
+    slot names. ``dt_util.as_local`` swaps in Home Assistant's ``ZoneInfo``
+    (and interprets a naive ``now`` in ``dt_util.DEFAULT_TIME_ZONE``), so day
+    arithmetic keeps local midnight and the wall-clock start slot.
+
+    A ``now`` that already carries an IANA zone is DST-aware by construction
+    and is left untouched: rebasing it into HA's zone would move the wall
+    clock the caller asked about rather than fix an offset.
+    """
+    if now.tzinfo is None or isinstance(now.tzinfo, timezone):
+        return dt_util.as_local(now)
+    return now
 
 
 def next_start_datetime(
     program: IrrigationProgram,
     now: datetime,
 ) -> datetime | None:
-    """Return the next scheduled start in local time, or ``None`` if none."""
+    """Return the next scheduled start in local time, or ``None`` if none.
+
+    ``now`` is normalised to a DST-aware local timezone before any day
+    arithmetic (see ``_dst_aware_now``). For cycle 4 the next run comes from
+    the controller countdown, an expectation pending hardware validation (see
+    ``_next_interval_start``).
+    """
     enabled = [minutes for minutes in program["start_times"] if minutes is not None]
     if not enabled:
         return None
 
     cycle = program["cycle"]
-    if now.tzinfo is None:
-        local_now = now.replace(tzinfo=datetime.now().astimezone().tzinfo)
-    else:
-        local_now = now
+    local_now = _dst_aware_now(now)
     if cycle == 4:
         return _next_interval_start(
             enabled,

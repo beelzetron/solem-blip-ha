@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from homeassistant.helpers import issue_registry as ir
 
@@ -680,11 +681,23 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             # patch field). Real BL-IP hardware normalizes/retains the fresh
             # controller date after a write, so replaying a stored date would
             # make an otherwise successful restore fail the revision check.
-            program_frames, expected = expected.patch(
-                program_index,
-                changes,
-                self.num_stations,
-            )
+            try:
+                program_frames, expected = expected.patch(
+                    program_index,
+                    changes,
+                    self.num_stations,
+                )
+            except InvalidSnapshot as err:
+                # A backup captured from a state the library now refuses to
+                # encode (for example a cycle-4 program whose stored
+                # ``synchro_day`` is not smaller than its ``period_length``)
+                # must fail before any journal entry exists: the pending
+                # restore point stays untouched and no frame is written.
+                raise HomeAssistantError(
+                    f"Cannot restore program {PROGRAM_LABELS[program_index]}: "
+                    f"the backed-up schedule is not a valid controller state "
+                    f"({err})"
+                ) from err
             frames.extend(program_frames)
 
         if not frames:

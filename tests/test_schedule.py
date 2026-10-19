@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
+from homeassistant.util import dt as dt_util
 
 from custom_components.solem_blip.schedule import (
     build_schedule_attributes,
@@ -294,6 +296,120 @@ def test_next_start_datetime_interval_invalid_phase_is_none(
     )
 
     assert next_start_datetime(program, now) is None
+
+
+def test_next_start_datetime_interval_last_valid_phase() -> None:
+    """``synchro_day == period_length - 1`` is the latest legal countdown."""
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=tz)
+    program = _interval_program(period_length=5, synchro_day=4)
+
+    assert interval_phase_valid(5, 4)
+    assert next_start_datetime(program, now) == datetime(
+        2026, 10, 23, 4, 30, tzinfo=tz
+    )
+
+
+def test_next_start_datetime_interval_max_period_length() -> None:
+    """A 255-day period with a valid countdown still yields its run day."""
+    tz = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=tz)
+    program = _interval_program(period_length=255, synchro_day=254)
+
+    assert interval_phase_valid(255, 254)
+    assert next_start_datetime(program, now) == datetime(
+        2027, 6, 30, 4, 30, tzinfo=tz
+    )
+
+
+def test_next_start_datetime_interval_naive_now_uses_default_zone() -> None:
+    """A naive ``now`` is interpreted in HA's default timezone, not localhost."""
+    naive_now = datetime(2026, 10, 19, 10, 0)
+    program = _interval_program(period_length=3, synchro_day=2)
+
+    result = next_start_datetime(program, naive_now)
+
+    assert result == datetime(2026, 10, 21, 4, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    assert result is not None
+    assert result.hour == 4 and result.minute == 30
+
+
+def test_next_start_datetime_interval_multiple_slots_earliest_after_now() -> None:
+    """Only the first enabled slot after ``now`` on the run day wins."""
+    tz = ZoneInfo("Europe/Rome")
+    # Slot 1 is 10:00 and slot 2 is 04:30; the run day is today itself.
+    program = {
+        **_interval_program(period_length=3, synchro_day=0),
+        "start_times": [600, 270, None, None, None, None, None, None],
+    }
+
+    # 03:00 is before both slots: the earliest one wins, not the first slot.
+    assert next_start_datetime(program, datetime(2026, 10, 19, 3, 0, tzinfo=tz)) == (
+        datetime(2026, 10, 19, 4, 30, tzinfo=tz)
+    )
+    # 05:00 has passed 04:30: the next slot on the same run day wins, so the
+    # result does not roll a whole period out.
+    assert next_start_datetime(program, datetime(2026, 10, 19, 5, 0, tzinfo=tz)) == (
+        datetime(2026, 10, 19, 10, 0, tzinfo=tz)
+    )
+    # Past the last slot the countdown rolls one period, keeping 04:30.
+    assert next_start_datetime(program, datetime(2026, 10, 19, 11, 0, tzinfo=tz)) == (
+        datetime(2026, 10, 22, 4, 30, tzinfo=tz)
+    )
+
+
+@contextmanager
+def _local_zone(zone: str):
+    """Temporarily set HA's default timezone for a test block."""
+    previous = dt_util.DEFAULT_TIME_ZONE
+    dt_util.set_default_time_zone(dt_util.get_time_zone(zone))
+    try:
+        yield
+    finally:
+        dt_util.set_default_time_zone(previous)
+
+
+def test_next_start_datetime_interval_fixed_offset_crosses_spring_forward() -> None:
+    """A fixed-offset ``now`` keeps the wall-clock slot across spring-forward.
+
+    ``coordinator_descriptors`` passes ``datetime.now().astimezone()``, whose
+    offset is frozen at the moment it was taken. Adding a multi-day countdown
+    across the March transition used to keep the winter offset and return an
+    instant an hour off the 04:30 slot; normalising to HA's ZoneInfo fixes it.
+    """
+    rome = ZoneInfo("Europe/Rome")
+    # 10:00 on 15 March 2026 in Rome is UTC+1: a fixed-offset copy of it.
+    now = datetime(2026, 3, 15, 10, 0, tzinfo=timezone(timedelta(hours=1)))
+    program = _interval_program(period_length=20, synchro_day=15)
+
+    with _local_zone("Europe/Rome"):
+        result = next_start_datetime(program, now)
+
+        assert result == datetime(2026, 3, 30, 4, 30, tzinfo=rome)
+        assert result is not None
+        assert result.utcoffset() == timedelta(hours=2)
+        assert dt_util.as_local(result).hour == 4
+        assert dt_util.as_local(result).minute == 30
+
+
+def test_next_start_datetime_interval_fixed_offset_crosses_fall_back() -> None:
+    """A fixed-offset ``now`` keeps the wall-clock slot across fall-back.
+
+    The reported case: a period-20 countdown taken in October used to place
+    the November run at 04:30+02:00 instead of the local 04:30+01:00.
+    """
+    rome = ZoneInfo("Europe/Rome")
+    now = datetime(2026, 10, 10, 10, 0, tzinfo=timezone(timedelta(hours=2)))
+    program = _interval_program(period_length=20, synchro_day=15)
+
+    with _local_zone("Europe/Rome"):
+        result = next_start_datetime(program, now)
+
+        assert result == datetime(2026, 10, 25, 4, 30, tzinfo=rome)
+        assert result is not None
+        assert result.utcoffset() == timedelta(hours=1)
+        assert dt_util.as_local(result).hour == 4
+        assert dt_util.as_local(result).minute == 30
 
 
 def test_next_start_datetime_program_c_after_morning_on_june_1():

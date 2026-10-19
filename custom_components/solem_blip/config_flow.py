@@ -25,6 +25,7 @@ from homeassistant.util import dt as dt_util
 
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
 from solem_blip_ble.exceptions import InvalidSnapshot
+from solem_blip_ble.protocol import period_start_to_synchro
 
 from .bluetooth import (
     async_get_connectable_device,
@@ -1107,8 +1108,9 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         # section rendered LAST so the main flow ends at the station
         # durations (issue #129). The frontend submits the inner values
         # nested under the section key; the flow steps flatten them before
-        # parsing. ``synchro_day`` is not a form field: the parser submits the
-        # countdown base 0 and the library derives the phase from the anchor.
+        # parsing. ``synchro_day`` is not a form field: the parser derives the
+        # countdown from the picked anchor so the preview matches the day the
+        # library will write.
         fields[vol.Required(
             PERIODIC_SECTION,
         )] = section(
@@ -1203,9 +1205,15 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         period_start_date = program_data.get("period_start_date")
         if period_start_date is None:
             # A device read never carries the client-side anchor (the header
-            # date is controller-owned), so the field falls back to the next
-            # run day: today plus the countdown for a valid cycle-4 phase,
-            # otherwise today. Picking a date still re-anchors the interval.
+            # date is controller-owned), so the field is prefilled with the
+            # client-side anchor that reproduces today's countdown: today plus
+            # the countdown for a valid cycle-4 phase, otherwise today. That
+            # round trip is the point - the parser derives ``synchro_day``
+            # back from the prefilled date, so an untouched form writes the
+            # same phase the device reported. It is not literally the next run
+            # day when today's start slot has already passed. The countdown
+            # reading is an expectation pending hardware validation, taken
+            # from the latest config read (so up to one refresh interval old).
             period_start_date = date.today()
             if int(program_data.get("cycle", 0)) == 4:
                 synchro_day = int(program_data.get("synchro_day", 0))
@@ -1260,14 +1268,16 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         """Apply a schedule preset to a parsed program-editor input.
 
         Pure function: builds the program via ``_program_from_options_input``
-        (which submits the countdown base ``synchro_day`` 0 and passes the
-        form's anchor through untouched) and, for a non-``none`` preset,
-        overlays the preset's encoding on the result.
+        (which derives the countdown from the form's anchor and period length
+        and passes the form's anchor through untouched) and, for a non-``none``
+        preset, overlays the preset's encoding on the result.
         The anchored presets keep the form's ``period_start_date`` as their
-        anchor and the library derives the interval phase from it at pack
-        time, so no client-side renormalization is applied when the preset
-        changes the period length. ``every_day`` resets the periodic fields to
-        weekly semantics.
+        anchor, so the countdown is re-derived from that anchor and the
+        preset's ``period_length``: the overlay can change the period, and a
+        stale countdown from the form's period would make the preview place a
+        run day the library will not write. The library derives the same value
+        at pack time. ``every_day`` resets the periodic fields to weekly
+        semantics, where the countdown is 0 again.
         When ``num_stations`` is not given, it is inferred from the duration
         fields present in the input (plain or station-name-labelled).
         """
@@ -1288,6 +1298,13 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         if preset == _PRESET_NONE:
             return program
         program.update(_SCHEDULE_PRESETS[preset])  # type: ignore[typeddict-item]
+        anchor = program["period_start_date"]
+        if anchor is not None:
+            program["synchro_day"] = _countdown_for_anchor(
+                int(program["cycle"]),
+                anchor,
+                int(program["period_length"]),
+            )
         return program
 
     @staticmethod
@@ -1426,6 +1443,32 @@ def _flatten_periodic_section(data: dict[str, Any]) -> dict[str, Any]:
     return {**periodic, **data}
 
 
+def _countdown_for_anchor(
+    cycle: int,
+    period_start_date: date,
+    period_length: int,
+) -> int:
+    """Return the client-side countdown for a cycle-4 anchor, else ``0``.
+
+    ``period_start_to_synchro`` is the library's own anchor-to-countdown
+    conversion, so deriving the value here keeps the form preview and the
+    written frame on the same day by construction. The countdown reading is an
+    expectation pending hardware validation: the library assumes the firmware
+    decrements ``synchro_day`` daily from the write day to the next run. The
+    value is derived against today's date, so it matches what the library packs
+    at write time, while a phase read back from the device can be up to one
+    refresh interval old. Cycles 0-3 carry no interval phase and always submit
+    ``0``.
+    """
+    if cycle != 4:
+        return 0
+    return period_start_to_synchro(
+        period_start_date,
+        period_length,
+        today=date.today(),
+    )
+
+
 def _parse_program_input(
     data: dict[str, Any],
     *,
@@ -1436,14 +1479,16 @@ def _parse_program_input(
     """Parse program-editor form input into an IrrigationProgram.
 
     Module-level so the pure preset applier can reuse it without an
-    instance. ``synchro_day`` is never derived here: the parser always
-    submits the countdown base 0 and passes the form's picked
-    ``period_start_date`` through as the client-side anchor. For cycle 4
-    the library derives the countdown from that anchor at pack time
-    (``period_start_to_synchro``), so a stored phase from a previous read
-    is never reused. A ``synchro_day`` key arriving in the form data is
-    ignored. ``current_program`` is accepted for call-site compatibility;
-    the readback no longer carries a usable anchor or phase.
+    instance. For cycle 4 the parser DERIVES ``synchro_day`` from the picked
+    ``period_start_date`` anchor (``period_start_to_synchro``) instead of
+    submitting a hard-coded ``0``: the preview's ``next_start_datetime`` then
+    places the same run day the library will write. The anchor still wins at
+    pack time, so the derived countdown only has to agree with the wire, never
+    replace it; and because it is derived, a stored phase from a previous read
+    is never reused. Cycles 0-3 keep ``synchro_day`` 0. A ``synchro_day`` key
+    arriving in the form data is ignored. ``current_program`` is accepted for
+    call-site compatibility; the readback no longer carries a usable anchor or
+    phase.
     """
     start_times = [
         SolemOptionsFlowHandler._parse_optional_time(
@@ -1455,16 +1500,19 @@ def _parse_program_input(
     if isinstance(period_start_date, str):
         period_start_date = date.fromisoformat(period_start_date)
     period_length = int(data[ATTR_PERIOD_LENGTH])
+    cycle = _CYCLES[str(data[ATTR_CYCLE])]
     return {
         "name": str(data[ATTR_NAME]),
         "inter_station_delay": int(data[ATTR_INTER_STATION_DELAY]),
         "water_budget": int(data[ATTR_WATER_BUDGET]),
-        "cycle": _CYCLES[str(data[ATTR_CYCLE])],
+        "cycle": cycle,
         "week_days": SolemOptionsFlowHandler._weekdays_mask(
             list(data[ATTR_WEEK_DAYS])
         ),
         "period_length": period_length,
-        "synchro_day": 0,
+        "synchro_day": _countdown_for_anchor(
+            cycle, period_start_date, period_length
+        ),
         "period_start_date": period_start_date,
         "start_times": start_times,
         "station_durations": [
