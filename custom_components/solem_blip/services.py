@@ -14,7 +14,7 @@ from homeassistant.helpers import device_registry as dr
 from solem_blip_ble import IrrigationProgram
 
 from .config_entry import MyConfigEntry
-from .const import DOMAIN, PROGRAM_LABELS
+from .const import DOMAIN, MAX_PERIOD_LENGTH, PROGRAM_LABELS
 from .name_read_probe import run_name_read_probe
 
 if TYPE_CHECKING:
@@ -92,7 +92,7 @@ _SET_PROGRAM_SCHEMA = _COMMON_SERVICE_SCHEMA.extend(
             cv.ensure_list, list
         ),
         vol.Optional(ATTR_PERIOD_LENGTH, default=1): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=255)
+            vol.Coerce(int), vol.Range(min=1, max=MAX_PERIOD_LENGTH)
         ),
         vol.Optional(ATTR_SYNCHRO_DAY, default=0): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=255)

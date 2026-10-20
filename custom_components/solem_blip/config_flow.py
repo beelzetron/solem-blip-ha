@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import probatio as vol
@@ -45,6 +45,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MAX_NUM_STATIONS,
+    MAX_PERIOD_LENGTH,
     MAX_SCAN_INTERVAL,
     MIN_NUM_STATIONS,
     MIN_SCAN_INTERVAL,
@@ -164,6 +165,37 @@ _DEGENERATE_WARNINGS: dict[str, str] = {
     "no_durations": "All station durations are zero - nothing would be watered.",
     "no_starts": "All start times are cleared - this program can never start.",
 }
+
+# Fixed weekday abbreviations for the first-run-day labels. The tuple is fixed
+# for determinism: a locale-dependent strftime("%a") would make the label text
+# depend on the HA locale, so the labels (and the tests asserting them) would
+# drift between installs.
+WEEKDAY_ABBREV = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _period_label(day: date) -> str:
+    """Return the first-run-day select label for ``day``."""
+    return f"{day.isoformat()} ({WEEKDAY_ABBREV[day.weekday()]})"
+
+
+def _period_start_date_options(
+    period_length: int, *, today: date | None = None
+) -> list[str]:
+    """Return the selectable first-run-day labels for a periodic program.
+
+    The labels cover today through today + period_length - 1, as
+    'YYYY-MM-DD (Www)'. 31 is the official app's limit; the protocol itself
+    stores ``period_length`` as one byte (u8), so it can represent more — a
+    program restored from another device keeps its own larger list. The count
+    is clamped to at least 1, so a zero or negative period still yields one
+    option instead of an empty select.
+    """
+    count = max(1, int(period_length))
+    start = today if today is not None else date.today()
+    return [
+        _period_label(start + timedelta(days=offset)) for offset in range(count)
+    ]
+
 
 _CYCLES = {
     "custom": 0,
@@ -496,6 +528,10 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
     # (writes) or declines (fresh editor). Cleared on a fresh editor render.
     _pending_program: IrrigationProgram | None = None
     _pending_program_index: int | None = None
+    # The warning text the pending confirm step rendered, so a re-render of
+    # that step (a stale/replayed submit) keeps the same text instead of
+    # silently dropping it (issue #158).
+    _pending_warning: str = ""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -651,21 +687,45 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                             ),
                         )
                         applied_reason = is_degenerate_schedule(applied)
+                        applied_wrap = self._period_wrap_warning(applied)
                         if applied_reason is not None:
                             # The applied schedule is degenerate: show the
                             # degenerate confirm instead of the plain one.
                             return self._show_degenerate_confirm(
-                                applied, coordinator, program_index, applied_reason
+                                applied,
+                                coordinator,
+                                program_index,
+                                applied_reason,
+                                warning=applied_wrap,
                             )
                         return self._show_apply_confirm(
-                            applied, coordinator, program_index
+                            applied,
+                            coordinator,
+                            program_index,
+                            warning=applied_wrap,
                         )
                     reason = is_degenerate_schedule(program)
+                    wrap_warning = self._period_wrap_warning(program)
                     if reason is not None:
                         # Non-blocking warning (issue #129): show the
                         # preview-only confirm step. No write yet.
                         return self._show_degenerate_confirm(
-                            program, coordinator, program_index, reason
+                            program,
+                            coordinator,
+                            program_index,
+                            reason,
+                            warning=wrap_warning,
+                        )
+                    if wrap_warning:
+                        # Issue #158: the picked first-run day fell outside
+                        # the current cycle, so the library will wrap it onto
+                        # the run grid. Confirm the resolved day instead of
+                        # writing silently.
+                        return self._show_apply_confirm(
+                            program,
+                            coordinator,
+                            program_index,
+                            warning=wrap_warning,
                         )
                     return await self._attempt_write(program_index, program)
 
@@ -675,6 +735,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # confirm state is stale — the user restarted the edit.
             self._pending_program = None
             self._pending_program_index = None
+            self._pending_warning = ""
         return self.async_show_form(
             step_id="program_edit",
             data_schema=self._program_schema(
@@ -710,21 +771,61 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             )
         return ""
 
+    def _period_wrap_warning(self, program: IrrigationProgram) -> str:
+        """Return a warning when the picked first-run day is outside the cycle.
+
+        The named run day is the one the preview will show, so the warning and
+        the confirm step's preview never disagree: it comes from
+        ``next_start_datetime`` (which rolls a start slot that already passed
+        on the wrap day one period ahead) and falls back to the raw grid day
+        only when no next start can be resolved (no start times, invalid
+        phase). An ``anchor`` of ``None`` returns no warning: the editor parser
+        always supplies a date, so that guard is defensive for future callers
+        that pass a device-read program.
+        """
+        if int(program.get("cycle", 0)) != 4:
+            return ""
+        anchor = program.get("period_start_date")
+        n = int(program.get("period_length", 0))
+        if anchor is None or n < 1:
+            return ""
+        now = dt_util.now()
+        today = now.date()
+        if today <= anchor <= today + timedelta(days=n - 1):
+            return ""
+        grid_day = today + timedelta(days=(anchor - today).days % n)
+        next_start = next_start_datetime(program, now)
+        if next_start is not None:
+            resolved = dt_util.as_local(next_start).date()
+            return (
+                f"Selected first run day {anchor.isoformat()} is outside the "
+                f"current {n}-day cycle; the next run is {resolved.isoformat()}."
+            )
+        return (
+            f"Selected first run day {anchor.isoformat()} is outside the "
+            f"current {n}-day cycle; the cycle places the run on "
+            f"{grid_day.isoformat()}."
+        )
+
     def _show_apply_confirm(
         self,
         program: IrrigationProgram,
         coordinator: Any,
         program_index: int,
+        *,
+        warning: str = "",
     ) -> ConfigFlowResult:
         """Render the preview-only apply-confirmation step (issue #129).
 
         After a preset submit the user sees ONLY the schedule preview and a
         confirm checkbox — not the full form again. The parsed program is
         kept as pending state; confirming writes it, declining returns to a
-        fresh editor.
+        fresh editor. ``warning`` carries the residual interval wrap warning
+        (issue #158) when the picked first-run day is outside the cycle.
         """
         self._pending_program = program
         self._pending_program_index = program_index
+        self._pending_warning = warning
         return self.async_show_form(
             step_id="program_apply_confirm",
             data_schema=vol.Schema(
@@ -737,7 +838,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
                 "preview": self._schedule_preview(program, coordinator),
-                "warning": "",
+                "warning": warning,
             },
         )
 
@@ -747,16 +848,23 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         coordinator: Any,
         program_index: int,
         reason: str,
+        *,
+        warning: str = "",
     ) -> ConfigFlowResult:
         """Render the preview-only degenerate-schedule confirm step.
 
         Non-blocking (issue #129): shows ONLY the schedule preview, the
         warning, and a confirm checkbox — not the full form again. The
         parsed program is kept as pending state; confirming writes it,
-        declining returns to a fresh editor.
+        declining returns to a fresh editor. ``warning`` prepends the
+        residual interval wrap warning (issue #158) to the degenerate text.
         """
         self._pending_program = program
         self._pending_program_index = program_index
+        combined_warning = "\n\n".join(
+            filter(None, [warning, _DEGENERATE_WARNINGS.get(reason, reason)])
+        )
+        self._pending_warning = combined_warning
         return self.async_show_form(
             step_id="program_degenerate_confirm",
             data_schema=vol.Schema(
@@ -769,7 +877,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             description_placeholders={
                 "program": self._program_option_label(coordinator, program_index),
                 "preview": self._schedule_preview(program, coordinator),
-                "warning": _DEGENERATE_WARNINGS.get(reason, reason),
+                "warning": combined_warning,
             },
         )
 
@@ -782,6 +890,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
                 self._pending_program,  # type: ignore[arg-type]
                 self._coordinator,
                 self._pending_program_index or 0,
+                warning=self._pending_warning,
             )
         pending = self._pending_program
         pending_index = self._pending_program_index
@@ -790,6 +899,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         # Declined (or stale): back to a fresh editor.
         self._pending_program = None
         self._pending_program_index = None
+        self._pending_warning = ""
         return await self.async_step_program_edit(None)
 
     async def async_step_program_degenerate_confirm(
@@ -797,11 +907,15 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Handle the preview-only degenerate-schedule confirmation."""
         if user_input is None:
+            # ``reason`` is empty and the stored warning already carries the
+            # composed wrap + degenerate text: passing the reason again would
+            # duplicate the degenerate sentence.
             return self._show_degenerate_confirm(
                 self._pending_program,  # type: ignore[arg-type]
                 self._coordinator,
                 self._pending_program_index or 0,
                 "",
+                warning=self._pending_warning,
             )
         pending = self._pending_program
         pending_index = self._pending_program_index
@@ -810,6 +924,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         # Declined (or stale): back to a fresh editor.
         self._pending_program = None
         self._pending_program_index = None
+        self._pending_warning = ""
         return await self.async_step_program_edit(None)
 
     async def _attempt_write(
@@ -832,6 +947,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # being silently ignored (issue #129).
             self._pending_program = None
             self._pending_program_index = None
+            self._pending_warning = ""
         else:
             return self.async_create_entry(
                 title="",
@@ -1111,18 +1227,41 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
         # parsing. ``synchro_day`` is not a form field: the parser derives the
         # countdown from the picked anchor so the preview matches the day the
         # library will write.
+        #
+        # Issue #158: the interval is capped at the official app's 31 days and
+        # the anchor is a select of the current cycle's valid run days instead
+        # of a free date picker. A program restored from another device can
+        # carry a period above the cap; its untouched save must stay valid, so
+        # such a program keeps its own larger max. The day list follows the
+        # STORED period (the cycle the program runs today), not the cap: a
+        # 31-entry list under a 3-day cycle would offer days that silently
+        # wrap, which is the bug this change removes.
+        stored_period = int(defaults[ATTR_PERIOD_LENGTH])
+        period_max = max(MAX_PERIOD_LENGTH, stored_period)
+        period_options = _period_start_date_options(stored_period)
+        period_default = defaults[ATTR_PERIOD_START_DATE]
+        period_default_label = _period_label(period_default)
+        if period_default_label not in period_options:
+            period_default_label = period_options[0]
         fields[vol.Required(
             PERIODIC_SECTION,
         )] = section(
             vol.Schema({
                 vol.Required(
                     ATTR_PERIOD_START_DATE,
-                    default=defaults[ATTR_PERIOD_START_DATE],
-                ): selector({"date": {}}),
+                    default=period_default_label,
+                ): selector(
+                    {
+                        "select": {
+                            "options": period_options,
+                            "mode": "dropdown",
+                        }
+                    }
+                ),
                 vol.Required(
                     ATTR_PERIOD_LENGTH,
-                    default=defaults[ATTR_PERIOD_LENGTH],
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
+                    default=stored_period,
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=period_max)),
             }),
             {"collapsed": True},
         )
@@ -1500,8 +1639,22 @@ def _parse_program_input(
         for slot in range(8)
     ]
     period_start_date = data[ATTR_PERIOD_START_DATE]
-    if isinstance(period_start_date, str):
-        period_start_date = date.fromisoformat(period_start_date)
+    if isinstance(period_start_date, datetime):
+        # A datetime is a date subclass: take the day part first so the
+        # datetime branch never reaches the str/date checks below.
+        period_start_date = period_start_date.date()
+    elif isinstance(period_start_date, str):
+        # The select submits 'YYYY-MM-DD (Www)'; a bare ISO date string is
+        # still accepted (existing callers and tests submit both).
+        text = period_start_date.strip()[:10]
+        try:
+            period_start_date = date.fromisoformat(text)
+        except ValueError as exc:
+            raise vol.Invalid(
+                "period start date must be an ISO date"
+            ) from exc
+    elif not isinstance(period_start_date, date):
+        raise vol.Invalid("period start date must be a date")
     period_length = int(data[ATTR_PERIOD_LENGTH])
     cycle = _CYCLES[str(data[ATTR_CYCLE])]
     return {
