@@ -102,7 +102,7 @@
           "periodic": {
             "name": "Avancé",
             "data": {
-              "period_start_date": "Date de début de la période",
+              "period_start_date": "Premier jour d'exécution",
               "period_length": "Durée de la période"
             }
           }
