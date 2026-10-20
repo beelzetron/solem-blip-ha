@@ -2791,7 +2791,7 @@ wheels = [
 
 [[package]]
 name = "solem-blip-ha"
-version = "1.4.0b4"
+version = "1.4.0b5"
 source = { editable = "." }
 dependencies = [
     { name = "solem-blip-ble" },
