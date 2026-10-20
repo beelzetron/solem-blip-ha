@@ -12,6 +12,11 @@ if TYPE_CHECKING:
 
 _MAX_LOOKAHEAD_DAYS = 14
 
+# A successfully read program with no enabled start times shows this state.
+# Home Assistant reserves "unknown" and "unavailable", so "none" is a normal
+# state and keeps a read-and-empty program distinguishable from an unread one.
+PROGRAM_EMPTY_STATE = "none"
+
 
 def format_start_time(minutes: int | None) -> str:
     """Format minutes since midnight as HH:MM or ``disabled``."""
@@ -68,6 +73,15 @@ def day_matches_cycle(
 def enabled_start_count(start_times: list[int | None]) -> int:
     """Count enabled start-time slots."""
     return sum(1 for minutes in start_times if minutes is not None)
+
+
+def program_is_empty(program: IrrigationProgram) -> bool:
+    """Return True when the program has no enabled start times.
+
+    Callers pass a program that was successfully read; the helper cannot know
+    the read state itself.
+    """
+    return enabled_start_count(program["start_times"]) == 0
 
 
 DegenerateReason = Literal["no_days", "no_durations", "no_starts"]
@@ -260,6 +274,7 @@ def build_schedule_attributes(
         "synchro_day": program.get("synchro_day", 0),
         "inter_station_delay": program["inter_station_delay"],
         "enabled_start_count": enabled_start_count(program["start_times"]),
+        "empty": program_is_empty(program),
         "total_duration_minutes": duration_minutes(
             sum(duration for duration in program["station_durations"] if duration > 0)
         ),
@@ -290,6 +305,7 @@ def schedule_context_attributes(program: IrrigationProgram) -> dict[str, Any]:
         "period_length": program["period_length"],
         "synchro_day": program.get("synchro_day", 0),
         "enabled_start_count": enabled_start_count(program["start_times"]),
+        "empty": program_is_empty(program),
     }
     if period_start is not None:
         attrs["period_start_date"] = period_start.isoformat()

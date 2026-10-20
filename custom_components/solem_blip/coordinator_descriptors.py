@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING, Any
 from .const import PROGRAM_LABELS
 from .coordinator_polling import remaining_minutes_for_station
 from .schedule import (
+    PROGRAM_EMPTY_STATE,
     build_schedule_attributes,
     next_start_datetime,
+    program_is_empty,
     schedule_summary,
     schedule_context_attributes,
 )
@@ -394,8 +396,15 @@ def build_program_descriptors(
             next_minutes = next_start.hour * 60 + next_start.minute
 
         next_attrs: dict[str, Any] = {"minutes_since_midnight": next_minutes}
+        schedule_state: str | None = None
         if program:
             next_attrs.update(schedule_context_attributes(program))
+            summary = schedule_summary(program, coordinator.station_names)
+            # A read program with no start times is a normal empty schedule,
+            # not the "unknown" HA shows for a program that was never read.
+            schedule_state = (
+                PROGRAM_EMPTY_STATE if program_is_empty(program) else summary
+            )
 
         program_counter += 1  # reserved slot for removed program name sensor
 
@@ -440,11 +449,7 @@ def build_program_descriptors(
                 "device_name": f"{display_name} schedule",
                 "device_uid": mac_to_uuid(mac, program_counter),
                 "software_version": "1.0",
-                "state": (
-                    schedule_summary(program, coordinator.station_names)
-                    if program
-                    else None
-                ),
+                "state": schedule_state,
                 "attributes": (
                     build_schedule_attributes(program, coordinator.station_names)
                     if program

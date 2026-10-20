@@ -10,6 +10,7 @@ import pytest
 from homeassistant.util import dt as dt_util
 
 from custom_components.solem_blip.schedule import (
+    PROGRAM_EMPTY_STATE,
     build_schedule_attributes,
     day_matches_cycle,
     duration_minutes,
@@ -19,6 +20,7 @@ from custom_components.solem_blip.schedule import (
     interval_phase_valid,
     is_degenerate_schedule,
     next_start_datetime,
+    program_is_empty,
     schedule_context_attributes,
     schedule_summary,
     weekday_allowed,
@@ -121,6 +123,18 @@ def test_format_start_time():
 def test_enabled_start_count():
     assert enabled_start_count(CAPTURE_PROGRAM_A["start_times"]) == 1
     assert enabled_start_count(CAPTURE_PROGRAM_B["start_times"]) == 0
+
+
+def test_program_is_empty_only_for_no_start_times():
+    assert program_is_empty(CAPTURE_PROGRAM_B)
+    assert not program_is_empty(CAPTURE_PROGRAM_A)
+    assert not program_is_empty(CAPTURE_PROGRAM_C)
+
+
+def test_empty_program_state_is_a_normal_state():
+    """``none`` is not an HA reserved state, so it reaches the state machine."""
+    assert PROGRAM_EMPTY_STATE == "none"
+    assert PROGRAM_EMPTY_STATE not in {"unknown", "unavailable"}
 
 
 def test_format_duration():
@@ -473,6 +487,7 @@ def test_build_schedule_attributes_maps_station_names():
     assert attrs["period_start_date"] == "2026-06-01"
     assert attrs["next_start_approximate"] is True
     assert attrs["enabled_start_count"] == 1
+    assert attrs["empty"] is False
     assert attrs["total_duration_minutes"] == 75
     assert attrs["Back_duration_minutes"] == 25
     assert attrs["Side_duration_minutes"] == 25
@@ -484,6 +499,46 @@ def test_schedule_context_attributes():
     assert attrs["period_length"] == 3
     assert attrs["period_start_date"] == "2026-06-01"
     assert attrs["enabled_start_count"] == 1
+    assert attrs["empty"] is False
+
+
+def test_build_schedule_attributes_flags_empty_program():
+    """A read program with every slot disabled reports an empty schedule."""
+    attrs = build_schedule_attributes(CAPTURE_PROGRAM_B, {})
+    assert attrs["empty"] is True
+    assert attrs["enabled_start_count"] == 0
+
+
+def test_build_schedule_attributes_does_not_flag_populated_program():
+    attrs = build_schedule_attributes(CAPTURE_PROGRAM_C, {})
+    assert attrs["empty"] is False
+    assert attrs["enabled_start_count"] == 1
+
+
+def test_starts_with_zero_durations_is_not_an_empty_program():
+    """Zero durations make a program degenerate, not empty: it has a schedule."""
+    program = _make_program(cycle=0, week_days=0x7F, station_durations=(0,))
+
+    assert not program_is_empty(program)
+    assert build_schedule_attributes(program, {})["empty"] is False
+    # The start-time summary survives even though no station waters.
+    assert schedule_summary(program, {}) == "08:00"
+
+
+def test_interval_invalid_phase_is_not_an_empty_program():
+    """An unknown next start does not make a populated program empty."""
+    now = datetime(2026, 10, 19, 10, 0, tzinfo=ZoneInfo("Europe/Rome"))
+    program = _interval_program(period_length=3, synchro_day=3)
+
+    assert next_start_datetime(program, now) is None
+    assert not program_is_empty(program)
+    assert build_schedule_attributes(program, {})["empty"] is False
+
+
+def test_schedule_context_attributes_flags_empty_program():
+    context = schedule_context_attributes(CAPTURE_PROGRAM_B)
+    assert context["empty"] is True
+    assert context["enabled_start_count"] == 0
 
 
 def test_schedule_attributes_expose_controller_date():
