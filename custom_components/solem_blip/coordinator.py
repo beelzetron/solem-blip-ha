@@ -16,6 +16,8 @@ from homeassistant.helpers import issue_registry as ir
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from homeassistant.util import dt as dt_util
+
 from solem_blip_ble import IrrigationProgram
 from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 
@@ -504,9 +506,15 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         program: IrrigationProgram,
     ) -> None:
         """Write one on-device irrigation program and refresh schedule data."""
+        # The device day boundary follows Home Assistant's local time, so the
+        # write day must come from HA's clock (issue #77). The library would
+        # otherwise fall back to the process time zone, which can put the
+        # packed header date and countdown on a different day than the editor
+        # preview shows.
         self.irrigation_programs = await self.api.set_irrigation_program(
             program_index,
             program,
+            today=dt_util.now().date(),
         )
         self.request_schedule_refresh()
         self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))

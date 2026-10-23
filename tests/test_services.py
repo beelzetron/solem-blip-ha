@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -55,10 +56,16 @@ async def test_set_program_service_writes_normalized_program(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """set_program resolves the device target and writes a normalized program."""
     coordinator, device_id = await _setup_service_target(
         hass, mock_config_entry, mock_solem_client
+    )
+    # Pin Home Assistant's clock so the write day is assertable (issue #77).
+    monkeypatch.setattr(
+        "custom_components.solem_blip.coordinator.dt_util.now",
+        lambda: datetime(2026, 10, 22, 23, 30, tzinfo=ZoneInfo("US/Pacific")),
     )
     coordinator.schedule_coordinator.async_set_updated_data = MagicMock()
     mock_solem_client.set_irrigation_program = AsyncMock(
@@ -111,6 +118,7 @@ async def test_set_program_service_writes_normalized_program(
             "start_times": [360, 1110, None, None, None, None, None, None],
             "station_durations": [60, 120],
         },
+        today=date(2026, 10, 22),
     )
 
 
