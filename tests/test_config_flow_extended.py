@@ -115,7 +115,7 @@ def _program_editor_input(**overrides: object) -> dict[str, object]:
     into a confirm round-trip.
     """
     periodic: dict[str, object] = {
-        "period_start_date": _period_label(date.today()),
+        "period_start_date": _period_label(dt_util.now().date()),
         "period_length": 1,
     }
     for key in ("period_start_date", "period_length"):
@@ -862,7 +862,7 @@ async def test_options_flow_program_edit_writes_program(
     assert program["name"] == "Vasi"
     assert program["cycle"] == 4
     assert program["week_days"] == 0x05
-    assert program["period_start_date"] == date.today()
+    assert program["period_start_date"] == dt_util.now().date()
     assert program["start_times"] == [390, None, None, None, None, None, None, None]
     assert program["station_durations"] == [0, 120]
 
@@ -888,7 +888,7 @@ def test_options_flow_program_edit_derives_countdown_from_unchanged_anchor() -> 
 
     assert program["period_start_date"] == date(2026, 6, 1)
     assert program["synchro_day"] == period_start_to_synchro(
-        date(2026, 6, 1), 3, today=date.today()
+        date(2026, 6, 1), 3, today=dt_util.now().date()
     )
 
 
@@ -914,7 +914,7 @@ def test_options_flow_program_edit_reanchors_on_changed_date() -> None:
 
     assert program["period_start_date"] == date(2026, 6, 28)
     assert program["synchro_day"] == period_start_to_synchro(
-        date(2026, 6, 28), 3, today=date.today()
+        date(2026, 6, 28), 3, today=dt_util.now().date()
     )
 
 
@@ -933,7 +933,7 @@ def test_options_flow_program_edit_derives_countdown_without_current_program() -
     )
 
     assert program["synchro_day"] == period_start_to_synchro(
-        date(2026, 6, 27), 2, today=date.today()
+        date(2026, 6, 27), 2, today=dt_util.now().date()
     )
 
 
@@ -1157,7 +1157,7 @@ def test_program_defaults_show_next_run_for_countdown() -> None:
         num_stations=4,
     )
 
-    assert defaults["period_start_date"] == date.today() + timedelta(days=2)
+    assert defaults["period_start_date"] == dt_util.now().date() + timedelta(days=2)
 
 
 def test_program_defaults_prefilled_anchor_round_trips_the_countdown() -> None:
@@ -1178,7 +1178,7 @@ def test_program_defaults_prefilled_anchor_round_trips_the_countdown() -> None:
     defaults = handler._program_defaults(stored, num_stations=4)
     prefilled = defaults["period_start_date"]
 
-    assert prefilled == date.today() + timedelta(days=2)
+    assert prefilled == dt_util.now().date() + timedelta(days=2)
     parsed = _parse_program_input(
         _flat_editor_input(
             period_start_date=prefilled.isoformat(),
@@ -1203,7 +1203,7 @@ def test_program_defaults_show_today_for_invalid_phase() -> None:
         num_stations=4,
     )
 
-    assert defaults["period_start_date"] == date.today()
+    assert defaults["period_start_date"] == dt_util.now().date()
 
 
 def test_program_defaults_show_today_for_non_interval_cycles() -> None:
@@ -1221,7 +1221,7 @@ def test_program_defaults_show_today_for_non_interval_cycles() -> None:
         num_stations=4,
     )
 
-    assert defaults["period_start_date"] == date.today()
+    assert defaults["period_start_date"] == dt_util.now().date()
 
 
 def test_options_flow_program_edit_schema_serializes(
@@ -1857,7 +1857,7 @@ def test_apply_preset_rederives_countdown_for_preset_period() -> None:
 
     assert program["period_length"] == 3
     assert program["synchro_day"] == period_start_to_synchro(
-        date(2026, 6, 18), 3, today=date.today()
+        date(2026, 6, 18), 3, today=dt_util.now().date()
     )
     assert program["period_start_date"] == date(2026, 6, 18)
 
@@ -1868,7 +1868,7 @@ def test_apply_preset_anchored_periodic() -> None:
     program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
 
     assert program["cycle"] == 4 and program["period_length"] == 3
-    assert program["period_start_date"] == date.today()
+    assert program["period_start_date"] == dt_util.now().date()
 
 
 def test_apply_preset_none_returns_input_unchanged() -> None:
@@ -2001,7 +2001,7 @@ def test_program_schema_periodic_section_defaults_are_nested(
     # cannot be offered and falls back to the first (today) option.
     options = _period_start_date_options(5)
     assert defaults["period_start_date"] == options[0]
-    assert defaults["period_start_date"] == _period_label(date.today())
+    assert defaults["period_start_date"] == _period_label(dt_util.now().date())
 
 
 @pytest.mark.asyncio
@@ -2048,7 +2048,7 @@ async def test_apply_confirm_preview_matches_library_run_day_for_future_anchor(
     that day - the same day the packed frame encodes.
     """
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    anchor = date.today() + timedelta(days=5)
+    anchor = dt_util.now().date() + timedelta(days=5)
     user_input = _program_editor_input(
         schedule_preset="every_3_days",
         period_start_date=anchor,
@@ -2066,12 +2066,14 @@ async def test_apply_confirm_preview_matches_library_run_day_for_future_anchor(
     assert pending is not None
 
     # The pending program carries the anchor-derived countdown ...
-    expected_synchro = period_start_to_synchro(anchor, 3, today=date.today())
+    expected_synchro = period_start_to_synchro(anchor, 3, today=dt_util.now().date())
     assert expected_synchro == 2
     assert pending["synchro_day"] == expected_synchro
     # ... and the frame the library packs encodes the same countdown, so the
     # anchor still wins at pack time.
-    wire = normalize_irrigation_program_for_write(pending, max_stations=6)
+    wire = normalize_irrigation_program_for_write(
+        pending, today=dt_util.now().date(), max_stations=6
+    )
     assert wire["synchro_day"] == expected_synchro
     assert wire["period_start_date"] == anchor
 
@@ -2365,18 +2367,18 @@ def test_parse_program_input_derives_countdown_ignoring_stored_phase() -> None:
     )
 
     assert unchanged["synchro_day"] == period_start_to_synchro(
-        date(2026, 9, 1), 3, today=date.today()
+        date(2026, 9, 1), 3, today=dt_util.now().date()
     )
     assert unchanged["period_start_date"] == date(2026, 9, 1)
     assert changed["synchro_day"] == period_start_to_synchro(
-        date(2026, 9, 3), 3, today=date.today()
+        date(2026, 9, 3), 3, today=dt_util.now().date()
     )
     assert changed["period_start_date"] == date(2026, 9, 3)
 
 
 def test_parse_program_input_ignores_form_synchro_day() -> None:
     """A synchro_day key submitted with the form never reaches the program."""
-    expected = period_start_to_synchro(date(2026, 9, 3), 3, today=date.today())
+    expected = period_start_to_synchro(date(2026, 9, 3), 3, today=dt_util.now().date())
     data = _flat_editor_input(period_start_date="2026-09-03", period_length=3)
     # A different, still-valid phase than the anchor implies.
     data["synchro_day"] = (expected + 1) % 3
@@ -2389,7 +2391,7 @@ def test_parse_program_input_ignores_form_synchro_day() -> None:
 
 def test_parse_program_input_anchor_drives_library_countdown() -> None:
     """The picked anchor is what the library turns into the countdown."""
-    anchor = date.today() - timedelta(days=4)
+    anchor = dt_util.now().date() - timedelta(days=4)
 
     parsed = _parse_program_input(
         _flat_editor_input(
@@ -2684,7 +2686,7 @@ async def test_program_edit_periodic_section_offers_only_cycle_days(
     assert period_start["selector"]["select"]["mode"] == "dropdown"
     assert period_start["default"] in options
     # The stored countdown (1) prefills tomorrow, inside the cycle.
-    assert period_start["default"] == _period_label(date.today() + timedelta(days=1))
+    assert period_start["default"] == _period_label(dt_util.now().date() + timedelta(days=1))
 
 
 def test_parse_program_input_accepts_label_iso_and_date() -> None:
@@ -2715,7 +2717,7 @@ async def test_program_edit_out_of_window_first_run_day_confirms(
 ) -> None:
     """A first-run day outside the cycle warns and confirms instead of writing."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    today = date.today()
+    today = dt_util.now().date()
     anchor = today + timedelta(days=5)
     # What a submit looks like when the user lowers the period in the same
     # round-trip: the anchor stays the one picked under the larger cycle.
@@ -2765,7 +2767,7 @@ def test_program_schema_period_length_is_capped(
         if str(key.schema) == PERIODIC_SECTION
     )
     inner = periodic.schema
-    label = _period_label(date.today())
+    label = _period_label(dt_util.now().date())
 
     validated = inner({"period_start_date": label, "period_length": 31})
     assert validated["period_length"] == 31
@@ -2794,7 +2796,7 @@ def test_program_schema_keeps_stored_period_above_cap(
         if str(key.schema) == PERIODIC_SECTION
     )
     validated = periodic.schema(
-        {"period_start_date": _period_label(date.today()), "period_length": 40}
+        {"period_start_date": _period_label(dt_util.now().date()), "period_length": 40}
     )
     assert validated["period_length"] == 40
 
@@ -2822,7 +2824,7 @@ async def test_program_edit_degenerate_confirm_carries_wrap_warning(
 ) -> None:
     """The degenerate confirm shows both the wrap and the degenerate warning."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    anchor = date.today() + timedelta(days=5)
+    anchor = dt_util.now().date() + timedelta(days=5)
     user_input = _program_editor_input(
         period_start_date=_period_label(anchor),
         period_length=3,
@@ -2854,7 +2856,7 @@ async def test_program_edit_wrap_warning_names_resolved_run_day(
     The warning must agree with the preview instead of claiming today.
     """
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    today = date.today()
+    today = dt_util.now().date()
     anchor = today + timedelta(days=3)
     # 12:00 local: the 06:30 slot on the wrap day (today) already passed.
     patched_now = datetime.combine(
@@ -2907,7 +2909,7 @@ async def test_program_edit_preset_submit_carries_wrap_warning(
             "start_times": [390, None, None, None, None, None, None, None],
         },
     }
-    today = date.today()
+    today = dt_util.now().date()
     anchor = today + timedelta(days=5)
     user_input = _program_editor_input(
         period_start_date=_period_label(anchor),
@@ -2946,7 +2948,7 @@ async def test_program_apply_confirm_rerender_keeps_wrap_warning(
 ) -> None:
     """Re-rendering the confirm step (user_input None) keeps its warning."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    anchor = date.today() + timedelta(days=5)
+    anchor = dt_util.now().date() + timedelta(days=5)
     user_input = _program_editor_input(
         period_start_date=_period_label(anchor),
         period_length=3,
@@ -2974,7 +2976,7 @@ async def test_program_degenerate_confirm_rerender_keeps_composed_warning(
 ) -> None:
     """Re-rendering the degenerate confirm does not drop or duplicate text."""
     handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
-    anchor = date.today() + timedelta(days=5)
+    anchor = dt_util.now().date() + timedelta(days=5)
     user_input = _program_editor_input(
         period_start_date=_period_label(anchor),
         period_length=3,
@@ -3011,7 +3013,7 @@ async def test_program_edit_untouched_periodic_program_writes_directly(
             "start_times": [390, None, None, None, None, None, None, None],
         },
     }
-    today = date.today()
+    today = dt_util.now().date()
     # The prefill the editor renders for synchro_day 2 (inside the cycle).
     user_input = _program_editor_input(
         period_start_date=_period_label(today + timedelta(days=2)),

@@ -191,7 +191,7 @@ def _period_start_date_options(
     option instead of an empty select.
     """
     count = max(1, int(period_length))
-    start = today if today is not None else date.today()
+    start = today if today is not None else dt_util.now().date()
     return [
         _period_label(start + timedelta(days=offset)) for offset in range(count)
     ]
@@ -1353,7 +1353,7 @@ class SolemOptionsFlowHandler(OptionsFlowWithReload):
             # day when today's start slot has already passed. The countdown
             # reading is an expectation pending hardware validation, taken
             # from the latest config read (so up to one refresh interval old).
-            period_start_date = date.today()
+            period_start_date = dt_util.now().date()
             if int(program_data.get("cycle", 0)) == 4:
                 synchro_day = int(program_data.get("synchro_day", 0))
                 period_length = int(program_data.get("period_length", 1))
@@ -1607,7 +1607,7 @@ def _countdown_for_anchor(
     return period_start_to_synchro(
         period_start_date,
         period_length,
-        today=date.today(),
+        today=dt_util.now().date(),
     )
 
 
