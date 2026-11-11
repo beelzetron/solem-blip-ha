@@ -169,6 +169,8 @@ async def test_status_failure_emits_one_warning(
     ):
         ble_coordinator = SolemCoordinator(hass, mock_config_entry)
         await ble_coordinator.async_init()
+        # This legacy test verifies warning behavior outside startup grace.
+        ble_coordinator._ble_startup_grace_until = 0.0
 
         with caplog.at_level(logging.DEBUG):
             with pytest.raises(HomeAssistantError):
