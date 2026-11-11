@@ -26,10 +26,12 @@ SERVICE_REFRESH_PROGRAMS = "refresh_programs"
 SERVICE_RESTORE_PROGRAMS = "restore_programs"
 SERVICE_RUN_NAME_READ_PROBE = "run_name_read_probe"
 SERVICE_SET_PROGRAM = "set_program"
+SERVICE_START_BLE_MAINTENANCE = "start_ble_maintenance"
 
 ATTR_CYCLE = "cycle"
 ATTR_DELAY = "delay"
 ATTR_DEVICE_ID = "device_id"
+ATTR_DURATION = "duration"
 ATTR_INTER_STATION_DELAY = "inter_station_delay"
 ATTR_SHAPE_A_DELAY = "shape_a_delay"
 ATTR_NAME = "name"
@@ -69,6 +71,13 @@ _WEEKDAYS = {
 _COMMON_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
+    }
+)
+_BLE_MAINTENANCE_SCHEMA = _COMMON_SERVICE_SCHEMA.extend(
+    {
+        vol.Optional(ATTR_DURATION, default=120): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=600)
+        ),
     }
 )
 _PROBE_SCHEMA = _COMMON_SERVICE_SCHEMA.extend(
@@ -187,6 +196,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         )
         return {"result": result}
 
+    async def handle_start_ble_maintenance(call: ServiceCall) -> None:
+        coordinator = _coordinator_from_device(hass, call.data[ATTR_DEVICE_ID])
+        coordinator.start_ble_maintenance(int(call.data[ATTR_DURATION]))
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_START_BLE_MAINTENANCE,
+        handle_start_ble_maintenance,
+        schema=_BLE_MAINTENANCE_SCHEMA,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_PROGRAM,
@@ -218,6 +237,7 @@ def async_unload_services(hass: HomeAssistant) -> None:
     """Remove Solem BL-IP services."""
     for service in (
         SERVICE_SET_PROGRAM,
+        SERVICE_START_BLE_MAINTENANCE,
         SERVICE_RESTORE_PROGRAMS,
         SERVICE_REFRESH_PROGRAMS,
         SERVICE_RUN_NAME_READ_PROBE,
