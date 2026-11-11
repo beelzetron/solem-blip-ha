@@ -487,7 +487,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             )
             return data
         except Exception as err:
-            note_cycle_outcome(self, degraded=True, reason="status poll failed", error=err)
+            note_cycle_outcome(
+                self, degraded=True, reason="status poll failed", error=err
+            )
             self.stuck_adapter_detector.note_cycle_outcome(degraded=True)
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
