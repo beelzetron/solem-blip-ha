@@ -7,7 +7,7 @@ integration's fixtures.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,7 +15,6 @@ from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
 
 from custom_components.solem_blip.activity import WateringActivity
-from custom_components.solem_blip.schedule import day_matches_cycle
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
 
 IDLE = {"is_watering": False, "active_program": None, "station_num": None}
@@ -99,9 +98,9 @@ async def test_ambiguous_runs_are_unknown(activity, freezer, cause):
     if cause == "gap":
         freezer.tick(timedelta(minutes=10))
     if cause == "interval":
-        # Unanchored multi-day period: a matching slot is not verifiable.
+        # Out-of-range countdown phase: the run day cannot be placed.
         activity.c.irrigation_programs[0].update(
-            cycle=4, period_length=3, period_start_date=None
+            cycle=4, period_length=3, synchro_day=3
         )
     if cause == "no_program":
         activity.c.irrigation_programs = {}
@@ -372,33 +371,41 @@ async def test_scheduled_start_after_missed_poll(activity, freezer, cause):
     activity.c.api.run_program_x.assert_not_awaited()
 
 
-def anchored_interval_program(activity, freezer, *, gap):
-    """Configure program A as an anchored multi-day interval program."""
-    day = dt_util.now()
+def countdown_interval_program(
+    activity,
+    *,
+    synchro_day: int = 0,
+    period_length: int = 3,
+):
+    """Configure program A as a cycle-4 countdown interval program.
+
+    A device read yields no anchor (``period_start_date`` is None); the run
+    day comes only from the ``synchro_day`` countdown, so a 0 phase means the
+    next run is today at the configured slot.
+    """
+    now = dt_util.now()
     program = activity.c.irrigation_programs[0]
-    start_minutes = day.hour * 60 + day.minute
+    start_minutes = now.hour * 60 + now.minute
     program.update(
         cycle=4,
-        period_length=3,
-        synchro_day=day.day % 3,
-        period_start_date=day.date(),
+        period_length=period_length,
+        synchro_day=synchro_day,
+        period_start_date=None,
         start_times=[start_minutes + 1] + [None] * 7,
         station_durations=[600, 600, 600, 900, 600, 900],
         water_budget=100,
         inter_station_delay=0,
     )
-    assert day_matches_cycle(
-        4, 3, 0x7F, day, period_start_date=day.date(), synchro_day=day.day % 3
-    )
-    return program, start_minutes
+    return program
 
 
 @pytest.mark.parametrize("gap", [False, True])
-async def test_anchored_interval_run_is_scheduled(activity, freezer, gap):
-    """An anchored multi-day period matching the cycle phase can be attributed."""
+async def test_countdown_interval_run_is_scheduled(activity, freezer, gap):
+    """A countdown-placed interval run is attributed to the schedule."""
     freezer.move_to("2026-09-25T05:59:00+00:00")
     activity.c.program_backup.last_read = dt_util.utcnow().isoformat()
-    program, start_minutes = anchored_interval_program(activity, freezer, gap=gap)
+    program = countdown_interval_program(activity)
+    assert program["period_start_date"] is None
     activity.observe(IDLE)
     if gap:
         # Miss the poll at the start slot; the first-station countdown bridges it.
@@ -413,17 +420,14 @@ async def test_anchored_interval_run_is_scheduled(activity, freezer, gap):
     assert activity.c.api.run_program_x.assert_not_awaited() is None
 
 
-async def test_unanchored_interval_run_is_unknown(activity, freezer):
-    """Unanchored multi-day periods stay Unknown even with a matching slot."""
-    program = activity.c.irrigation_programs[0]
-    program.update(
-        cycle=4,
-        period_length=3,
-        start_times=[360] + [None] * 7,
-        period_start_date=None,
-    )
-    activity.c.program_backup.last_read = dt_util.utcnow().isoformat()
+async def test_interval_run_with_invalid_phase_is_unknown(activity, freezer):
+    """An out-of-range countdown cannot be placed, so the run stays Unknown."""
     freezer.move_to("2026-09-25T05:59:00+00:00")
+    program = countdown_interval_program(
+        activity, synchro_day=3, period_length=3
+    )
+    assert program["synchro_day"] >= program["period_length"]
+    activity.c.program_backup.last_read = dt_util.utcnow().isoformat()
     activity.observe(IDLE)
     freezer.tick(timedelta(seconds=60))
     activity.observe(RUN)

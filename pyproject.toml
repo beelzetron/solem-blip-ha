@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "solem-blip-ha"
-version = "1.3.5b19"
+version = "1.4.0"
 description = "Home Assistant integration for Solem BL-IP irrigation controllers"
 requires-python = ">=3.14"
 dependencies = [
-    "solem-blip-ble==0.4.0b1",
+    "solem-blip-ble==0.4.0",
 ]
 
 [project.optional-dependencies]
@@ -16,7 +16,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=7.0",
-    "pytest-homeassistant-custom-component==0.13.367",
+    "pytest-homeassistant-custom-component==0.13.375",
     # Full-setup tests walk the real bluetooth -> usb dependency chain;
     # these HA optional deps are not pulled in by the test harness itself.
     "aiousbwatcher>=1.1",

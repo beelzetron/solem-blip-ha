@@ -221,6 +221,82 @@ async def test_program_next_start_sensor_exposes_schedule_context(coordinator) -
     assert attrs["minutes_since_midnight"] == 270
 
 
+def _program_device(coordinator, label: str, kind: str) -> dict:
+    """Return the descriptor for one program sensor slot (label ``a``/``b``/``c``)."""
+    suffix = f"_program_{label}_{kind}"
+    return next(
+        item for item in coordinator.data if item["device_id"].endswith(suffix)
+    )
+
+
+@pytest.mark.asyncio
+async def test_program_sensors_show_empty_for_read_program_without_starts(
+    coordinator,
+) -> None:
+    """A read program with no start times reports ``none`` plus an empty flag."""
+    _seed_coordinator_state(coordinator)
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+
+    # Control: a populated, read program is not flagged empty.
+    schedule_a = ProgramScheduleSensor(
+        coordinator,
+        _program_device(coordinator, "a", "schedule"),
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_SCHEDULE_SENSOR"],
+    )
+    assert schedule_a.extra_state_attributes["empty"] is False
+    next_start_a = ProgramNextStartSensor(
+        coordinator,
+        _program_device(coordinator, "a", "next_start"),
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_NEXT_START_SENSOR"],
+    )
+    assert next_start_a.extra_state_attributes["empty"] is False
+
+    schedule = ProgramScheduleSensor(
+        coordinator,
+        _program_device(coordinator, "b", "schedule"),
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_SCHEDULE_SENSOR"],
+    )
+    assert schedule.native_value == "none"
+    assert schedule.extra_state_attributes["empty"] is True
+
+    next_start = ProgramNextStartSensor(
+        coordinator,
+        _program_device(coordinator, "b", "next_start"),
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_NEXT_START_SENSOR"],
+    )
+    assert next_start.native_value is None
+    assert next_start.extra_state_attributes["empty"] is True
+
+    # An unread slot carries no schedule attributes at all: ``unknown`` state
+    # with no ``empty`` flag, which is what separates it from the read-empty
+    # program above.
+    coordinator.irrigation_programs.pop(2)
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+
+    unread_schedule = ProgramScheduleSensor(
+        coordinator,
+        _program_device(coordinator, "c", "schedule"),
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_SCHEDULE_SENSOR"],
+    )
+    assert unread_schedule.native_value is None
+    assert unread_schedule.extra_state_attributes == {}
+
+    unread_next_start = ProgramNextStartSensor(
+        coordinator,
+        _program_device(coordinator, "c", "next_start"),
+        "state",
+        SENSOR_DESCRIPTIONS["PROGRAM_NEXT_START_SENSOR"],
+    )
+    assert unread_next_start.native_value is None
+    assert unread_next_start.extra_state_attributes == {"minutes_since_midnight": None}
+    assert "empty" not in unread_next_start.extra_state_attributes
+
+
 @pytest.mark.asyncio
 async def test_program_backup_status_sensor_attributes(coordinator) -> None:
     """Backup status exposes compact diagnostics without raw frame payloads."""

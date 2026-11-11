@@ -102,7 +102,7 @@
           "periodic": {
             "name": "Advanced",
             "data": {
-              "period_start_date": "Period start date",
+              "period_start_date": "First run day",
               "period_length": "Period length"
             }
           }

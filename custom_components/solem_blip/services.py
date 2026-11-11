@@ -6,7 +6,7 @@ from datetime import date
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-import voluptuous as vol
+import probatio as vol
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
@@ -14,7 +14,7 @@ from homeassistant.helpers import device_registry as dr
 from solem_blip_ble import IrrigationProgram
 
 from .config_entry import MyConfigEntry
-from .const import DOMAIN, PROGRAM_LABELS
+from .const import DOMAIN, MAX_PERIOD_LENGTH, PROGRAM_LABELS
 from .name_read_probe import run_name_read_probe
 
 if TYPE_CHECKING:
@@ -92,7 +92,7 @@ _SET_PROGRAM_SCHEMA = _COMMON_SERVICE_SCHEMA.extend(
             cv.ensure_list, list
         ),
         vol.Optional(ATTR_PERIOD_LENGTH, default=1): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=255)
+            vol.Coerce(int), vol.Range(min=1, max=MAX_PERIOD_LENGTH)
         ),
         vol.Optional(ATTR_SYNCHRO_DAY, default=0): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=255)
@@ -304,6 +304,10 @@ def _program_from_service_data(
         raise vol.Invalid("start_times must contain at most 8 entries")
     start_times.extend([None] * (8 - len(start_times)))
 
+    # The anchor is optional and write-only: when it is supplied the library
+    # derives the cycle-4 countdown from it at pack time, and when it is absent
+    # the caller's synchro_day stands as given. A readback never carries it, so
+    # nothing here may assume the key has a value.
     period_start_date = data.get(ATTR_PERIOD_START_DATE)
     if isinstance(period_start_date, str):
         period_start_date = date.fromisoformat(period_start_date)

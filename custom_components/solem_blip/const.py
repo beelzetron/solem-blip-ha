@@ -33,6 +33,12 @@ IRRIGATION_CONFIG_UPDATE_INTERVAL = 15 * 60
 
 PROGRAM_LABELS = ("A", "B", "C")
 
+# Upper bound for a periodic program's interval, matching the official app's
+# limit. The protocol stores only a countdown inside the current cycle, so a
+# longer interval would leave the user picking run days the controller cannot
+# represent (issue #158).
+MAX_PERIOD_LENGTH = 31
+
 SET_TIME_MIN_INTERVAL = 24 * 60 * 60
 
 # Cooldown for alarm-triggered time-sync retries after a failed attempt,

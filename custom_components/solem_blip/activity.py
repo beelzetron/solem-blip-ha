@@ -29,7 +29,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .schedule import next_start_datetime
+from .schedule import interval_phase_valid, next_start_datetime
 from .util import format_entity_unique_id
 
 if TYPE_CHECKING:
@@ -196,12 +196,17 @@ class WateringActivity:
             or self.last_revision != self._current_revision()
             or read_at is None
             or not 0 <= (now - read_at).total_seconds() <= 7200
-            # Interval programs without a verifiable phase anchor cannot be
-            # matched to a start slot: keep them Unknown instead of guessing.
+            # Interval programs carry a countdown phase, not an absolute
+            # anchor (expected firmware behaviour, pending hardware
+            # validation), and the phase comes from the latest config read, so
+            # it can be up to one refresh interval old. An out-of-range phase
+            # cannot be placed on a run day at all, so keep the run Unknown
+            # instead of guessing.
             or (
                 program["cycle"] == 4
-                and program["period_length"] > 1
-                and program.get("period_start_date") is None
+                and not interval_phase_valid(
+                    program["period_length"], program.get("synchro_day", 0)
+                )
             )
         ):
             return UNKNOWN_SOURCE

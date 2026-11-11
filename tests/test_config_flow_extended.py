@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-import voluptuous as vol
+import probatio as vol
 from probatio import to_field_list
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.config_entries import OptionsFlowWithReload
 import homeassistant.helpers.config_validation as cv
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.config_flow import (
@@ -25,9 +26,13 @@ from custom_components.solem_blip.config_flow import (
     MENU_EDIT_PROGRAM,
     MENU_EDIT_STATION_NAMES,
     MENU_SETTINGS,
+    PERIODIC_SECTION,
     SolemConfigFlow,
     SolemOptionsFlowHandler,
+    _countdown_for_anchor,
     _parse_program_input,
+    _period_label,
+    _period_start_date_options,
     validate_input,
 )
 from custom_components.solem_blip.config_entry import RuntimeData
@@ -43,7 +48,13 @@ from custom_components.solem_blip.const import (
     SOLEM_API_MOCK,
 )
 from custom_components.solem_blip import config_flow as config_flow_module
+from custom_components.solem_blip.schedule import next_start_datetime
+from custom_components.solem_blip.services import _SET_PROGRAM_SCHEMA
 from solem_blip_ble import IrrigationProgram, SolemConnectionError
+from solem_blip_ble.protocol import (
+    normalize_irrigation_program_for_write,
+    period_start_to_synchro,
+)
 from solem_blip_ble.exceptions import InvalidSnapshot
 from contextlib import contextmanager
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
@@ -98,10 +109,13 @@ def _program_editor_input(**overrides: object) -> dict[str, object]:
 
     ``period_length``/``period_start_date`` overrides are applied INSIDE
     the section (that is where the form renders them); any other override
-    lands top-level.
+    lands top-level. The default anchor is today's select label, i.e. the
+    first day of the current cycle: an out-of-window anchor routes through
+    the wrap confirm step (issue #158) and would turn every write-path test
+    into a confirm round-trip.
     """
     periodic: dict[str, object] = {
-        "period_start_date": date(2026, 6, 18),
+        "period_start_date": _period_label(dt_util.now().date()),
         "period_length": 1,
     }
     for key in ("period_start_date", "period_length"):
@@ -848,13 +862,18 @@ async def test_options_flow_program_edit_writes_program(
     assert program["name"] == "Vasi"
     assert program["cycle"] == 4
     assert program["week_days"] == 0x05
-    assert program["period_start_date"] == date(2026, 6, 18)
+    assert program["period_start_date"] == dt_util.now().date()
     assert program["start_times"] == [390, None, None, None, None, None, None, None]
     assert program["station_durations"] == [0, 120]
 
 
-def test_options_flow_program_edit_preserves_synchro_day_when_start_date_unchanged() -> None:
-    """Program editor keeps the existing phase when the period start is unchanged."""
+def test_options_flow_program_edit_derives_countdown_from_unchanged_anchor() -> None:
+    """An unchanged anchor keeps the picked date and derives the countdown.
+
+    The stored phase is never reused: the parser derives the countdown from
+    the anchor with the library's own conversion, so the preview and the wire
+    agree.
+    """
     handler = SolemOptionsFlowHandler()
 
     program = handler._program_from_options_input(
@@ -867,11 +886,14 @@ def test_options_flow_program_edit_preserves_synchro_day_when_start_date_unchang
         current_program=MOCK_IRRIGATION_PROGRAMS[2],
     )
 
-    assert program["synchro_day"] == 1
+    assert program["period_start_date"] == date(2026, 6, 1)
+    assert program["synchro_day"] == period_start_to_synchro(
+        date(2026, 6, 1), 3, today=dt_util.now().date()
+    )
 
 
-def test_options_flow_program_edit_derives_synchro_day_from_current_anchor() -> None:
-    """Changing the desired start date shifts phase from the controller anchor."""
+def test_options_flow_program_edit_reanchors_on_changed_date() -> None:
+    """A changed anchor is passed through and drives the derived countdown."""
     handler = SolemOptionsFlowHandler()
     current_program = {
         **MOCK_IRRIGATION_PROGRAMS[2],
@@ -891,11 +913,13 @@ def test_options_flow_program_edit_derives_synchro_day_from_current_anchor() -> 
     )
 
     assert program["period_start_date"] == date(2026, 6, 28)
-    assert program["synchro_day"] == 1
+    assert program["synchro_day"] == period_start_to_synchro(
+        date(2026, 6, 28), 3, today=dt_util.now().date()
+    )
 
 
-def test_options_flow_program_edit_resets_synchro_day_without_current_anchor() -> None:
-    """Changing the period start uses zero phase when no read-back anchor exists."""
+def test_options_flow_program_edit_derives_countdown_without_current_program() -> None:
+    """The countdown comes from the picked anchor even with no read-back."""
     handler = SolemOptionsFlowHandler()
 
     program = handler._program_from_options_input(
@@ -908,7 +932,9 @@ def test_options_flow_program_edit_resets_synchro_day_without_current_anchor() -
         current_program=None,
     )
 
-    assert program["synchro_day"] == 0
+    assert program["synchro_day"] == period_start_to_synchro(
+        date(2026, 6, 27), 2, today=dt_util.now().date()
+    )
 
 
 @pytest.mark.asyncio
@@ -939,6 +965,95 @@ async def test_options_flow_program_edit_writes_named_station_fields(
     assert result["type"] == "create_entry"
     _, program = coordinator.set_irrigation_program.await_args.args
     assert program["station_durations"] == [0, 120]
+
+
+@pytest.mark.asyncio
+async def test_program_edit_cleared_last_start_is_written_disabled(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Removing the last start time writes an all-disabled slot list (issue #151).
+
+    The X-cleared time picker fires value-changed with ``undefined`` and the
+    frontend JSON-drops the key; FlowManager then re-applies the shown schema
+    to the submission. The editor must prefill via suggested_value — a vol
+    default would resurrect the removed start time.
+    """
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        # Single 20:00 start on the program under edit, like the reporter.
+        current = dict(MOCK_IRRIGATION_PROGRAMS[1])
+        current["start_times"] = [1200, None, None, None, None, None, None, None]
+        coordinator.irrigation_programs = {
+            **MOCK_IRRIGATION_PROGRAMS,
+            1: current,
+        }
+
+        shown = await handler.async_step_program_edit(None)
+        assert shown["step_id"] == "program_edit"
+
+        # Frontend submission for a cleared slot: the key is absent entirely.
+        user_input = _program_editor_input()
+        user_input.pop("synchro_day")  # lives inside the periodic section
+        del user_input["start_time_1"]
+        # FlowManager validates the submission against the shown schema.
+        validated = shown["data_schema"](user_input)
+
+        result = await handler.async_step_program_edit(validated)
+        # The removal makes the schedule degenerate: warning + confirm first.
+        assert result["step_id"] == "program_degenerate_confirm"
+        result = await handler.async_step_program_degenerate_confirm(
+            {"confirm_degenerate": True}
+        )
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"] == [None] * 8
+
+
+@pytest.mark.asyncio
+async def test_program_edit_cleared_middle_start_keeps_others(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Clearing one of several start times removes only that slot (issue #151)."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.num_stations = 2
+    coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+    coordinator._irrigation_active = False
+    coordinator._is_watering = False
+    coordinator.set_irrigation_program = AsyncMock()
+    mock_config_entry.runtime_data = RuntimeData(coordinator)
+    handler = SolemOptionsFlowHandler()
+    handler._selected_program_index = 1
+    user_input = _program_editor_input(start_time_2="17:40")
+    del user_input["start_time_2"]  # 17:40 slot X-cleared, 06:30 slot kept
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    _, program = coordinator.set_irrigation_program.await_args.args
+    assert program["start_times"] == [390, None, None, None, None, None, None, None]
 
 
 @pytest.mark.asyncio
@@ -1016,6 +1131,99 @@ def test_options_flow_program_edit_defaults_show_duration_minutes() -> None:
     assert defaults["station_4_duration"] == 0
 
 
+def test_program_defaults_keep_stored_anchor() -> None:
+    """A stored anchor (legacy backup) is prefilled exactly as it was."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {**MOCK_IRRIGATION_PROGRAMS[2], "period_start_date": date(2026, 6, 1)},
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == date(2026, 6, 1)
+
+
+def test_program_defaults_show_next_run_for_countdown() -> None:
+    """A device read has no anchor: cycle 4 shows today + synchro_day."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {
+            **MOCK_IRRIGATION_PROGRAMS[2],
+            "period_start_date": None,
+            "period_length": 3,
+            "synchro_day": 2,
+        },
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == dt_util.now().date() + timedelta(days=2)
+
+
+def test_program_defaults_prefilled_anchor_round_trips_the_countdown() -> None:
+    """The prefilled anchor reproduces the countdown the device reported.
+
+    ``_program_defaults`` fills today + ``synchro_day`` when the read carries
+    no anchor; parsing that date back must derive the same countdown, so an
+    untouched form writes the phase it read.
+    """
+    handler = SolemOptionsFlowHandler()
+    stored = {
+        **MOCK_IRRIGATION_PROGRAMS[2],
+        "period_start_date": None,
+        "period_length": 3,
+        "synchro_day": 2,
+    }
+
+    defaults = handler._program_defaults(stored, num_stations=4)
+    prefilled = defaults["period_start_date"]
+
+    assert prefilled == dt_util.now().date() + timedelta(days=2)
+    parsed = _parse_program_input(
+        _flat_editor_input(
+            period_start_date=prefilled.isoformat(),
+            period_length=3,
+        ),
+        num_stations=2,
+    )
+    assert parsed["synchro_day"] == 2
+
+
+def test_program_defaults_show_today_for_invalid_phase() -> None:
+    """An out-of-range countdown has no next run, so today is the fallback."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {
+            **MOCK_IRRIGATION_PROGRAMS[2],
+            "period_start_date": None,
+            "period_length": 3,
+            "synchro_day": 3,
+        },
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == dt_util.now().date()
+
+
+def test_program_defaults_show_today_for_non_interval_cycles() -> None:
+    """Cycles 0-3 never apply a countdown to the prefilled date."""
+    handler = SolemOptionsFlowHandler()
+
+    defaults = handler._program_defaults(
+        {
+            **MOCK_IRRIGATION_PROGRAMS[2],
+            "cycle": 0,
+            "period_start_date": None,
+            "period_length": 3,
+            "synchro_day": 2,
+        },
+        num_stations=4,
+    )
+
+    assert defaults["period_start_date"] == dt_util.now().date()
+
+
 def test_options_flow_program_edit_schema_serializes(
     mock_config_entry: MockConfigEntry,
 ) -> None:
@@ -1049,7 +1257,10 @@ def test_options_flow_program_edit_schema_serializes(
     start_field = next(
         field for field in serialized_a if field["name"] == "start_time_1"
     )
-    assert start_field["default"] == "17:40"
+    # Prefill rides on suggested_value, not vol default (issue #151): a vol
+    # default resurrects a X-cleared slot because the frontend JSON-drops
+    # cleared keys and FlowManager re-applies the schema to the submission.
+    assert start_field["description"]["suggested_value"] == "17:40"
 
 
 def test_options_flow_program_edit_schema_uses_station_names(
@@ -1600,12 +1811,30 @@ def test_apply_preset_even_and_odd() -> None:
     """even_days/odd_days map to the native parity cycles."""
     even = SolemOptionsFlowHandler._apply_preset("even_days", _program_editor_input())
     assert even["cycle"] == 1
+    assert even["synchro_day"] == 0
     odd = SolemOptionsFlowHandler._apply_preset("odd_days", _program_editor_input())
     assert odd["cycle"] == 2
+    assert odd["synchro_day"] == 0
 
 
-def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
-    """An anchored preset renormalizes the stored phase into its new period."""
+def test_countdown_for_anchor_none_anchor_is_zero() -> None:
+    """A cycle-4 anchor that is absent yields 0 instead of a ``ValueError``.
+
+    ``period_start_to_synchro`` raises on ``None``, and the program editor only
+    catches ``vol.Invalid``, so the helper guards the anchor itself. The form
+    always supplies one today, so this is defensive.
+    """
+    assert _countdown_for_anchor(4, None, 3) == 0
+    assert _countdown_for_anchor(0, None, 1) == 0
+
+
+def test_apply_preset_rederives_countdown_for_preset_period() -> None:
+    """An anchored preset re-derives the countdown for its own period length.
+
+    The stored period/phase of the program under edit is never renormalized
+    into the preset's period: the countdown follows the picked anchor and the
+    preset's ``period_length``, which is what the library derives at pack time.
+    """
     previous: IrrigationProgram = {
         "name": "Vasi",
         "inter_station_delay": 0,
@@ -1627,7 +1856,10 @@ def test_apply_preset_renormalizes_synchro_day_to_new_period() -> None:
     )
 
     assert program["period_length"] == 3
-    assert program["synchro_day"] == 5 % 3
+    assert program["synchro_day"] == period_start_to_synchro(
+        date(2026, 6, 18), 3, today=dt_util.now().date()
+    )
+    assert program["period_start_date"] == date(2026, 6, 18)
 
 
 def test_apply_preset_anchored_periodic() -> None:
@@ -1636,7 +1868,7 @@ def test_apply_preset_anchored_periodic() -> None:
     program = SolemOptionsFlowHandler._apply_preset("every_3_days", inp)
 
     assert program["cycle"] == 4 and program["period_length"] == 3
-    assert program["period_start_date"] == inp["periodic"]["period_start_date"]
+    assert program["period_start_date"] == dt_util.now().date()
 
 
 def test_apply_preset_none_returns_input_unchanged() -> None:
@@ -1764,8 +1996,12 @@ def test_program_schema_periodic_section_defaults_are_nested(
     )
     defaults = {field["name"]: field["default"] for field in section_field["schema"]}
     assert defaults["period_length"] == 5
-    # probatio may keep the date default raw or serialize it to ISO.
-    assert str(defaults["period_start_date"]) == "2026-03-01"
+    # Issue #158: the anchor is a select of the cycle's valid run days, so the
+    # default must be one of its labels. A stored anchor outside the window
+    # cannot be offered and falls back to the first (today) option.
+    options = _period_start_date_options(5)
+    assert defaults["period_start_date"] == options[0]
+    assert defaults["period_start_date"] == _period_label(dt_util.now().date())
 
 
 @pytest.mark.asyncio
@@ -1797,6 +2033,62 @@ async def test_program_edit_preset_submit_shows_apply_confirm(
     assert handler._pending_program is not None
     assert handler._pending_program["period_length"] == 3
     assert handler._pending_program_index == 1
+
+
+@pytest.mark.asyncio
+async def test_apply_confirm_preview_matches_library_run_day_for_future_anchor(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The apply-confirm preview shows the day the wire countdown will place.
+
+    The parser derives ``synchro_day`` from the picked anchor, so the preview
+    no longer ignores the anchor. Anchor today+5 with period 3 gives a
+    countdown of 2 (the library wraps the anchor onto its run grid, so the
+    first run day on or after today is today+2), and the preview must name
+    that day - the same day the packed frame encodes.
+    """
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    anchor = dt_util.now().date() + timedelta(days=5)
+    user_input = _program_editor_input(
+        schedule_preset="every_3_days",
+        period_start_date=anchor,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["step_id"] == "program_apply_confirm"
+    pending = handler._pending_program
+    assert pending is not None
+
+    # The pending program carries the anchor-derived countdown ...
+    expected_synchro = period_start_to_synchro(anchor, 3, today=dt_util.now().date())
+    assert expected_synchro == 2
+    assert pending["synchro_day"] == expected_synchro
+    # ... and the frame the library packs encodes the same countdown, so the
+    # anchor still wins at pack time.
+    wire = normalize_irrigation_program_for_write(
+        pending, today=dt_util.now().date(), max_stations=6
+    )
+    assert wire["synchro_day"] == expected_synchro
+    assert wire["period_start_date"] == anchor
+
+    # The preview names the day that countdown places, not today (which is
+    # what a hard-coded synchro_day 0 used to show).
+    run_day = dt_util.now().date() + timedelta(days=wire["synchro_day"])
+    slot = pending["start_times"][0]
+    assert slot is not None
+    expected_text = f"{run_day.strftime('%a')} {slot // 60:02d}:{slot % 60:02d}"
+    preview = result["description_placeholders"]["preview"]
+    assert expected_text in preview
+    assert run_day != dt_util.now().date()
+    nxt = next_start_datetime(pending, dt_util.now())
+    assert nxt is not None
+    assert nxt.date() == run_day
 
 
 @pytest.mark.asyncio
@@ -2053,45 +2345,66 @@ def _flat_editor_input(**overrides: object) -> dict[str, object]:
     return {**periodic, **data}
 
 
-def _parse_after_anchor_shift(period_start_date: str) -> IrrigationProgram:
-    """Re-parse the editor form after moving the anchor to period_start_date."""
+def test_parse_program_input_derives_countdown_ignoring_stored_phase() -> None:
+    """The parser derives the countdown from the anchor, not from the stored phase.
+
+    ``period_start_date`` is a write-only client anchor, so the phase stored on
+    the program under edit is never reused - neither when the picked date
+    equals the stored one nor when it differs. The derived value is exactly
+    what the library packs for the wire.
+    """
     previous = _stored_periodic_program(synchro_day=1)
-    data = _flat_editor_input(
-        period_start_date=period_start_date,
-        period_length=3,
+
+    unchanged = _parse_program_input(
+        _flat_editor_input(period_start_date="2026-09-01", period_length=3),
+        num_stations=2,
+        current_program=previous,
     )
-    data.pop("synchro_day")
-    return _parse_program_input(data, num_stations=2, current_program=previous)
-
-
-def test_parse_program_input_derives_synchro_day_from_anchor_shift() -> None:
-    """synchro_day shifts WITH the anchor, not just by the delta alone."""
-    parsed = _parse_after_anchor_shift("2026-09-03")
-
-    # (stored 1 + 2-day shift) % period 3 = 0; delta-only would give 2.
-    assert parsed["synchro_day"] == 0
-
-
-def test_parse_program_input_negative_anchor_shift() -> None:
-    """A backward anchor shift wraps via Python's non-negative modulo."""
-    parsed = _parse_after_anchor_shift("2026-08-31")
-
-    # (stored 1 + (-1)-day shift) % period 3 = 0, not negative.
-    assert parsed["synchro_day"] == 0
-
-
-def test_parse_program_input_keeps_synchro_day_when_anchor_unchanged() -> None:
-    """Unchanged anchor date keeps the stored synchro_day, ignoring the form."""
-    previous = _stored_periodic_program(synchro_day=1)
-    data = _flat_editor_input(
-        period_start_date="2026-09-01",
-        period_length=5,
+    changed = _parse_program_input(
+        _flat_editor_input(period_start_date="2026-09-03", period_length=3),
+        num_stations=2,
+        current_program=previous,
     )
-    data["synchro_day"] = 0
 
-    parsed = _parse_program_input(data, num_stations=2, current_program=previous)
+    assert unchanged["synchro_day"] == period_start_to_synchro(
+        date(2026, 9, 1), 3, today=dt_util.now().date()
+    )
+    assert unchanged["period_start_date"] == date(2026, 9, 1)
+    assert changed["synchro_day"] == period_start_to_synchro(
+        date(2026, 9, 3), 3, today=dt_util.now().date()
+    )
+    assert changed["period_start_date"] == date(2026, 9, 3)
 
-    assert parsed["synchro_day"] == 1
+
+def test_parse_program_input_ignores_form_synchro_day() -> None:
+    """A synchro_day key submitted with the form never reaches the program."""
+    expected = period_start_to_synchro(date(2026, 9, 3), 3, today=dt_util.now().date())
+    data = _flat_editor_input(period_start_date="2026-09-03", period_length=3)
+    # A different, still-valid phase than the anchor implies.
+    data["synchro_day"] = (expected + 1) % 3
+
+    parsed = _parse_program_input(data, num_stations=2)
+
+    assert parsed["synchro_day"] == expected
+    assert parsed["period_start_date"] == date(2026, 9, 3)
+
+
+def test_parse_program_input_anchor_drives_library_countdown() -> None:
+    """The picked anchor is what the library turns into the countdown."""
+    anchor = dt_util.now().date() - timedelta(days=4)
+
+    parsed = _parse_program_input(
+        _flat_editor_input(
+            period_start_date=anchor.isoformat(),
+            period_length=3,
+        ),
+        num_stations=2,
+    )
+    normalized = normalize_irrigation_program_for_write(parsed, max_stations=6)
+
+    assert normalized["period_start_date"] == anchor
+    assert normalized["synchro_day"] == period_start_to_synchro(anchor, 3)
+    assert 0 <= normalized["synchro_day"] < 3
 
 
 # --- Issue #136: station-name editor read retry -----------------------------
@@ -2311,3 +2624,420 @@ async def test_station_select_first_failure_logs_debug(
 def api_read_count(manager: StationNameManager) -> int:
     """Number of snapshot reads issued against the manager's API."""
     return manager.api.get_station_name_snapshot.await_count
+
+
+# --- Issue #158: capped periodic interval + first-run-day select -------------
+
+
+def test_period_start_date_options_cover_one_cycle() -> None:
+    """The select offers exactly the current cycle's run days."""
+    # Fixed date so the test does not depend on the wall clock.
+    today = date(2026, 10, 19)
+    options = _period_start_date_options(3, today=today)
+
+    assert len(options) == 3
+    assert options[0] == _period_label(today)
+    days = []
+    for label in options:
+        day = date.fromisoformat(label[:10])
+        assert label == _period_label(day)
+        days.append(day)
+    assert days == [today + timedelta(days=offset) for offset in range(3)]
+    # A zero period still offers one day instead of an empty select.
+    assert len(_period_start_date_options(0, today=today)) == 1
+    assert _period_start_date_options(0, today=today) == [_period_label(today)]
+
+
+@pytest.mark.asyncio
+async def test_program_edit_periodic_section_offers_only_cycle_days(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A cycle-4 program's editor offers only its cycle's first-run days."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    coordinator.irrigation_programs = {
+        **MOCK_IRRIGATION_PROGRAMS,
+        1: {
+            **MOCK_IRRIGATION_PROGRAMS[1],
+            "period_length": 3,
+            "synchro_day": 1,
+        },
+    }
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(None)
+
+    assert result["step_id"] == "program_edit"
+    serialized = to_field_list(
+        result["data_schema"], custom_serializer=cv.custom_serializer
+    )
+    section_field = next(
+        field for field in serialized if field["name"] == PERIODIC_SECTION
+    )
+    fields = {field["name"]: field for field in section_field["schema"]}
+    period_start = fields["period_start_date"]
+
+    options = period_start["selector"]["select"]["options"]
+    assert options == _period_start_date_options(3)
+    assert len(options) == 3
+    assert period_start["selector"]["select"]["mode"] == "dropdown"
+    assert period_start["default"] in options
+    # The stored countdown (1) prefills tomorrow, inside the cycle.
+    assert period_start["default"] == _period_label(dt_util.now().date() + timedelta(days=1))
+
+
+def test_parse_program_input_accepts_label_iso_and_date() -> None:
+    """The first-run-day field accepts the select label and the legacy shapes."""
+    for value in (
+        "2026-09-01 (Tue)",
+        " 2026-09-01 ",
+        "2026-09-01",
+        date(2026, 9, 1),
+        datetime(2026, 9, 1, 14, 30),
+    ):
+        parsed = _parse_program_input(
+            _flat_editor_input(period_start_date=value, period_length=3),
+            num_stations=2,
+        )
+        assert parsed["period_start_date"] == date(2026, 9, 1)
+
+    with pytest.raises(vol.Invalid):
+        _parse_program_input(
+            _flat_editor_input(period_start_date="not a date", period_length=3),
+            num_stations=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_program_edit_out_of_window_first_run_day_confirms(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A first-run day outside the cycle warns and confirms instead of writing."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    today = dt_util.now().date()
+    anchor = today + timedelta(days=5)
+    # What a submit looks like when the user lowers the period in the same
+    # round-trip: the anchor stays the one picked under the larger cycle.
+    user_input = _program_editor_input(
+        period_start_date=_period_label(anchor),
+        period_length=3,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "program_apply_confirm"
+    coordinator.set_irrigation_program.assert_not_awaited()
+
+    pending = handler._pending_program
+    assert pending is not None
+    # The library wraps the anchor onto the run grid: 5 % 3 == 2 days out.
+    assert pending["synchro_day"] == 5 % 3 == 2
+
+    warning = result["description_placeholders"]["warning"]
+    assert "outside the current 3-day cycle" in warning
+    assert anchor.isoformat() in warning
+    assert (today + timedelta(days=2)).isoformat() in warning
+
+
+def test_program_schema_period_length_is_capped(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """The editor accepts 31 days and rejects 32."""
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        schema = handler._program_schema(MOCK_IRRIGATION_PROGRAMS[1])
+
+    periodic = next(
+        validator
+        for key, validator in schema.schema.items()
+        if str(key.schema) == PERIODIC_SECTION
+    )
+    inner = periodic.schema
+    label = _period_label(dt_util.now().date())
+
+    validated = inner({"period_start_date": label, "period_length": 31})
+    assert validated["period_length"] == 31
+    with pytest.raises(vol.Invalid):
+        inner({"period_start_date": label, "period_length": 32})
+
+
+def test_program_schema_keeps_stored_period_above_cap(
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A restored program's untouched period above 31 stays valid."""
+    handler = SolemOptionsFlowHandler()
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        schema = handler._program_schema(
+            {**MOCK_IRRIGATION_PROGRAMS[1], "period_length": 40}
+        )
+
+    periodic = next(
+        validator
+        for key, validator in schema.schema.items()
+        if str(key.schema) == PERIODIC_SECTION
+    )
+    validated = periodic.schema(
+        {"period_start_date": _period_label(dt_util.now().date()), "period_length": 40}
+    )
+    assert validated["period_length"] == 40
+
+
+def test_set_program_service_schema_caps_period_length() -> None:
+    """The set_program service rejects an interval above 31 days."""
+    payload: dict[str, object] = {
+        "device_id": "device-id",
+        "program": 1,
+        "name": "Vasi",
+        "start_times": ["06:30"],
+        "station_durations": {"1": 60},
+        "period_length": 31,
+    }
+    assert _SET_PROGRAM_SCHEMA(payload)["period_length"] == 31
+
+    payload["period_length"] = 32
+    with pytest.raises(vol.Invalid):
+        _SET_PROGRAM_SCHEMA(payload)
+
+
+@pytest.mark.asyncio
+async def test_program_edit_degenerate_confirm_carries_wrap_warning(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The degenerate confirm shows both the wrap and the degenerate warning."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    anchor = dt_util.now().date() + timedelta(days=5)
+    user_input = _program_editor_input(
+        period_start_date=_period_label(anchor),
+        period_length=3,
+        start_time_1="",
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["step_id"] == "program_degenerate_confirm"
+    coordinator.set_irrigation_program.assert_not_awaited()
+    warning = result["description_placeholders"]["warning"]
+    assert "outside the current 3-day cycle" in warning
+    assert "All start times are cleared" in warning
+
+
+@pytest.mark.asyncio
+async def test_program_edit_wrap_warning_names_resolved_run_day(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """The wrap warning names the run day the preview resolves, not the grid day.
+
+    Issue #158 flow: the wrap lands on today, but today's start slot has
+    already passed, so ``_next_interval_start`` rolls the run one period ahead.
+    The warning must agree with the preview instead of claiming today.
+    """
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    today = dt_util.now().date()
+    anchor = today + timedelta(days=3)
+    # 12:00 local: the 06:30 slot on the wrap day (today) already passed.
+    patched_now = datetime.combine(
+        today, time(12, 0), tzinfo=dt_util.DEFAULT_TIME_ZONE
+    )
+    user_input = _program_editor_input(
+        period_start_date=_period_label(anchor),
+        period_length=3,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ), patch.object(config_flow_module.dt_util, "now", return_value=patched_now):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["step_id"] == "program_apply_confirm"
+    coordinator.set_irrigation_program.assert_not_awaited()
+
+    pending = handler._pending_program
+    assert pending is not None
+    # The anchor is exactly one cycle out: the grid day is today.
+    assert pending["synchro_day"] == 0
+    next_start = next_start_datetime(pending, patched_now)
+    assert next_start is not None
+    resolved = dt_util.as_local(next_start).date()
+    assert resolved == anchor
+
+    warning = result["description_placeholders"]["warning"]
+    assert "outside the current 3-day cycle" in warning
+    assert anchor.isoformat() in warning
+    # The warning matches what the same step's preview says.
+    assert f"the next run is {resolved.isoformat()}" in warning
+    assert f"the next run is {today.isoformat()}" not in warning
+
+
+@pytest.mark.asyncio
+async def test_program_edit_preset_submit_carries_wrap_warning(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """A preset submit runs the wrap check on the APPLIED program too."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    coordinator.irrigation_programs = {
+        **MOCK_IRRIGATION_PROGRAMS,
+        1: {
+            **MOCK_IRRIGATION_PROGRAMS[1],
+            "period_length": 6,
+            "synchro_day": 0,
+            "start_times": [390, None, None, None, None, None, None, None],
+        },
+    }
+    today = dt_util.now().date()
+    anchor = today + timedelta(days=5)
+    user_input = _program_editor_input(
+        period_start_date=_period_label(anchor),
+        schedule_preset="every_2_days",
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["step_id"] == "program_apply_confirm"
+    coordinator.set_irrigation_program.assert_not_awaited()
+
+    pending = handler._pending_program
+    assert pending is not None
+    # The preset's 2-day cycle wraps the anchor onto the run grid.
+    assert pending["synchro_day"] == 1
+
+    warning = result["description_placeholders"]["warning"]
+    assert warning
+    assert "outside the current 2-day cycle" in warning
+    assert anchor.isoformat() in warning
+    next_start = next_start_datetime(pending, dt_util.now())
+    assert next_start is not None
+    resolved = dt_util.as_local(next_start).date()
+    assert resolved == today + timedelta(days=1)
+    assert f"the next run is {resolved.isoformat()}" in warning
+
+
+@pytest.mark.asyncio
+async def test_program_apply_confirm_rerender_keeps_wrap_warning(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Re-rendering the confirm step (user_input None) keeps its warning."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    anchor = dt_util.now().date() + timedelta(days=5)
+    user_input = _program_editor_input(
+        period_start_date=_period_label(anchor),
+        period_length=3,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        first = await handler.async_step_program_edit(user_input)
+        assert first["step_id"] == "program_apply_confirm"
+        rerendered = await handler.async_step_program_apply_confirm(None)
+
+    assert rerendered["step_id"] == "program_apply_confirm"
+    warning = rerendered["description_placeholders"]["warning"]
+    assert "outside the current 3-day cycle" in warning
+    assert warning == first["description_placeholders"]["warning"]
+    coordinator.set_irrigation_program.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_program_degenerate_confirm_rerender_keeps_composed_warning(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Re-rendering the degenerate confirm does not drop or duplicate text."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    anchor = dt_util.now().date() + timedelta(days=5)
+    user_input = _program_editor_input(
+        period_start_date=_period_label(anchor),
+        period_length=3,
+        start_time_1="",
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        first = await handler.async_step_program_edit(user_input)
+        assert first["step_id"] == "program_degenerate_confirm"
+        rerendered = await handler.async_step_program_degenerate_confirm(None)
+
+    warning = rerendered["description_placeholders"]["warning"]
+    assert warning == first["description_placeholders"]["warning"]
+    assert "outside the current 3-day cycle" in warning
+    assert warning.count("All start times are cleared") == 1
+
+
+@pytest.mark.asyncio
+async def test_program_edit_untouched_periodic_program_writes_directly(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """An untouched in-cycle submit writes directly, with no confirm step."""
+    handler, coordinator = _loaded_editor_handler(hass, mock_config_entry)
+    coordinator.irrigation_programs = {
+        **MOCK_IRRIGATION_PROGRAMS,
+        1: {
+            **MOCK_IRRIGATION_PROGRAMS[1],
+            "period_length": 3,
+            "synchro_day": 2,
+            "start_times": [390, None, None, None, None, None, None, None],
+        },
+    }
+    today = dt_util.now().date()
+    # The prefill the editor renders for synchro_day 2 (inside the cycle).
+    user_input = _program_editor_input(
+        period_start_date=_period_label(today + timedelta(days=2)),
+        period_length=3,
+    )
+    with patch.object(
+        SolemOptionsFlowHandler,
+        "config_entry",
+        new_callable=PropertyMock,
+        return_value=mock_config_entry,
+    ):
+        result = await handler.async_step_program_edit(user_input)
+
+    assert result["type"] == "create_entry"
+    coordinator.set_irrigation_program.assert_awaited_once()
+    written_index, written = coordinator.set_irrigation_program.await_args.args
+    assert written_index == 1
+    assert written["synchro_day"] == 2
+
+
+def test_parse_program_input_rejects_wrong_anchor_type() -> None:
+    """A non-date, non-string first-run-day value is a validation error."""
+    with pytest.raises(vol.Invalid):
+        _parse_program_input(
+            _flat_editor_input(period_start_date=123, period_length=3),
+            num_stations=2,
+        )

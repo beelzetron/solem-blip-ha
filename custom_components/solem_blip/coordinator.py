@@ -10,10 +10,13 @@ from typing import Any, cast
 
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from homeassistant.helpers import issue_registry as ir
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+from homeassistant.util import dt as dt_util
 
 from solem_blip_ble import IrrigationProgram
 from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
@@ -503,9 +506,15 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         program: IrrigationProgram,
     ) -> None:
         """Write one on-device irrigation program and refresh schedule data."""
+        # The device day boundary follows Home Assistant's local time, so the
+        # write day must come from HA's clock (issue #77). The library would
+        # otherwise fall back to the process time zone, which can put the
+        # packed header date and countdown on a different day than the editor
+        # preview shows.
         self.irrigation_programs = await self.api.set_irrigation_program(
             program_index,
             program,
+            today=dt_util.now().date(),
         )
         self.request_schedule_refresh()
         self.async_set_updated_data(await self.async_update_all_sensors(fetch_status=False))
@@ -675,15 +684,32 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                     if station <= self.num_stations
                 },
             }
-            # period_start_date is controller-owned restore metadata.
-            # Real BL-IP hardware normalizes/retains the fresh controller date
-            # after a write, so replaying the backup date makes an otherwise
-            # successful restore fail the byte-for-byte revision check.
-            program_frames, expected = expected.patch(
-                program_index,
-                changes,
-                self.num_stations,
-            )
+            # The header date is controller-owned restore metadata, and the
+            # client-side anchor is write-only (the snapshot rejects it as a
+            # patch field). Real BL-IP hardware normalizes/retains the fresh
+            # controller date after a write, so replaying a stored date would
+            # make an otherwise successful restore fail the revision check.
+            try:
+                program_frames, expected = expected.patch(
+                    program_index,
+                    changes,
+                    self.num_stations,
+                )
+            except InvalidSnapshot as err:
+                # A backup captured from a state the library now refuses to
+                # encode (for example a cycle-4 program whose stored
+                # ``synchro_day`` is not smaller than its ``period_length``)
+                # must fail before any journal entry exists: the pending
+                # restore point stays untouched and no frame is written.
+                # The slot-naming message below is for the log only: both
+                # entry points (button, service) re-raise the generic
+                # translated ``restore_programs_failed`` key, so the UI shows
+                # that text and never this one.
+                raise HomeAssistantError(
+                    f"Cannot restore program {PROGRAM_LABELS[program_index]}: "
+                    f"the backed-up schedule is not a valid controller state "
+                    f"({err})"
+                ) from err
             frames.extend(program_frames)
 
         if not frames:
