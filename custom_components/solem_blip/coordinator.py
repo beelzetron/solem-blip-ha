@@ -198,6 +198,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_set_time_sync: datetime | None = None
         self._set_time_pending = True
         self._ble_cycle_degraded_streak = 0
+        # Monotonic deadlines: restart grace and explicit proxy maintenance.
+        self._ble_startup_grace_until = asyncio.get_running_loop().time() + 60
+        self._ble_maintenance_until = 0.0
         self._ble_health_events: deque[float] = deque()
         self._ble_issue_active = False
         self._ble_first_healthy_at: float | None = None
@@ -429,6 +432,22 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Clear stored monitor task when it completes."""
         clear_monitor_task_ref(self, task)
 
+    def start_ble_maintenance(self, duration: int) -> None:
+        """Temporarily quiet expected BLE disconnects during proxy maintenance."""
+        now = asyncio.get_running_loop().time()
+        # Repeated calls do not extend an active window indefinitely.
+        if now >= self._ble_maintenance_until:
+            self._ble_maintenance_until = now + duration
+
+    def ble_grace_active(self) -> bool:
+        """Return whether an explicit or startup BLE grace window is active."""
+        now = asyncio.get_running_loop().time()
+        return now < max(self._ble_startup_grace_until, self._ble_maintenance_until)
+
+    def clear_ble_maintenance(self) -> None:
+        """End explicit maintenance after a successful BLE status poll."""
+        self._ble_maintenance_until = 0.0
+
     def request_device_time_sync(self) -> None:
         """Force a device-time sync on the next successful status poll.
 
@@ -459,6 +478,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         try:
             data = await self.async_update_all_sensors()
             self._last_successful_poll_at = asyncio.get_running_loop().time()
+            self.clear_ble_maintenance()
             note_ble_recovery(self)
             note_cycle_outcome(self, degraded=False, reason="")
             _LOGGER.debug(
@@ -467,7 +487,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             )
             return data
         except Exception as err:
-            note_cycle_outcome(self, degraded=True, reason="status poll failed")
+            note_cycle_outcome(self, degraded=True, reason="status poll failed", error=err)
             self.stuck_adapter_detector.note_cycle_outcome(degraded=True)
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
