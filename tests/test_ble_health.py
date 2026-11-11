@@ -213,3 +213,68 @@ async def test_healthy_poll_resets_streak_after_status_failure(
         and record.name == BLE_HEALTH_LOGGER
     ]
     assert recovery == ["AA:BB:CC:DD:EE:FF - BLE cycle recovered after 1 degraded cycle(s)"]
+
+
+async def test_ble_startup_grace_quiets_transient_connection_errors(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Startup grace affects log severity, never health counters."""
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator,
+            degraded=True,
+            reason="status poll failed",
+            error=TimeoutError("BLE timeout"),
+        )
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1
+    assert any(
+        record.levelno == logging.DEBUG
+        and "BLE cycle degraded" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+async def test_ble_grace_does_not_hide_unrelated_failures(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Non-connection failures retain warning severity during grace."""
+    note_cycle_outcome(
+        coordinator,
+        degraded=True,
+        reason="status poll failed",
+        error=ValueError("invalid status payload"),
+    )
+    assert len(_warnings(caplog)) == 1
+
+
+async def test_ble_maintenance_is_bounded_and_clears_on_recovery(
+    coordinator: SolemCoordinator,
+) -> None:
+    """Repeated calls cannot extend a running maintenance window."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    first_deadline = coordinator._ble_maintenance_until
+    assert coordinator.ble_grace_active()
+    coordinator.start_ble_maintenance(600)
+    assert coordinator._ble_maintenance_until == first_deadline
+    coordinator.clear_ble_maintenance()
+    assert not coordinator.ble_grace_active()
+
+
+async def test_ble_grace_expires(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Expired grace restores warnings for BLE connection failures."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator._ble_maintenance_until = 0.0
+    note_cycle_outcome(
+        coordinator,
+        degraded=True,
+        reason="status poll failed",
+        error=ConnectionError("proxy disconnected"),
+    )
+    assert len(_warnings(caplog)) == 1
