@@ -10,6 +10,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from solem_blip_ble.exceptions import SolemConnectionError, SolemDeadlineExceeded
 
 from custom_components.solem_blip.ble_health import note_cycle_outcome
 from custom_components.solem_blip.coordinator import SolemCoordinator
@@ -280,3 +281,43 @@ async def test_ble_grace_expires(
         error=ConnectionError("proxy disconnected"),
     )
     assert len(_warnings(caplog)) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        SolemConnectionError("BLE connection lost"),
+        SolemDeadlineExceeded("BLE operation deadline"),
+    ],
+)
+async def test_solem_transport_errors_are_quiet_during_grace(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+    error: Exception,
+) -> None:
+    """Solem BLE library transport exceptions are transient during grace."""
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator, degraded=True, reason="status poll failed", error=error
+        )
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1
+
+
+async def test_wrapped_ble_transport_error_is_quiet_during_grace(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An application-level wrapper retains the BLE cause classification."""
+    try:
+        raise SolemConnectionError("BLE link dropped")
+    except SolemConnectionError as cause:
+        wrapped = RuntimeError("status poll failed")
+        wrapped.__cause__ = cause
+
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator, degraded=True, reason="status poll failed", error=wrapped
+        )
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1
