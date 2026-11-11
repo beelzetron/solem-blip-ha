@@ -9,9 +9,9 @@ degraded cycle, with the individual read failures logged at DEBUG level.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from bleak.exc import BleakError
-from typing import TYPE_CHECKING
 
 from .bluetooth_issue import note_ble_degradation
 
@@ -29,7 +29,11 @@ _RECOVERY_HINT = (
 
 
 def note_cycle_outcome(
-    coordinator: SolemCoordinator, *, degraded: bool, reason: str, error: Exception | None = None
+    coordinator: SolemCoordinator,
+    *,
+    degraded: bool,
+    reason: str,
+    error: Exception | None = None,
 ) -> None:
     """Record the poll cycle outcome and log one warning per degraded cycle.
 
