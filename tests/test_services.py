@@ -21,6 +21,7 @@ from custom_components.solem_blip.services import (
     SERVICE_REFRESH_PROGRAMS,
     SERVICE_RESTORE_PROGRAMS,
     SERVICE_SET_PROGRAM,
+    SERVICE_START_BLE_MAINTENANCE,
     async_unload_services,
     async_setup_services,
     _program_from_service_data,
@@ -204,12 +205,14 @@ async def test_services_register_once_and_unload(hass: HomeAssistant) -> None:
     await async_setup_services(hass)
 
     assert hass.services.has_service(DOMAIN, SERVICE_SET_PROGRAM)
+    assert hass.services.has_service(DOMAIN, SERVICE_START_BLE_MAINTENANCE)
     assert hass.services.has_service(DOMAIN, SERVICE_REFRESH_PROGRAMS)
     assert hass.services.has_service(DOMAIN, SERVICE_RESTORE_PROGRAMS)
 
     async_unload_services(hass)
 
     assert not hass.services.has_service(DOMAIN, SERVICE_SET_PROGRAM)
+    assert not hass.services.has_service(DOMAIN, SERVICE_START_BLE_MAINTENANCE)
     assert not hass.services.has_service(DOMAIN, SERVICE_REFRESH_PROGRAMS)
     assert not hass.services.has_service(DOMAIN, SERVICE_RESTORE_PROGRAMS)
 
@@ -652,3 +655,70 @@ async def test_update_protected_backup_rejects_non_v5_firmware(
         await coordinator.update_protected_program_backup()
 
     mock_solem_client.get_program_snapshot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ble_maintenance_service_default_and_explicit_duration(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """The HA action resolves the device and applies the bounded duration."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    coordinator._ble_startup_grace_until = 0.0
+    with patch.object(coordinator, "start_ble_maintenance") as start:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_START_BLE_MAINTENANCE,
+            {"device_id": device_id},
+            blocking=True,
+        )
+        start.assert_called_once_with(120)
+        start.reset_mock()
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_START_BLE_MAINTENANCE,
+            {"device_id": device_id, "duration": 240},
+            blocking=True,
+        )
+        start.assert_called_once_with(240)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("duration", [0, -1, 601, "invalid"])
+async def test_ble_maintenance_service_rejects_invalid_duration(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+    duration: object,
+) -> None:
+    """The HA action rejects durations outside the supported range."""
+    coordinator, device_id = await _setup_service_target(
+        hass, mock_config_entry, mock_solem_client
+    )
+    with patch.object(coordinator, "start_ble_maintenance") as start:
+        with pytest.raises(vol.Invalid):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_START_BLE_MAINTENANCE,
+                {"device_id": device_id, "duration": duration},
+                blocking=True,
+            )
+        start.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ble_maintenance_service_rejects_unknown_device(
+    hass: HomeAssistant,
+) -> None:
+    """An unregistered device cannot start BLE maintenance."""
+    await async_setup_services(hass)
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_START_BLE_MAINTENANCE,
+            {"device_id": "missing"},
+            blocking=True,
+        )
