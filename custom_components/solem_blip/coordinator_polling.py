@@ -25,7 +25,7 @@ from .const import (
     TIME_SYNC_RETRY_INTERVAL,
 )
 from .util import normalize_entity_state
-from .ble_health import note_cycle_outcome
+from .ble_health import is_transient_ble_connection_error, note_cycle_outcome
 from .coordinator_publish import publish_descriptor_update
 from .controller_name import apply_controller_name
 
@@ -197,13 +197,7 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
         else:
             # Proxy restarts can make the time-sync attempt fail before the
             # status poll. Quiet only connection failures during grace.
-            from bleak.exc import BleakError
-
-            transient_ble = (
-                isinstance(err, (BleakError, TimeoutError, ConnectionError))
-                or "device not found" in str(err).lower()
-                or "failed connecting" in str(err).lower()
-            )
+            transient_ble = is_transient_ble_connection_error(err)
             log = (
                 _LOGGER.debug
                 if transient_ble and coordinator.ble_grace_active()
