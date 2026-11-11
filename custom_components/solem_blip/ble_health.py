@@ -12,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from bleak.exc import BleakError
+from solem_blip_ble.exceptions import SolemConnectionError, SolemDeadlineExceeded
 
 from .bluetooth_issue import note_ble_degradation
 
@@ -26,6 +27,30 @@ _RECOVERY_HINT = (
     "proxy, or restarting Home Assistant (which reloads the Bluetooth "
     "adapter), typically resolves it."
 )
+
+
+def is_transient_ble_connection_error(error: Exception) -> bool:
+    """Recognize transport failures, including errors wrapped by the BLE client."""
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(
+            current,
+            (
+                BleakError,
+                SolemConnectionError,
+                SolemDeadlineExceeded,
+                TimeoutError,
+                ConnectionError,
+            ),
+        ):
+            return True
+        message = str(current).lower()
+        if "device not found" in message or "failed connecting" in message:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def note_cycle_outcome(
@@ -67,11 +92,7 @@ def note_cycle_outcome(
         logging.DEBUG
         if coordinator.ble_grace_active()
         and error is not None
-        and (
-            isinstance(error, (BleakError, TimeoutError, ConnectionError))
-            or "device not found" in str(error).lower()
-            or "failed connecting" in str(error).lower()
-        )
+        and is_transient_ble_connection_error(error)
         else logging.WARNING
     )
     if streak == 1:
