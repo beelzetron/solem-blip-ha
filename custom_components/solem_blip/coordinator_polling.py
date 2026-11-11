@@ -195,7 +195,21 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
                 ),
             )
         else:
-            _LOGGER.warning(
+            # Proxy restarts can make the time-sync attempt fail before the
+            # status poll. Quiet only connection failures during grace.
+            from bleak.exc import BleakError
+
+            transient_ble = (
+                isinstance(err, (BleakError, TimeoutError, ConnectionError))
+                or "device not found" in str(err).lower()
+                or "failed connecting" in str(err).lower()
+            )
+            log = (
+                _LOGGER.debug
+                if transient_ble and coordinator.ble_grace_active()
+                else _LOGGER.warning
+            )
+            log(
                 "%s - Failed to sync device time: %s",
                 coordinator.controller_mac_address,
                 str(err) or err_class,
