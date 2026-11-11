@@ -9,6 +9,8 @@ degraded cycle, with the individual read failures logged at DEBUG level.
 from __future__ import annotations
 
 import logging
+
+from bleak.exc import BleakError
 from typing import TYPE_CHECKING
 
 from .bluetooth_issue import note_ble_degradation
@@ -27,7 +29,7 @@ _RECOVERY_HINT = (
 
 
 def note_cycle_outcome(
-    coordinator: SolemCoordinator, *, degraded: bool, reason: str
+    coordinator: SolemCoordinator, *, degraded: bool, reason: str, error: Exception | None = None
 ) -> None:
     """Record the poll cycle outcome and log one warning per degraded cycle.
 
@@ -55,15 +57,30 @@ def note_cycle_outcome(
     streak += 1
     coordinator._ble_cycle_degraded_streak = streak
     note_ble_degradation(coordinator, source=reason)
+    # Keep health counters and repair issues active. Only quiet known BLE
+    # connection errors inside a bounded maintenance/startup window.
+    level = (
+        logging.DEBUG
+        if coordinator.ble_grace_active()
+        and error is not None
+        and (
+            isinstance(error, (BleakError, TimeoutError, ConnectionError))
+            or "device not found" in str(error).lower()
+            or "failed connecting" in str(error).lower()
+        )
+        else logging.WARNING
+    )
     if streak == 1:
-        _LOGGER.warning(
+        _LOGGER.log(
+            level,
             "%s - BLE cycle degraded (%s). %s",
             coordinator.controller_mac_address,
             reason,
             _RECOVERY_HINT,
         )
     else:
-        _LOGGER.warning(
+        _LOGGER.log(
+            level,
             "%s - BLE cycle degraded (%s), %d consecutive degraded cycles",
             coordinator.controller_mac_address,
             reason,
