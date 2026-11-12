@@ -206,7 +206,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._set_time_pending = True
         self._ble_cycle_degraded_streak = 0
         # Monotonic deadlines: restart grace and explicit proxy maintenance.
-        self._ble_startup_grace_until = time.monotonic() + 60
+        self._ble_startup_grace_until = time.monotonic() + 180
         self._ble_maintenance_until = 0.0
         self._ble_maintenance_degraded = 0
         self._ble_maintenance_suppressed = 0
