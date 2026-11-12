@@ -206,7 +206,11 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
 
     coordinator._set_time_pending = False
     coordinator._last_set_time_at = now
-    coordinator._time_sync_retry_after = 0.0
+    # A persistent device alarm after a successful sync must not trigger
+    # another BLE write on every status poll.
+    coordinator._time_sync_retry_after = (
+        now + TIME_SYNC_RETRY_INTERVAL if alarm_set else 0.0
+    )
     coordinator._last_set_time_sync = moment
     # A verified success means the library saw the clock alarm clear;
     # optimistically reflect it so the entity is not stale for a poll. When
