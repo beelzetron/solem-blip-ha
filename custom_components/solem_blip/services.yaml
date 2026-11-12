@@ -133,7 +133,10 @@ restore_programs:
           integration: solem_blip
 
 start_ble_maintenance:
-  description: Quiet expected Bluetooth connection warnings during proxy maintenance.
+  description: >-
+    Temporarily log expected BLE transport failures at DEBUG during proxy
+    maintenance. BLE health counters and repair alerts remain active;
+    longer windows (about four degraded cycles) can still trigger a repair.
   fields:
     device_id:
       required: true
