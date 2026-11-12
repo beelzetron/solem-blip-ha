@@ -222,10 +222,19 @@
         "name": "Ultima sincronizzazione dell'ora"
       },
       "program_next_start": {
-        "name": "Prossimo avvio di {program_name}"
+        "name": "Prossimo avvio di {program_name}",
+        "state": {
+          "scheduled": "Programmato",
+          "none": "Nessuno",
+          "unknown": "Sconosciuto",
+          "unrunnable": "Non eseguibile"
+        }
       },
       "program_schedule": {
-        "name": "Programmazione di {program_name}"
+        "name": "Programmazione di {program_name}",
+        "state": {
+          "none": "Nessuna"
+        }
       },
       "station_remaining_time": {
         "name": "Tempo residuo di {station_name}"

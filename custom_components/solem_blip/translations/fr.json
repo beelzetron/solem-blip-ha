@@ -222,10 +222,19 @@
         "name": "Dernière synchronisation de l'heure"
       },
       "program_next_start": {
-        "name": "Prochain démarrage de {program_name}"
+        "name": "Prochain démarrage de {program_name}",
+        "state": {
+          "scheduled": "Programmé",
+          "none": "Aucun",
+          "unknown": "Inconnu",
+          "unrunnable": "Inexécutable"
+        }
       },
       "program_schedule": {
-        "name": "Programmation de {program_name}"
+        "name": "Programmation de {program_name}",
+        "state": {
+          "none": "Aucun"
+        }
       },
       "station_remaining_time": {
         "name": "Temps restant de {station_name}"
