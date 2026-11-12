@@ -57,12 +57,12 @@ async def _build_coordinator(
 
 
 @pytest.mark.asyncio
-async def test_setup_adopts_leftover_issue_and_recovery_clears_it(
+async def test_setup_clears_leftover_issue(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """A notice from a previous session is adopted, then cleared on recovery."""
+    """A dead record from a previous session is dropped, not adopted."""
     issue_id = _raise_issue(hass, mock_config_entry.entry_id)
     registry = ir.async_get(hass)
     assert registry.async_get_issue(DOMAIN, issue_id) is not None
@@ -71,15 +71,9 @@ async def test_setup_adopts_leftover_issue_and_recovery_clears_it(
         hass, mock_config_entry, mock_solem_client
     )
 
-    assert coordinator._ble_issue_active is True
-    assert registry.async_get_issue(DOMAIN, issue_id) is not None
-
-    # Sustained recovery clears the adopted notice like a fresh one.
-    note_ble_recovery(coordinator, now=100.0)
-    assert registry.async_get_issue(DOMAIN, issue_id) is not None
-
-    note_ble_recovery(coordinator, now=100.0 + RECOVERY_CLEAR_SECONDS)
     assert registry.async_get_issue(DOMAIN, issue_id) is None
+    # The flag stays clear, so a link that is still degraded can raise a fresh
+    # notice through the failure window.
     assert coordinator._ble_issue_active is False
 
 
@@ -89,7 +83,7 @@ async def test_setup_ignores_issue_of_another_entry(
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """Only this entry's notice is adopted; other entries keep theirs."""
+    """Only this entry's notice is dropped; other entries keep theirs."""
     other_entry_id = "01OTHERSESSION00000000000000"
     other_issue = _raise_issue(hass, other_entry_id)
     registry = ir.async_get(hass)
@@ -103,27 +97,31 @@ async def test_setup_ignores_issue_of_another_entry(
 
 
 @pytest.mark.asyncio
-async def test_adopted_issue_is_not_recreated_on_new_failures(
+async def test_degradation_after_setup_raises_an_active_issue(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """Degradation after adoption keeps the single existing notice."""
-    issue_id = _raise_issue(hass, mock_config_entry.entry_id)
+    """A cleared leftover must not hide a link that is still degraded.
+
+    Home Assistant only lists an issue while it is active, so this asserts the
+    notice raised after a restart is active again.
+    """
+    _raise_issue(hass, mock_config_entry.entry_id)
     coordinator = await _build_coordinator(
         hass, mock_config_entry, mock_solem_client
     )
+    issue_id = f"{ISSUE_BLUETOOTH_UNAVAILABLE}_{mock_config_entry.entry_id}"
 
-    with patch(
-        "custom_components.solem_blip.bluetooth_issue.ir.async_create_issue"
-    ) as create_issue:
-        for attempt in range(WINDOW_FAILURE_THRESHOLD):
-            note_ble_degradation(
-                coordinator, source="status poll failed", now=attempt * 60.0
-            )
+    for attempt in range(WINDOW_FAILURE_THRESHOLD):
+        note_ble_degradation(
+            coordinator, source="status poll failed", now=attempt * 60.0
+        )
 
-    create_issue.assert_not_called()
-    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.active is True
+    assert coordinator._ble_issue_active is True
 
 
 @pytest.mark.asyncio
