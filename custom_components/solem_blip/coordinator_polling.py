@@ -25,7 +25,7 @@ from .const import (
     TIME_SYNC_RETRY_INTERVAL,
 )
 from .util import normalize_entity_state
-from .ble_health import is_transient_ble_connection_error, note_cycle_outcome
+from .ble_health import note_cycle_outcome
 from .coordinator_publish import publish_descriptor_update
 from .controller_name import apply_controller_name
 
@@ -195,15 +195,9 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
                 ),
             )
         else:
-            # Proxy restarts can make the time-sync attempt fail before the
-            # status poll. Quiet only connection failures during grace.
-            transient_ble = is_transient_ble_connection_error(err)
-            log = (
-                _LOGGER.debug
-                if transient_ble and coordinator.ble_grace_active()
-                else _LOGGER.warning
-            )
-            log(
+            # Status was already read successfully, so report time-sync
+            # failures independently from transport/status polling.
+            _LOGGER.warning(
                 "%s - Failed to sync device time: %s",
                 coordinator.controller_mac_address,
                 str(err) or err_class,
@@ -243,6 +237,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
     station_names_attempted = False
     firmware_failed = False
     station_names_failed = False
+    metadata_error: Exception | None = None
     now = asyncio.get_running_loop().time()
     if coordinator.firmware_version is None and now >= coordinator._firmware_retry_after:
         firmware_attempted = True
@@ -259,6 +254,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                 str(err) or type(err).__name__,
             )
             firmware_failed = True
+            metadata_error = err
         else:
             coordinator.firmware_version = firmware["raw_hex"]
             coordinator.controller.software_version = coordinator.firmware_version
@@ -325,6 +321,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                 str(err) or type(err).__name__,
             )
             station_names_failed = True
+            metadata_error = err
         else:
             # Issue #122: adopt the device-derived count (upward-only,
             # single authoritative path: snapshot.station_count, which the
@@ -361,7 +358,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             parts.append("firmware read")
         if station_names_failed:
             parts.append("station names read")
-        note_cycle_outcome(coordinator, degraded=True, reason=" and ".join(parts))
+        note_cycle_outcome(coordinator, degraded=True, reason=" and ".join(parts), error=metadata_error)
     else:
         note_cycle_outcome(coordinator, degraded=False, reason="")
 
@@ -441,7 +438,7 @@ async def _fetch_irrigation_config_locked(
             str(err) or type(err).__name__,
         )
         note_cycle_outcome(
-            coordinator, degraded=True, reason="irrigation config read"
+            coordinator, degraded=True, reason="irrigation config read", error=err
         )
         if raise_on_error:
             raise
@@ -482,10 +479,10 @@ async def _fetch_irrigation_config_locked(
 
 async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     """Poll device and update controller/station states from BLE status."""
-    if not coordinator._irrigation_active:
-        await maybe_set_device_time(coordinator)
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
+    if not coordinator._irrigation_active:
+        await maybe_set_device_time(coordinator)
     _mark_first_successful_status_poll(coordinator)
     if not coordinator._irrigation_active and _heavy_reads_ready(coordinator):
         config_entry = coordinator.config_entry
