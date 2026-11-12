@@ -12,11 +12,8 @@ from typing import Any, cast
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-
 from homeassistant.helpers import issue_registry as ir
-
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-
 from homeassistant.util import dt as dt_util
 
 from solem_blip_ble import IrrigationProgram
