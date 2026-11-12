@@ -252,6 +252,15 @@ device removal after repeated polling failures indicate that the controller is s
 
 ## Troubleshooting
 
+- If the controller is not listed in the setup dropdown, choose **Enter MAC address manually**
+  and type the MAC address printed on the controller label. Some controllers advertise
+  without the Bluetooth service UUID that Home Assistant discovery looks for, so they never
+  show up in the scan; the integration still resolves the device by its address. Note that
+  the address must still be one Home Assistant has seen advertise: validation resolves the
+  typed MAC through the connectable Bluetooth scanners, so an address no scanner has ever
+  seen fails with `cannot_connect`. Colon-separated (`AA:BB:CC:DD:EE:FF`), hyphen-separated
+  (`aa-bb-cc-dd-ee-ff`), space-separated (`AA BB CC DD EE FF`) and plain 12-digit
+  (`AABBCCDDEEFF`) forms are all accepted.
 - Avoid using mobile apps while Home Assistant is actively connected to the controller.
   When **Release BLE connection after each status poll** is enabled, other BLE
   clients can use the controller between Home Assistant polling connections.

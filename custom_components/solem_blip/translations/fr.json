@@ -9,12 +9,20 @@
     "error": {
       "cannot_connect": "Échec de la connexion",
       "cannot_connect_slots": "L'adaptateur ou le proxy Bluetooth n'a aucun emplacement de connexion disponible et le programmateur n'est pas visible lors de la détection. Patientez puis réessayez, fermez les autres applications mobiles utilisant le programmateur, consultez Paramètres → Bluetooth → Moniteur de connexion, ou ajoutez un proxy Bluetooth plus proche du programmateur.",
+      "invalid_mac": "Adresse MAC invalide. Utilisez AA:BB:CC:DD:EE:FF, aa-bb-cc-dd-ee-ff ou AABBCCDDEEFF.",
       "unknown": "Erreur inattendue"
     },
     "step": {
       "user": {
         "title": "Configuration du programmateur",
         "description": "Sélectionnez votre programmateur Solem BL-IP. Le nombre de stations est lu depuis l'appareil pendant la configuration. La programmation et la suspension en cas de pluie doivent être gérées dans les automatisations Home Assistant.",
+        "data": {
+          "controller_mac_address": "Adresse MAC du programmateur"
+        }
+      },
+      "manual": {
+        "title": "Configuration manuelle du programmateur",
+        "description": "Saisissez l'adresse MAC imprimée sur le programmateur (par exemple AA:BB:CC:DD:EE:FF). Utilisez ceci lorsque le programmateur n'apparaît pas dans la liste : certains programmateurs s'annoncent sans l'UUID de service Bluetooth recherché par la détection de Home Assistant. Le nombre de stations est lu depuis l'appareil pendant la configuration.",
         "data": {
           "controller_mac_address": "Adresse MAC du programmateur"
         }
