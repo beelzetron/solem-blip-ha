@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
+from .ble_health import note_cycle_outcome
 from .const import (
     DOMAIN,
     HEAVY_READ_DEFER_SECONDS,
@@ -24,7 +25,6 @@ from .const import (
     STATION_NAMES_READ_TIMEOUT,
     TIME_SYNC_RETRY_INTERVAL,
 )
-from .ble_health import note_cycle_outcome
 from .controller_name import apply_controller_name
 from .coordinator_publish import publish_descriptor_update
 from .util import normalize_entity_state
