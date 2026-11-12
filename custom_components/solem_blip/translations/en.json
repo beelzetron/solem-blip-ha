@@ -9,12 +9,20 @@
     "error": {
       "cannot_connect": "Failed to connect",
       "cannot_connect_slots": "Bluetooth adapter or proxy has no free connection slots and the controller is not visible in discovery. Wait and retry, close other mobile apps using the controller, check Settings → Bluetooth → Connection monitor, or add a Bluetooth proxy closer to the controller.",
+      "invalid_mac": "Invalid MAC address. Use AA:BB:CC:DD:EE:FF, aa-bb-cc-dd-ee-ff or AABBCCDDEEFF.",
       "unknown": "Unexpected error"
     },
     "step": {
       "user": {
         "title": "Controller setup",
         "description": "Select your Solem BL-IP controller. The number of stations is read from the device during setup. Scheduling and rain skip belong in Home Assistant automations.",
+        "data": {
+          "controller_mac_address": "Controller MAC address"
+        }
+      },
+      "manual": {
+        "title": "Manual controller setup",
+        "description": "Type the MAC address printed on the controller (for example AA:BB:CC:DD:EE:FF). Use this when the controller is not listed: some controllers advertise without the Bluetooth service UUID that Home Assistant discovery looks for. The number of stations is read from the device during setup.",
         "data": {
           "controller_mac_address": "Controller MAC address"
         }
