@@ -91,6 +91,31 @@ def async_clear_bluetooth_unavailable_issue(coordinator: SolemCoordinator) -> No
     )
 
 
+def adopt_existing_bluetooth_issue(coordinator: SolemCoordinator) -> None:
+    """Adopt a Bluetooth unavailable issue left by a previous session.
+
+    The active flag is in memory only, so after a restart
+    ``note_ble_recovery`` returned early and never deleted the notice raised
+    by an earlier session: the repair issue stayed visible even once the link
+    was healthy again. Reading the registry at setup restores the flag, so the
+    normal sustained-recovery check deletes the issue after the link has been
+    healthy for ``RECOVERY_CLEAR_SECONDS``. A link that is still degraded keeps
+    the notice, and no duplicate issue is created.
+    """
+    entry = coordinator.config_entry
+    if entry is None:
+        return
+    issue_id = f"{ISSUE_BLUETOOTH_UNAVAILABLE}_{entry.entry_id}"
+    if ir.async_get(coordinator.hass).async_get_issue(DOMAIN, issue_id) is None:
+        return
+    coordinator._ble_issue_active = True
+    _LOGGER.debug(
+        "%s - Adopted the Bluetooth unavailable repair issue left by a "
+        "previous session; it clears after sustained recovery",
+        coordinator.controller_mac_address,
+    )
+
+
 def note_ble_degradation(
     coordinator: SolemCoordinator, *, source: str, now: float | None = None
 ) -> None:
