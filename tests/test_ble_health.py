@@ -10,6 +10,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from solem_blip_ble.exceptions import SolemConnectionError, SolemDeadlineExceeded
 
 from custom_components.solem_blip.ble_health import note_cycle_outcome
 from custom_components.solem_blip.coordinator import SolemCoordinator
@@ -129,6 +130,8 @@ async def test_metadata_failures_emit_one_warning_and_debug_detail(
     ):
         ble_coordinator = SolemCoordinator(hass, mock_config_entry)
         await ble_coordinator.async_init()
+        # This legacy test verifies WARNING severity outside startup grace.
+        ble_coordinator._ble_startup_grace_until = 0.0
 
         with caplog.at_level(logging.DEBUG):
             await ble_coordinator._fetch_device_metadata()
@@ -169,6 +172,8 @@ async def test_status_failure_emits_one_warning(
     ):
         ble_coordinator = SolemCoordinator(hass, mock_config_entry)
         await ble_coordinator.async_init()
+        # This legacy test verifies warning behavior outside startup grace.
+        ble_coordinator._ble_startup_grace_until = 0.0
 
         with caplog.at_level(logging.DEBUG):
             with pytest.raises(HomeAssistantError):
@@ -213,3 +218,206 @@ async def test_healthy_poll_resets_streak_after_status_failure(
         and record.name == BLE_HEALTH_LOGGER
     ]
     assert recovery == ["AA:BB:CC:DD:EE:FF - BLE cycle recovered after 1 degraded cycle(s)"]
+
+
+async def test_ble_startup_grace_quiets_transient_connection_errors(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Startup grace affects log severity, never health counters."""
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator,
+            degraded=True,
+            reason="status poll failed",
+            error=TimeoutError("BLE timeout"),
+        )
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1
+    assert any(
+        record.levelno == logging.DEBUG
+        and "BLE cycle degraded" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+async def test_ble_grace_does_not_hide_unrelated_failures(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Non-connection failures retain warning severity during grace."""
+    note_cycle_outcome(
+        coordinator,
+        degraded=True,
+        reason="status poll failed",
+        error=ValueError("invalid status payload"),
+    )
+    assert len(_warnings(caplog)) == 1
+
+
+async def test_ble_maintenance_is_bounded_and_clears_on_recovery(
+    coordinator: SolemCoordinator,
+) -> None:
+    """Repeated calls cannot extend a running maintenance window."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    first_deadline = coordinator._ble_maintenance_until
+    assert coordinator.ble_grace_active()
+    coordinator.start_ble_maintenance(600)
+    assert coordinator._ble_maintenance_until == first_deadline
+    coordinator.clear_ble_maintenance()
+    assert not coordinator.ble_grace_active()
+
+
+async def test_ble_grace_expires(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Expired grace restores warnings for BLE connection failures."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator._ble_maintenance_until = 0.0
+    note_cycle_outcome(
+        coordinator,
+        degraded=True,
+        reason="status poll failed",
+        error=ConnectionError("proxy disconnected"),
+    )
+    assert len(_warnings(caplog)) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        SolemConnectionError("BLE connection lost"),
+        SolemDeadlineExceeded("BLE operation deadline"),
+    ],
+)
+async def test_solem_transport_errors_are_quiet_during_grace(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+    error: Exception,
+) -> None:
+    """Solem BLE library transport exceptions are transient during grace."""
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator, degraded=True, reason="status poll failed", error=error
+        )
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1
+
+
+async def test_wrapped_ble_transport_error_is_quiet_during_grace(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An application-level wrapper retains the BLE cause classification."""
+    try:
+        raise SolemConnectionError("BLE link dropped")
+    except SolemConnectionError as cause:
+        wrapped = RuntimeError("status poll failed")
+        wrapped.__cause__ = cause
+
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator, degraded=True, reason="status poll failed", error=wrapped
+        )
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1
+
+
+async def test_success_before_proxy_restart_keeps_maintenance_window(
+    coordinator: SolemCoordinator,
+) -> None:
+    """An ordinary healthy poll must not cancel maintenance before disruption."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    deadline = coordinator._ble_maintenance_until
+    with patch.object(coordinator, "async_update_all_sensors", return_value=[]):
+        await coordinator.async_update_data()
+    assert coordinator._ble_maintenance_until == deadline
+    assert coordinator.ble_grace_active()
+
+
+async def test_maintenance_recovers_only_after_degraded_cycle(
+    coordinator: SolemCoordinator,
+) -> None:
+    """A degraded cycle followed by a healthy poll closes explicit grace."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    note_cycle_outcome(
+        coordinator,
+        degraded=True,
+        reason="status poll failed",
+        error=SolemConnectionError("proxy disconnected"),
+    )
+    assert coordinator._ble_maintenance_degraded == 1
+    with patch.object(coordinator, "async_update_all_sensors", return_value=[]):
+        await coordinator.async_update_data()
+    assert not coordinator.ble_grace_active()
+
+
+async def test_maintenance_expiry_reports_suppressed_cycles(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Expiry produces one summary and does not hide later BLE failures."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator,
+            degraded=True,
+            reason="status poll failed",
+            error=ConnectionError("proxy disconnected"),
+        )
+        coordinator._ble_maintenance_until = 0.000001
+        assert not coordinator.ble_grace_active()
+        assert not coordinator.ble_grace_active()
+    summaries = [
+        record.getMessage()
+        for record in caplog.records
+        if "BLE maintenance expired" in record.getMessage()
+    ]
+    assert len(summaries) == 1
+    assert "1 transient degraded cycle(s)" in summaries[0]
+
+
+async def test_metadata_transport_failures_are_quiet_during_grace(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Firmware and station-name transport failures propagate their causes."""
+    mock_solem_client.get_firmware_version.side_effect = SolemConnectionError("proxy lost")
+    mock_solem_client.get_station_name_snapshot.side_effect = SolemConnectionError("proxy lost")
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        ble_coordinator = SolemCoordinator(hass, mock_config_entry)
+        await ble_coordinator.async_init()
+        with caplog.at_level(logging.DEBUG):
+            await ble_coordinator._fetch_device_metadata()
+    assert _warnings(caplog) == []
+    assert ble_coordinator._ble_cycle_degraded_streak == 1
+
+
+async def test_irrigation_config_transport_failure_is_quiet_during_grace(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Irrigation-config failures also use the active BLE grace window."""
+    from custom_components.solem_blip.coordinator_polling import (
+        _fetch_irrigation_config_locked,
+    )
+
+    coordinator.api.get_irrigation_config = MagicMock(
+        side_effect=SolemConnectionError("proxy lost")
+    )
+    with caplog.at_level(logging.DEBUG):
+        assert not await _fetch_irrigation_config_locked(coordinator, force=True)
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1

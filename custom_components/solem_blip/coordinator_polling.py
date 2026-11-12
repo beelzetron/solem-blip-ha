@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
+from .ble_health import note_cycle_outcome
 from .const import (
     DOMAIN,
     HEAVY_READ_DEFER_SECONDS,
@@ -24,10 +25,9 @@ from .const import (
     STATION_NAMES_READ_TIMEOUT,
     TIME_SYNC_RETRY_INTERVAL,
 )
-from .util import normalize_entity_state
-from .ble_health import note_cycle_outcome
-from .coordinator_publish import publish_descriptor_update
 from .controller_name import apply_controller_name
+from .coordinator_publish import publish_descriptor_update
+from .util import normalize_entity_state
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
@@ -195,6 +195,8 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
                 ),
             )
         else:
+            # Status was already read successfully, so report time-sync
+            # failures independently from transport/status polling.
             _LOGGER.warning(
                 "%s - Failed to sync device time: %s",
                 coordinator.controller_mac_address,
@@ -204,7 +206,11 @@ async def maybe_set_device_time(coordinator: SolemCoordinator) -> None:
 
     coordinator._set_time_pending = False
     coordinator._last_set_time_at = now
-    coordinator._time_sync_retry_after = 0.0
+    # A persistent device alarm after a successful sync must not trigger
+    # another BLE write on every status poll.
+    coordinator._time_sync_retry_after = (
+        now + TIME_SYNC_RETRY_INTERVAL if alarm_set else 0.0
+    )
     coordinator._last_set_time_sync = moment
     # A verified success means the library saw the clock alarm clear;
     # optimistically reflect it so the entity is not stale for a poll. When
@@ -235,6 +241,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
     station_names_attempted = False
     firmware_failed = False
     station_names_failed = False
+    metadata_error: Exception | None = None
     now = asyncio.get_running_loop().time()
     if coordinator.firmware_version is None and now >= coordinator._firmware_retry_after:
         firmware_attempted = True
@@ -251,6 +258,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                 str(err) or type(err).__name__,
             )
             firmware_failed = True
+            metadata_error = err
         else:
             coordinator.firmware_version = firmware["raw_hex"]
             coordinator.controller.software_version = coordinator.firmware_version
@@ -317,6 +325,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
                 str(err) or type(err).__name__,
             )
             station_names_failed = True
+            metadata_error = err
         else:
             # Issue #122: adopt the device-derived count (upward-only,
             # single authoritative path: snapshot.station_count, which the
@@ -353,7 +362,7 @@ async def _fetch_device_metadata_locked(coordinator: SolemCoordinator) -> None:
             parts.append("firmware read")
         if station_names_failed:
             parts.append("station names read")
-        note_cycle_outcome(coordinator, degraded=True, reason=" and ".join(parts))
+        note_cycle_outcome(coordinator, degraded=True, reason=" and ".join(parts), error=metadata_error)
     else:
         note_cycle_outcome(coordinator, degraded=False, reason="")
 
@@ -433,7 +442,7 @@ async def _fetch_irrigation_config_locked(
             str(err) or type(err).__name__,
         )
         note_cycle_outcome(
-            coordinator, degraded=True, reason="irrigation config read"
+            coordinator, degraded=True, reason="irrigation config read", error=err
         )
         if raise_on_error:
             raise
@@ -474,10 +483,10 @@ async def _fetch_irrigation_config_locked(
 
 async def fetch_device_status(coordinator: SolemCoordinator) -> dict[str, Any]:
     """Poll device and update controller/station states from BLE status."""
-    if not coordinator._irrigation_active:
-        await maybe_set_device_time(coordinator)
     status = await coordinator.api.get_status()
     apply_status(coordinator, status)
+    if not coordinator._irrigation_active:
+        await maybe_set_device_time(coordinator)
     _mark_first_successful_status_poll(coordinator)
     if not coordinator._irrigation_active and _heavy_reads_ready(coordinator):
         config_entry = coordinator.config_entry

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -11,21 +12,20 @@ from typing import Any, cast
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-
 from homeassistant.helpers import issue_registry as ir
-
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-
 from homeassistant.util import dt as dt_util
-
 from solem_blip_ble import IrrigationProgram
 from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 
+from .activity import WateringActivity
+from .ble_health import note_cycle_outcome
+from .bluetooth import async_get_connectable_device
+from .bluetooth_issue import note_ble_recovery
 from .client_factory import (
     PersistentSolemClient,
     build_solem_client,
 )
-
 from .config_entry import MyConfigEntry
 from .const import (
     BLUETOOTH_DEFAULT_TIMEOUT,
@@ -44,17 +44,28 @@ from .const import (
     SOLEM_API_MOCK,
 )
 from .coordinator_descriptors import build_all_descriptors
-from .issues import ISSUE_STATION_COUNT_MISMATCH
 from .coordinator_irrigation import (
     await_irrigation_monitor_task,
     clear_irrigation_idle_state,
     clear_monitor_task_ref,
     run_irrigation_monitor,
+)
+from .coordinator_irrigation import (
     start_irrigation as irrigation_start,
+)
+from .coordinator_irrigation import (
     start_program as irrigation_start_program,
+)
+from .coordinator_irrigation import (
     stop_irrigation as irrigation_stop,
+)
+from .coordinator_irrigation import (
     turn_controller_off as irrigation_turn_off,
+)
+from .coordinator_irrigation import (
     turn_controller_off_for_days as irrigation_turn_off_for_days,
+)
+from .coordinator_irrigation import (
     turn_controller_on as irrigation_turn_on,
 )
 from .coordinator_polling import (
@@ -66,14 +77,10 @@ from .coordinator_polling import (
 )
 from .coordinator_publish import publish_descriptor_update
 from .display_names import DisplayNamesStore
-from .bluetooth import async_get_connectable_device
-
+from .issues import ISSUE_STATION_COUNT_MISMATCH
 from .models import IrrigationController, IrrigationStation
 from .program_backup import ProgramBackupStore
 from .station_names import StationNameManager
-from .activity import WateringActivity
-from .ble_health import note_cycle_outcome
-from .bluetooth_issue import note_ble_recovery
 from .stuck_recovery import (
     attach_stuck_adapter_detector,
     detach_stuck_adapter_detector,
@@ -198,6 +205,11 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._last_set_time_sync: datetime | None = None
         self._set_time_pending = True
         self._ble_cycle_degraded_streak = 0
+        # Monotonic deadlines: restart grace and explicit proxy maintenance.
+        self._ble_startup_grace_until = time.monotonic() + 180
+        self._ble_maintenance_until = 0.0
+        self._ble_maintenance_degraded = 0
+        self._ble_maintenance_suppressed = 0
         self._ble_health_events: deque[float] = deque()
         self._ble_issue_active = False
         self._ble_first_healthy_at: float | None = None
@@ -429,6 +441,36 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         """Clear stored monitor task when it completes."""
         clear_monitor_task_ref(self, task)
 
+    def start_ble_maintenance(self, duration: int) -> None:
+        """Temporarily quiet expected BLE disconnects during proxy maintenance."""
+        now = time.monotonic()
+        # Repeated calls do not extend an active window indefinitely.
+        if now >= self._ble_maintenance_until:
+            self._ble_maintenance_until = now + duration
+            self._ble_maintenance_degraded = 0
+            self._ble_maintenance_suppressed = 0
+
+    def ble_grace_active(self) -> bool:
+        """Return whether an explicit or startup BLE grace window is active."""
+        now = time.monotonic()
+        if self._ble_maintenance_until and now >= self._ble_maintenance_until:
+            self.clear_ble_maintenance(expired=True)
+        return now < max(self._ble_startup_grace_until, self._ble_maintenance_until)
+
+    def clear_ble_maintenance(self, *, expired: bool = False) -> None:
+        """Close an explicit maintenance window, summarizing suppressed failures."""
+        if self._ble_maintenance_until and self._ble_maintenance_suppressed:
+            _LOGGER.info(
+                "%s - BLE maintenance %s: %d transient degraded cycle(s) "
+                "logged at DEBUG; health tracking remained active",
+                self.controller_mac_address,
+                "expired" if expired else "recovered",
+                self._ble_maintenance_suppressed,
+            )
+        self._ble_maintenance_until = 0.0
+        self._ble_maintenance_degraded = 0
+        self._ble_maintenance_suppressed = 0
+
     def request_device_time_sync(self) -> None:
         """Force a device-time sync on the next successful status poll.
 
@@ -459,6 +501,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         try:
             data = await self.async_update_all_sensors()
             self._last_successful_poll_at = asyncio.get_running_loop().time()
+            if self._ble_maintenance_degraded:
+                self.clear_ble_maintenance()
             note_ble_recovery(self)
             note_cycle_outcome(self, degraded=False, reason="")
             _LOGGER.debug(
@@ -467,7 +511,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             )
             return data
         except Exception as err:
-            note_cycle_outcome(self, degraded=True, reason="status poll failed")
+            note_cycle_outcome(
+                self, degraded=True, reason="status poll failed", error=err
+            )
             self.stuck_adapter_detector.note_cycle_outcome(degraded=True)
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 

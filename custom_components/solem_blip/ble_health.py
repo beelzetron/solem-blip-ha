@@ -11,6 +11,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from bleak.exc import BleakError
+from solem_blip_ble.exceptions import SolemConnectionError, SolemDeadlineExceeded
+
 from .bluetooth_issue import note_ble_degradation
 
 if TYPE_CHECKING:
@@ -26,8 +29,36 @@ _RECOVERY_HINT = (
 )
 
 
+def is_transient_ble_connection_error(error: Exception) -> bool:
+    """Recognize transport failures, including errors wrapped by the BLE client."""
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(
+            current,
+            (
+                BleakError,
+                SolemConnectionError,
+                SolemDeadlineExceeded,
+                TimeoutError,
+                ConnectionError,
+            ),
+        ):
+            return True
+        message = str(current).lower()
+        if "device not found" in message or "failed connecting" in message:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def note_cycle_outcome(
-    coordinator: SolemCoordinator, *, degraded: bool, reason: str
+    coordinator: SolemCoordinator,
+    *,
+    degraded: bool,
+    reason: str,
+    error: Exception | None = None,
 ) -> None:
     """Record the poll cycle outcome and log one warning per degraded cycle.
 
@@ -54,16 +85,31 @@ def note_cycle_outcome(
 
     streak += 1
     coordinator._ble_cycle_degraded_streak = streak
+    if coordinator._ble_maintenance_until and coordinator.ble_grace_active():
+        coordinator._ble_maintenance_degraded += 1
     note_ble_degradation(coordinator, source=reason)
+    # Keep health counters and repair issues active. Only quiet known BLE
+    # connection errors inside a bounded maintenance/startup window.
+    level = (
+        logging.DEBUG
+        if coordinator.ble_grace_active()
+        and error is not None
+        and is_transient_ble_connection_error(error)
+        else logging.WARNING
+    )
+    if level == logging.DEBUG and coordinator._ble_maintenance_until:
+        coordinator._ble_maintenance_suppressed += 1
     if streak == 1:
-        _LOGGER.warning(
+        _LOGGER.log(
+            level,
             "%s - BLE cycle degraded (%s). %s",
             coordinator.controller_mac_address,
             reason,
             _RECOVERY_HINT,
         )
     else:
-        _LOGGER.warning(
+        _LOGGER.log(
+            level,
             "%s - BLE cycle degraded (%s), %d consecutive degraded cycles",
             coordinator.controller_mac_address,
             reason,

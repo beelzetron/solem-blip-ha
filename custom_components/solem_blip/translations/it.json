@@ -364,5 +364,21 @@
         "every_4_days": "Ogni 4 giorni (dalla data iniziale)"
       }
     }
+  },
+  "services": {
+    "start_ble_maintenance": {
+      "name": "Avvia manutenzione BLE",
+      "description": "Riduce temporaneamente al livello DEBUG gli avvisi di trasporto BLE previsti durante la manutenzione del proxy. I contatori di stato BLE e gli avvisi di riparazione rimangono attivi, anche durante finestre prolungate.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Controller Solem BL-IP interessato dalla manutenzione."
+        },
+        "duration": {
+          "name": "Durata",
+          "description": "Durata massima del periodo di tolleranza in secondi (da 1 a 600)."
+        }
+      }
+    }
   }
 }

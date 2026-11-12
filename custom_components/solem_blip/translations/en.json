@@ -360,5 +360,21 @@
         "every_4_days": "Every 4 days (from start date)"
       }
     }
+  },
+  "services": {
+    "start_ble_maintenance": {
+      "name": "Start BLE maintenance",
+      "description": "Temporarily quiet expected BLE transport warnings during proxy maintenance. BLE health counters and repair alerts remain active, even during long windows.",
+      "fields": {
+        "device_id": {
+          "name": "Controller",
+          "description": "Solem BL-IP controller to protect during maintenance."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Maximum grace period in seconds (1–600)."
+        }
+      }
+    }
   }
 }
