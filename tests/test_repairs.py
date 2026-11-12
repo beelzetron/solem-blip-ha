@@ -3,17 +3,127 @@
 from __future__ import annotations
 
 from collections import deque
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.bluetooth_issue import (
+    ISSUE_BLUETOOTH_UNAVAILABLE,
     RECOVERY_CLEAR_SECONDS,
     WINDOW_FAILURE_THRESHOLD,
     WINDOW_SECONDS,
     note_ble_degradation,
     note_ble_recovery,
 )
+from custom_components.solem_blip.const import DOMAIN
+from custom_components.solem_blip.coordinator import SolemCoordinator
+
+
+def _raise_issue(
+    hass: HomeAssistant, entry_id: str, *, mac: str = "AA:BB:CC:DD:EE:FF"
+) -> str:
+    """Create the Bluetooth unavailable issue the way a previous session did."""
+    issue_id = f"{ISSUE_BLUETOOTH_UNAVAILABLE}_{entry_id}"
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=ISSUE_BLUETOOTH_UNAVAILABLE,
+        translation_placeholders={"mac": mac},
+    )
+    return issue_id
+
+
+async def _build_coordinator(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> SolemCoordinator:
+    """Create a coordinator through setup, as production does."""
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        coordinator = SolemCoordinator(hass, config_entry)
+        await coordinator.async_init()
+    return coordinator
+
+
+@pytest.mark.asyncio
+async def test_setup_adopts_leftover_issue_and_recovery_clears_it(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """A notice from a previous session is adopted, then cleared on recovery."""
+    issue_id = _raise_issue(hass, mock_config_entry.entry_id)
+    registry = ir.async_get(hass)
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    coordinator = await _build_coordinator(
+        hass, mock_config_entry, mock_solem_client
+    )
+
+    assert coordinator._ble_issue_active is True
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    # Sustained recovery clears the adopted notice like a fresh one.
+    note_ble_recovery(coordinator, now=100.0)
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    note_ble_recovery(coordinator, now=100.0 + RECOVERY_CLEAR_SECONDS)
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+    assert coordinator._ble_issue_active is False
+
+
+@pytest.mark.asyncio
+async def test_setup_ignores_issue_of_another_entry(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Only this entry's notice is adopted; other entries keep theirs."""
+    other_entry_id = "01OTHERSESSION00000000000000"
+    other_issue = _raise_issue(hass, other_entry_id)
+    registry = ir.async_get(hass)
+
+    coordinator = await _build_coordinator(
+        hass, mock_config_entry, mock_solem_client
+    )
+
+    assert coordinator._ble_issue_active is False
+    assert registry.async_get_issue(DOMAIN, other_issue) is not None
+
+
+@pytest.mark.asyncio
+async def test_adopted_issue_is_not_recreated_on_new_failures(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+) -> None:
+    """Degradation after adoption keeps the single existing notice."""
+    issue_id = _raise_issue(hass, mock_config_entry.entry_id)
+    coordinator = await _build_coordinator(
+        hass, mock_config_entry, mock_solem_client
+    )
+
+    with patch(
+        "custom_components.solem_blip.bluetooth_issue.ir.async_create_issue"
+    ) as create_issue:
+        for attempt in range(WINDOW_FAILURE_THRESHOLD):
+            note_ble_degradation(
+                coordinator, source="status poll failed", now=attempt * 60.0
+            )
+
+    create_issue.assert_not_called()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
 
 
 @pytest.mark.asyncio
