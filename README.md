@@ -79,8 +79,8 @@ Home Assistant installs the `solem-blip-ble` version pinned by the integration m
 | Turn on / off controller | Enable or disable controller permanently |
 | Turn off controller for selected days | Disable controller temporarily using the selected off-days value |
 | Start program | Manually start one on-device program (A/B/C) |
-| Program next start | Per on-device program (e.g. `Program A next start`); timestamp + schedule context attributes, including an `empty` flag (true when the read program has no enabled start times) |
-| Program schedule | Enabled start slots, cycle, period length, synchro day, controller date, station durations; state is `none` for a read program with no start times (an unread program stays `unknown`) |
+| Program next start | Per on-device program (e.g. `Program A next start`); timestamp + schedule context attributes, including `next_start_status` (`Scheduled` / `None` / `Unknown` / `Unrunnable`, localized to the Home Assistant system language) and an `empty` flag (true when the read program has no enabled start times). Use `empty` as the stable signal for automations; the status label is localized. |
+| Program schedule | Enabled start slots, cycle, period length, synchro day, controller date, station durations; for a read program with no start times, the state is localized to the Home Assistant system language (`None` / `Aucun` / `Nessuna` in English / French / Italian). An unread program stays `unknown`. Use the `empty` attribute, not the localized state text, as the stable signal for automations. |
 | Program running | `on` while that program is executing on the controller |
 | Refresh programs | Explicitly read all program slots and reconcile a pending restore when the result is known |
 | Restore programs | Manually replay the protected A/B/C backup; blocked while watering and on unsupported firmware |
