@@ -429,7 +429,10 @@ async def test_set_time_time_alarm_bypasses_throttle(
 
         # Alarm observed on the next poll, well inside the 24h throttle:
         # the sync must still run.
-        coordinator.time_alarm = True
+        mock_solem_client.get_status.return_value = {
+            **mock_solem_client.get_status.return_value,
+            "time_alarm": True,
+        }
         await coordinator._fetch_device_status()
 
     assert mock_solem_client.set_time.await_count == 2
@@ -455,7 +458,10 @@ async def test_set_time_alarm_success_clears_alarm_and_throttles(
         await coordinator.async_init()
         await coordinator._fetch_device_status()
 
-        coordinator.time_alarm = True
+        mock_solem_client.get_status.return_value = {
+            **mock_solem_client.get_status.return_value,
+            "time_alarm": True,
+        }
         await coordinator._fetch_device_status()
         assert mock_solem_client.set_time.await_count == 2
         # Verified success: the alarm cleared and the throttle was updated.
@@ -494,7 +500,7 @@ async def test_set_time_alarm_persists_cooldown_gates_retry(
         }
         await coordinator._fetch_device_status()
         assert mock_solem_client.set_time.await_count == 1
-        assert coordinator.time_alarm is True
+        assert coordinator.time_alarm is False
 
         # The alarm-triggered sync fails (controller busy, as during a long
         # outage): the cooldown arms so the device is not hammered on every
@@ -547,26 +553,21 @@ async def test_set_time_alarm_persists_after_success_cooldown_gates_resync(
         assert mock_solem_client.set_time.await_count == 1
         assert coordinator.time_alarm is False
 
-        # Next status read re-sets the alarm from the device. maybe_set_device_time
-        # runs before get_status, so this poll only observes the alarm; the
-        # alarm-triggered attempt happens on the following poll.
+        # Status is now read before clock synchronization. A device alarm
+        # therefore triggers the retry on the same poll, not the next one.
         mock_solem_client.get_status.side_effect = None
         mock_solem_client.get_status.return_value = {
             **mock_solem_client.get_status.return_value,
             "time_alarm": True,
         }
-        await coordinator._fetch_device_status()
-        assert coordinator.time_alarm is True
-        assert mock_solem_client.set_time.await_count == 1
 
-        # The alarm-triggered attempt fails: the cooldown arms, the 24h
-        # throttle stays untouched.
         class _Stub(Exception):
             pass
 
         _Stub.__name__ = "SolemTimeSyncVerificationFailed"
         mock_solem_client.set_time.side_effect = _Stub("alarm still set")
         await coordinator._fetch_device_status()
+        assert coordinator.time_alarm is True
         assert mock_solem_client.set_time.await_count == 2
         assert coordinator._time_sync_retry_after > 0.0
 
