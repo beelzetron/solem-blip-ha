@@ -467,8 +467,12 @@ async def test_set_time_alarm_success_clears_alarm_and_throttles(
         # Verified success: the alarm cleared and the throttle was updated.
         assert coordinator.time_alarm is False
 
-        # The device may take a poll or two to confirm; the throttle must
-        # still suppress an immediate re-sync.
+        # The next device status confirms the clock alarm has cleared.
+        # Without a new alarm, the 24h throttle prevents another sync.
+        mock_solem_client.get_status.return_value = {
+            **mock_solem_client.get_status.return_value,
+            "time_alarm": False,
+        }
         await coordinator._fetch_device_status()
 
     assert mock_solem_client.set_time.await_count == 2
