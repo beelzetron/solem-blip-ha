@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -199,8 +200,10 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._set_time_pending = True
         self._ble_cycle_degraded_streak = 0
         # Monotonic deadlines: restart grace and explicit proxy maintenance.
-        self._ble_startup_grace_until = asyncio.get_running_loop().time() + 60
+        self._ble_startup_grace_until = time.monotonic() + 60
         self._ble_maintenance_until = 0.0
+        self._ble_maintenance_degraded = 0
+        self._ble_maintenance_suppressed = 0
         self._ble_health_events: deque[float] = deque()
         self._ble_issue_active = False
         self._ble_first_healthy_at: float | None = None
@@ -434,19 +437,33 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     def start_ble_maintenance(self, duration: int) -> None:
         """Temporarily quiet expected BLE disconnects during proxy maintenance."""
-        now = asyncio.get_running_loop().time()
+        now = time.monotonic()
         # Repeated calls do not extend an active window indefinitely.
         if now >= self._ble_maintenance_until:
             self._ble_maintenance_until = now + duration
+            self._ble_maintenance_degraded = 0
+            self._ble_maintenance_suppressed = 0
 
     def ble_grace_active(self) -> bool:
         """Return whether an explicit or startup BLE grace window is active."""
-        now = asyncio.get_running_loop().time()
+        now = time.monotonic()
+        if self._ble_maintenance_until and now >= self._ble_maintenance_until:
+            self.clear_ble_maintenance(expired=True)
         return now < max(self._ble_startup_grace_until, self._ble_maintenance_until)
 
-    def clear_ble_maintenance(self) -> None:
-        """End explicit maintenance after a successful BLE status poll."""
+    def clear_ble_maintenance(self, *, expired: bool = False) -> None:
+        """Close an explicit maintenance window, summarizing suppressed failures."""
+        if self._ble_maintenance_until and self._ble_maintenance_suppressed:
+            _LOGGER.info(
+                "%s - BLE maintenance %s: %d transient degraded cycle(s) "
+                "logged at DEBUG; health tracking remained active",
+                self.controller_mac_address,
+                "expired" if expired else "recovered",
+                self._ble_maintenance_suppressed,
+            )
         self._ble_maintenance_until = 0.0
+        self._ble_maintenance_degraded = 0
+        self._ble_maintenance_suppressed = 0
 
     def request_device_time_sync(self) -> None:
         """Force a device-time sync on the next successful status poll.
@@ -478,7 +495,8 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         try:
             data = await self.async_update_all_sensors()
             self._last_successful_poll_at = asyncio.get_running_loop().time()
-            self.clear_ble_maintenance()
+            if self._ble_maintenance_degraded:
+                self.clear_ble_maintenance()
             note_ble_recovery(self)
             note_cycle_outcome(self, degraded=False, reason="")
             _LOGGER.debug(
