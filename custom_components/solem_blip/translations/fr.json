@@ -251,6 +251,8 @@
         "name": "État de la sauvegarde des programmes",
         "state": {
           "ready": "Prête",
+          "no_snapshot": "Aucune copie brute",
+          "snapshot_invalid": "Copie brute illisible",
           "pending": "Restauration en attente",
           "unavailable": "Indisponible"
         }

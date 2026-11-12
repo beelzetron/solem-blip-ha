@@ -251,6 +251,8 @@
         "name": "Program backup status",
         "state": {
           "ready": "Ready",
+          "no_snapshot": "No raw snapshot",
+          "snapshot_invalid": "Raw snapshot unreadable",
           "pending": "Restore pending",
           "unavailable": "Unavailable"
         }

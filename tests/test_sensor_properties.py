@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.const import UnitOfTime
 
+from custom_components.solem_blip.coordinator_descriptors import (
+    _program_backup_status,
+)
 from custom_components.solem_blip.entity import load_entity_translations
 from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
 from custom_components.solem_blip.sensor import (
@@ -321,11 +325,34 @@ async def test_program_backup_status_sensor_attributes(coordinator) -> None:
     )
     assert entity.native_value == "unavailable"
     assert entity.extra_state_attributes == {
+        "raw_snapshot_available": False,
         "frame_count": 0,
         "protected_programs": 0,
         "pending_restore": False,
         "revision": None,
     }
+
+
+def test_program_backup_status_distinguishes_restore_point_layers() -> None:
+    """Each restore-point layer maps to its own diagnostic state."""
+    store = MagicMock()
+    store.pending = None
+    store.programs = {}
+    assert _program_backup_status(store) == "unavailable"
+
+    store.programs = {0: {"name": "A"}}
+    store.snapshot = None
+    store.snapshot_invalid = False
+    assert _program_backup_status(store) == "no_snapshot"
+
+    store.snapshot_invalid = True
+    assert _program_backup_status(store) == "snapshot_invalid"
+
+    store.snapshot = MagicMock()
+    assert _program_backup_status(store) == "ready"
+
+    store.pending = {"before_revision": "before"}
+    assert _program_backup_status(store) == "pending"
 
 
 @pytest.mark.asyncio

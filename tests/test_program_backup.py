@@ -692,3 +692,102 @@ async def test_restore_rejects_real_snapshot_with_out_of_range_phase(
     mock_solem_client.write_program_frames.assert_not_awaited()
     assert coordinator.program_backup.pending is None
     assert coordinator.program_backup.programs == out_of_range
+
+
+@pytest.mark.asyncio
+async def test_load_flags_unparsable_stored_frames(hass: HomeAssistant) -> None:
+    """A stored raw snapshot that fails validation is flagged, not silent."""
+    store = ProgramBackupStore(hass, "invalid")
+    await store._store.async_save(
+        {
+            "programs": {
+                str(index): _serialize_program(program)
+                for index, program in PROGRAMS.items()
+            },
+            "frames": ["aa"],
+            "pending": None,
+        }
+    )
+
+    await store.async_load()
+
+    assert store.programs == PROGRAMS
+    assert store.snapshot is None
+    assert store.snapshot_invalid is True
+
+
+@pytest.mark.asyncio
+async def test_load_keeps_persisted_invalid_snapshot_flag(
+    hass: HomeAssistant,
+) -> None:
+    """The invalid flag survives a restart after the frames were dropped."""
+    store = ProgramBackupStore(hass, "invalid")
+    await store._store.async_save(
+        {
+            "programs": {
+                str(index): _serialize_program(program)
+                for index, program in PROGRAMS.items()
+            },
+            "frames": [],
+            "snapshot_invalid": True,
+            "pending": None,
+        }
+    )
+
+    await store.async_load()
+
+    assert store.snapshot is None
+    assert store.snapshot_invalid is True
+
+
+@pytest.mark.asyncio
+async def test_explicit_replace_clears_invalid_snapshot_flag(
+    hass: HomeAssistant,
+) -> None:
+    """An explicit capture replaces a damaged raw snapshot and clears the flag."""
+    store = ProgramBackupStore(hass, "invalid")
+    await store._store.async_save(
+        {
+            "programs": {
+                str(index): _serialize_program(program)
+                for index, program in PROGRAMS.items()
+            },
+            "frames": ["aa"],
+            "pending": None,
+        }
+    )
+    await store.async_load()
+    assert store.snapshot_invalid is True
+
+    await store.async_replace(_real_snapshot())
+
+    assert store.snapshot_invalid is False
+    assert store.snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_finish_restore_clears_invalid_snapshot_flag(
+    hass: HomeAssistant,
+) -> None:
+    """A verified restore stores a valid raw snapshot and clears the flag."""
+    store = ProgramBackupStore(hass, "invalid")
+    await store._store.async_save(
+        {
+            "programs": {
+                str(index): _serialize_program(program)
+                for index, program in PROGRAMS.items()
+            },
+            "frames": ["aa"],
+            "pending": None,
+        }
+    )
+    await store.async_load()
+    assert store.snapshot_invalid is True
+
+    verified = MagicMock()
+    verified.frames = ()
+    verified.revision = "verified"
+    await store.async_finish_restore(verified)
+
+    assert store.snapshot_invalid is False
+    assert store.snapshot is verified

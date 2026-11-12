@@ -135,7 +135,7 @@ SENSOR_DESCRIPTIONS: dict[str, SolemSensorEntityDescription] = {
         device_type="PROGRAM_BACKUP_STATUS_SENSOR",
         translation_key="program_backup_status",
         device_class=SensorDeviceClass.ENUM,
-        options=["ready", "pending", "unavailable"],
+        options=["ready", "no_snapshot", "snapshot_invalid", "pending", "unavailable"],
         entity_category=EntityCategory.DIAGNOSTIC,
         has_entity_name=True,
     ),

@@ -28,6 +28,7 @@ class ProgramBackupStore:
         )
         self._programs: dict[int, IrrigationProgram] = {}
         self._snapshot: ProgramSnapshot | None = None
+        self._snapshot_invalid = False
         self._pending: dict[str, Any] | None = None
         self.last_read: str | None = None
 
@@ -35,6 +36,15 @@ class ProgramBackupStore:
     def snapshot(self) -> ProgramSnapshot | None:
         """Return the confirmed complete raw snapshot, when available."""
         return self._snapshot
+
+    @property
+    def snapshot_invalid(self) -> bool:
+        """Return whether a stored raw snapshot could not be parsed.
+
+        The logical A/B/C backup stays usable in that case. The flag exists so
+        a damaged raw snapshot is not reported as a backup that never had one.
+        """
+        return self._snapshot_invalid
 
     @property
     def pending(self) -> dict[str, Any] | None:
@@ -57,14 +67,17 @@ class ProgramBackupStore:
             for index, program in raw_programs.items()
         }
         self._pending = data.get("pending")
+        self._snapshot_invalid = bool(data.get("snapshot_invalid", False))
         raw_frames = data.get("frames", [])
         if raw_frames:
             try:
                 self._snapshot = ProgramSnapshot.from_frames(
                     tuple(bytes.fromhex(frame) for frame in raw_frames)
                 )
+                self._snapshot_invalid = False
             except (ValueError, InvalidSnapshot):
                 self._snapshot = None
+                self._snapshot_invalid = True
 
         # beta.12 could persist a mixed store after reconciling an unchanged
         # controller: the logical A/B/C backup stayed protected while the raw
@@ -120,6 +133,9 @@ class ProgramBackupStore:
         Controller reads are observations, not proof that a changed schedule is
         a better restore point. Once a useful backup exists, normal polling and
         schedule writes must not silently replace it.
+
+        Only the logical programs are captured here; the complete raw snapshot
+        stays absent until an explicit update or a completed restore.
         """
         if self._programs or not _has_scheduled_program(programs):
             return False
@@ -161,8 +177,10 @@ class ProgramBackupStore:
 
         old_programs = self._programs
         old_snapshot = self._snapshot
+        old_snapshot_invalid = self._snapshot_invalid
         self._programs = deepcopy(programs)
         self._snapshot = validated
+        self._snapshot_invalid = False
         try:
             await self._async_save()
         except Exception:
@@ -170,6 +188,7 @@ class ProgramBackupStore:
             # store if persistence itself fails.
             self._programs = old_programs
             self._snapshot = old_snapshot
+            self._snapshot_invalid = old_snapshot_invalid
             raise
 
     async def async_begin_restore(
@@ -192,6 +211,7 @@ class ProgramBackupStore:
     async def async_finish_restore(self, snapshot: ProgramSnapshot) -> None:
         """Persist a verified raw snapshot and clear the restore journal."""
         self._snapshot = snapshot
+        self._snapshot_invalid = False
         self._pending = None
         await self._async_save()
 
@@ -213,6 +233,7 @@ class ProgramBackupStore:
 
         if snapshot.revision == expected_revision:
             self._snapshot = snapshot
+            self._snapshot_invalid = False
             self._pending = None
             await self._async_save()
             return True
@@ -235,6 +256,7 @@ class ProgramBackupStore:
                     snapshot, expected
                 ):
                     self._snapshot = snapshot
+                    self._snapshot_invalid = False
                     self._pending = None
                     await self._async_save()
                     return True
@@ -247,10 +269,12 @@ class ProgramBackupStore:
                     self._snapshot = ProgramSnapshot.from_frames(
                         tuple(bytes.fromhex(frame) for frame in raw_expected_frames)
                     )
+                    self._snapshot_invalid = False
                 except (ValueError, InvalidSnapshot):
                     # The legacy program backup remains authoritative even when
                     # an old/broken journal cannot reconstruct its raw snapshot.
                     self._snapshot = None
+                    self._snapshot_invalid = False
 
         self._pending = None
         await self._async_save()
@@ -269,6 +293,7 @@ class ProgramBackupStore:
                     if self._snapshot is not None
                     else []
                 ),
+                "snapshot_invalid": self._snapshot_invalid,
                 "pending": self._pending,
             }
         )

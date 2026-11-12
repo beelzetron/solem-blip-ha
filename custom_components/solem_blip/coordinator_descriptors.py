@@ -22,8 +22,31 @@ from .util import mac_to_uuid
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
+    from .program_backup import ProgramBackupStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _program_backup_status(program_backup: ProgramBackupStore) -> str:
+    """Return the diagnostic state of the protected program restore point.
+
+    The state separates what is actually available: the logical A/B/C programs
+    from the last useful read, and the complete raw snapshot that only an
+    explicit update or a completed restore stores. A stored raw snapshot that
+    fails validation gets its own state, so a damaged restore point does not
+    look like one that never had a raw snapshot. Restore works in every state
+    except ``unavailable``: it reads a fresh complete snapshot from the
+    controller and writes only A/B/C onto it.
+    """
+    if program_backup.pending is not None:
+        return "pending"
+    if not program_backup.programs:
+        return "unavailable"
+    if program_backup.snapshot is not None:
+        return "ready"
+    if program_backup.snapshot_invalid:
+        return "snapshot_invalid"
+    return "no_snapshot"
 
 def _translated_program_state(
     coordinator: SolemCoordinator, sensor_key: str, state: str
@@ -119,13 +142,7 @@ def build_controller_and_battery_descriptors(
     counter += 1
     backup_snapshot = coordinator.program_backup.snapshot
     backup_pending = coordinator.program_backup.pending is not None
-    backup_status = (
-        "pending"
-        if backup_pending
-        else "ready"
-        if coordinator.program_backup.programs
-        else "unavailable"
-    )
+    backup_status = _program_backup_status(coordinator.program_backup)
     data.extend(
         [
             {
@@ -136,6 +153,7 @@ def build_controller_and_battery_descriptors(
                 "software_version": "1.0",
                 "state": backup_status,
                 "attributes": {
+                    "raw_snapshot_available": backup_snapshot is not None,
                     "frame_count": (
                         len(backup_snapshot.frames) if backup_snapshot else 0
                     ),
