@@ -24,10 +24,10 @@ from .const import (
     STATION_NAMES_READ_TIMEOUT,
     TIME_SYNC_RETRY_INTERVAL,
 )
-from .util import normalize_entity_state
 from .ble_health import note_cycle_outcome
-from .coordinator_publish import publish_descriptor_update
 from .controller_name import apply_controller_name
+from .coordinator_publish import publish_descriptor_update
+from .util import normalize_entity_state
 
 if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
