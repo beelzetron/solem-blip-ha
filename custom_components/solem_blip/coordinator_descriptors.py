@@ -11,10 +11,12 @@ from .coordinator_polling import remaining_minutes_for_station
 from .schedule import (
     PROGRAM_EMPTY_STATE,
     build_schedule_attributes,
+    interval_phase_valid,
+    is_degenerate_schedule,
     next_start_datetime,
     program_is_empty,
-    schedule_summary,
     schedule_context_attributes,
+    schedule_summary,
 )
 from .util import mac_to_uuid
 
@@ -22,6 +24,19 @@ if TYPE_CHECKING:
     from .coordinator import SolemCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+def _translated_program_state(
+    coordinator: SolemCoordinator, sensor_key: str, state: str
+) -> str:
+    """Render a sensor state from the translations already loaded by setup."""
+    label = (
+        coordinator.entity_translations.get("entity", {})
+        .get("sensor", {})
+        .get(sensor_key, {})
+        .get("state", {})
+        .get(state)
+    )
+    return label if isinstance(label, str) else state.capitalize()
 
 
 def build_controller_and_battery_descriptors(
@@ -403,10 +418,33 @@ def build_program_descriptors(
             # A read program with no start times is a normal empty schedule,
             # not the "unknown" HA shows for a program that was never read.
             schedule_state = (
-                PROGRAM_EMPTY_STATE if program_is_empty(program) else summary
+                _translated_program_state(
+                    coordinator, "program_schedule", PROGRAM_EMPTY_STATE
+                )
+                if program_is_empty(program)
+                else summary
             )
 
         program_counter += 1  # reserved slot for removed program name sensor
+
+        if program is None:
+            next_start_status = "unknown"
+        elif program_is_empty(program):
+            next_start_status = "none"
+        elif is_degenerate_schedule(program) is not None or (
+            program["cycle"] == 4
+            and not interval_phase_valid(
+                program["period_length"], program.get("synchro_day", 0)
+            )
+        ):
+            next_start_status = "unrunnable"
+        elif next_start is not None:
+            next_start_status = "scheduled"
+        else:
+            next_start_status = "unknown"
+        next_attrs["next_start_status"] = _translated_program_state(
+            coordinator, "program_next_start", next_start_status
+        )
 
         data.append(
             {

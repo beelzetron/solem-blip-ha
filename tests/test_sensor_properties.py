@@ -8,6 +8,7 @@ import contextlib
 import pytest
 from homeassistant.const import UnitOfTime
 
+from custom_components.solem_blip.entity import load_entity_translations
 from custom_components.solem_blip.entity_descriptions import SENSOR_DESCRIPTIONS
 from custom_components.solem_blip.sensor import (
     BatteryVoltageSensor,
@@ -235,6 +236,7 @@ async def test_program_sensors_show_empty_for_read_program_without_starts(
 ) -> None:
     """A read program with no start times reports ``none`` plus an empty flag."""
     _seed_coordinator_state(coordinator)
+    coordinator.entity_translations = load_entity_translations("en")
     coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
 
     # Control: a populated, read program is not flagged empty.
@@ -252,6 +254,7 @@ async def test_program_sensors_show_empty_for_read_program_without_starts(
         SENSOR_DESCRIPTIONS["PROGRAM_NEXT_START_SENSOR"],
     )
     assert next_start_a.extra_state_attributes["empty"] is False
+    assert next_start_a.extra_state_attributes["next_start_status"] == "Scheduled"
 
     schedule = ProgramScheduleSensor(
         coordinator,
@@ -259,7 +262,7 @@ async def test_program_sensors_show_empty_for_read_program_without_starts(
         "state",
         SENSOR_DESCRIPTIONS["PROGRAM_SCHEDULE_SENSOR"],
     )
-    assert schedule.native_value == "none"
+    assert schedule.native_value == "None"
     assert schedule.extra_state_attributes["empty"] is True
 
     next_start = ProgramNextStartSensor(
@@ -270,6 +273,7 @@ async def test_program_sensors_show_empty_for_read_program_without_starts(
     )
     assert next_start.native_value is None
     assert next_start.extra_state_attributes["empty"] is True
+    assert next_start.extra_state_attributes["next_start_status"] == "None"
 
     # An unread slot carries no schedule attributes at all: ``unknown`` state
     # with no ``empty`` flag, which is what separates it from the read-empty
@@ -293,7 +297,10 @@ async def test_program_sensors_show_empty_for_read_program_without_starts(
         SENSOR_DESCRIPTIONS["PROGRAM_NEXT_START_SENSOR"],
     )
     assert unread_next_start.native_value is None
-    assert unread_next_start.extra_state_attributes == {"minutes_since_midnight": None}
+    assert unread_next_start.extra_state_attributes == {
+        "minutes_since_midnight": None,
+        "next_start_status": "Unknown",
+    }
     assert "empty" not in unread_next_start.extra_state_attributes
 
 
@@ -319,3 +326,79 @@ async def test_program_backup_status_sensor_attributes(coordinator) -> None:
         "pending_restore": False,
         "revision": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_next_start_status_attribute_preserves_timestamp(coordinator) -> None:
+    """Fetched, empty, unread and unrunnable slots have distinct status labels."""
+    _seed_coordinator_state(coordinator)
+    coordinator.entity_translations = load_entity_translations("en")
+    coordinator.irrigation_programs[2] = {
+        **MOCK_IRRIGATION_PROGRAMS[2],
+        "cycle": 0,
+        "week_days": 0,
+    }
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+
+    scheduled = _program_device(coordinator, "a", "next_start")
+    empty = _program_device(coordinator, "b", "next_start")
+    unrunnable = _program_device(coordinator, "c", "next_start")
+    assert scheduled["attributes"]["next_start_status"] == "Scheduled"
+    assert empty["attributes"]["next_start_status"] == "None"
+    assert unrunnable["state"] is None
+    assert unrunnable["attributes"]["next_start_status"] == "Unrunnable"
+    assert unrunnable["attributes"]["empty"] is False
+
+    coordinator.irrigation_programs.pop(2)
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+    unread = _program_device(coordinator, "c", "next_start")
+    assert unread["state"] is None
+    assert unread["attributes"]["next_start_status"] == "Unknown"
+
+    for device in (scheduled, empty, unrunnable, unread):
+        assert device["state"] is None or hasattr(device["state"], "isoformat")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("language", "scheduled", "empty", "unknown", "unrunnable", "schedule_empty"),
+    [
+        ("fr", "Programmé", "Aucun", "Inconnu", "Inexécutable", "Aucun"),
+        ("it", "Programmato", "Nessuno", "Sconosciuto", "Non eseguibile", "Nessuna"),
+    ],
+)
+async def test_program_state_labels_use_loaded_translations(
+    coordinator, language, scheduled, empty, unknown, unrunnable, schedule_empty
+) -> None:
+    """Render translated labels through the actual descriptors, not a helper."""
+    _seed_coordinator_state(coordinator)
+    coordinator.entity_translations = load_entity_translations(language)
+    coordinator.irrigation_programs[2] = {
+        **MOCK_IRRIGATION_PROGRAMS[2],
+        "cycle": 4,
+        "period_length": 0,
+    }
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+
+    assert (
+        _program_device(coordinator, "a", "next_start")["attributes"]["next_start_status"]
+        == scheduled
+    )
+    assert (
+        _program_device(coordinator, "b", "next_start")["attributes"]["next_start_status"]
+        == empty
+    )
+    assert _program_device(coordinator, "b", "schedule")["state"] == schedule_empty
+    assert (
+        _program_device(coordinator, "c", "next_start")["attributes"]["next_start_status"]
+        == unrunnable
+    )
+    assert _program_device(coordinator, "c", "next_start")["state"] is None
+
+    coordinator.irrigation_programs.pop(2)
+    coordinator.data = await coordinator.async_update_all_sensors(fetch_status=False)
+    assert (
+        _program_device(coordinator, "c", "next_start")["attributes"]["next_start_status"]
+        == unknown
+    )
+    assert _program_device(coordinator, "c", "schedule")["state"] is None

@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solem_blip.coordinator import SolemCoordinator
+from custom_components.solem_blip.entity import load_entity_translations
 from tests.conftest import MOCK_IRRIGATION_PROGRAMS
 
 
@@ -178,7 +179,7 @@ class TestEntitySetup:
         mock_config_entry: MockConfigEntry,
         mock_solem_client: MagicMock,
     ) -> None:
-        """A read program with no start times shows ``none``; an unread one stays unknown."""
+        """A fetched empty schedule is localized; an unread one stays unknown."""
         with patch(
             "custom_components.solem_blip.client_factory.StatelessSolemClient",
             return_value=mock_solem_client,
@@ -188,6 +189,7 @@ class TestEntitySetup:
             coordinator = SolemCoordinator(hass, mock_config_entry)
             await coordinator.async_init()
             coordinator.irrigation_programs = dict(MOCK_IRRIGATION_PROGRAMS)
+            coordinator.entity_translations = load_entity_translations("en")
             data = await coordinator.async_update_all_sensors(fetch_status=False)
 
             next_starts = [
@@ -198,13 +200,14 @@ class TestEntitySetup:
             ]
 
             # Programma B (index 1) was read and has no enabled start times.
-            assert schedules[1]["state"] == "none"
+            assert schedules[1]["state"] == "None"
             assert schedules[1]["attributes"]["empty"] is True
             assert schedules[1]["attributes"]["enabled_start_count"] == 0
             # The next-start sensor is a timestamp sensor: no start stays None,
             # and the empty flag carries the read-and-empty signal instead.
             assert next_starts[1]["state"] is None
             assert next_starts[1]["attributes"]["empty"] is True
+            assert next_starts[1]["attributes"]["next_start_status"] == "None"
 
             # Programma A (index 0) is unchanged apart from the new flag.
             assert schedules[0]["state"] == (
@@ -226,7 +229,10 @@ class TestEntitySetup:
             assert schedules[2]["state"] is None
             assert schedules[2]["attributes"] == {}
             assert next_starts[2]["state"] is None
-            assert next_starts[2]["attributes"] == {"minutes_since_midnight": None}
+            assert next_starts[2]["attributes"] == {
+                "minutes_since_midnight": None,
+                "next_start_status": "Unknown",
+            }
 
     async def test_last_time_sync_sensor_is_present(
         self,
