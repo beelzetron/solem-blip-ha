@@ -85,6 +85,8 @@ def note_cycle_outcome(
 
     streak += 1
     coordinator._ble_cycle_degraded_streak = streak
+    if coordinator._ble_maintenance_until and coordinator.ble_grace_active():
+        coordinator._ble_maintenance_degraded += 1
     note_ble_degradation(coordinator, source=reason)
     # Keep health counters and repair issues active. Only quiet known BLE
     # connection errors inside a bounded maintenance/startup window.
@@ -95,6 +97,8 @@ def note_cycle_outcome(
         and is_transient_ble_connection_error(error)
         else logging.WARNING
     )
+    if level == logging.DEBUG and coordinator._ble_maintenance_until:
+        coordinator._ble_maintenance_suppressed += 1
     if streak == 1:
         _LOGGER.log(
             level,
