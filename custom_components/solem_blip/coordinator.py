@@ -21,7 +21,7 @@ from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 from .activity import WateringActivity
 from .ble_health import note_cycle_outcome
 from .bluetooth import async_get_connectable_device
-from .bluetooth_issue import adopt_existing_bluetooth_issue, note_ble_recovery
+from .bluetooth_issue import clear_stale_bluetooth_issue, note_ble_recovery
 from .client_factory import (
     PersistentSolemClient,
     build_solem_client,
@@ -387,9 +387,9 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
     async def async_init(self) -> None:
         """Build initial entity data without blocking setup on BLE availability."""
-        # A Bluetooth unavailable notice raised by an earlier session must not
-        # outlive it: adopt the flag so sustained recovery can clear it.
-        adopt_existing_bluetooth_issue(self)
+        # Home Assistant loads a non-persistent issue as inactive, so a notice
+        # raised before a restart is no longer listed: drop the dead record.
+        clear_stale_bluetooth_issue(self)
         await self.program_backup.async_load()
         await self.station_name_manager.async_load()
         await self.activity.load()

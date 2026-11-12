@@ -91,16 +91,14 @@ def async_clear_bluetooth_unavailable_issue(coordinator: SolemCoordinator) -> No
     )
 
 
-def adopt_existing_bluetooth_issue(coordinator: SolemCoordinator) -> None:
-    """Adopt a Bluetooth unavailable issue left by a previous session.
+def clear_stale_bluetooth_issue(coordinator: SolemCoordinator) -> None:
+    """Remove a Bluetooth unavailable notice left by a previous session.
 
-    The active flag is in memory only, so after a restart
-    ``note_ble_recovery`` returned early and never deleted the notice raised
-    by an earlier session: the repair issue stayed visible even once the link
-    was healthy again. Reading the registry at setup restores the flag, so the
-    normal sustained-recovery check deletes the issue after the link has been
-    healthy for ``RECOVERY_CLEAR_SECONDS``. A link that is still degraded keeps
-    the notice, and no duplicate issue is created.
+    Home Assistant loads a non-persistent issue as inactive, so a notice raised
+    before a restart is not listed any more; the record itself would stay in the
+    registry forever. Deleting it at setup keeps the registry honest without
+    hiding a live problem: the active flag stays False, so a link that is still
+    degraded raises a fresh, active notice once the failure window fills.
     """
     entry = coordinator.config_entry
     if entry is None:
@@ -108,10 +106,10 @@ def adopt_existing_bluetooth_issue(coordinator: SolemCoordinator) -> None:
     issue_id = f"{ISSUE_BLUETOOTH_UNAVAILABLE}_{entry.entry_id}"
     if ir.async_get(coordinator.hass).async_get_issue(DOMAIN, issue_id) is None:
         return
-    coordinator._ble_issue_active = True
+    ir.async_delete_issue(coordinator.hass, DOMAIN, issue_id)
     _LOGGER.debug(
-        "%s - Adopted the Bluetooth unavailable repair issue left by a "
-        "previous session; it clears after sustained recovery",
+        "%s - Removed the Bluetooth unavailable repair issue left by a "
+        "previous session",
         coordinator.controller_mac_address,
     )
 
