@@ -15,15 +15,17 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
-
 from solem_blip_ble import IrrigationProgram
 from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 
+from .activity import WateringActivity
+from .ble_health import note_cycle_outcome
+from .bluetooth import async_get_connectable_device
+from .bluetooth_issue import note_ble_recovery
 from .client_factory import (
     PersistentSolemClient,
     build_solem_client,
 )
-
 from .config_entry import MyConfigEntry
 from .const import (
     BLUETOOTH_DEFAULT_TIMEOUT,
@@ -42,17 +44,28 @@ from .const import (
     SOLEM_API_MOCK,
 )
 from .coordinator_descriptors import build_all_descriptors
-from .issues import ISSUE_STATION_COUNT_MISMATCH
 from .coordinator_irrigation import (
     await_irrigation_monitor_task,
     clear_irrigation_idle_state,
     clear_monitor_task_ref,
     run_irrigation_monitor,
+)
+from .coordinator_irrigation import (
     start_irrigation as irrigation_start,
+)
+from .coordinator_irrigation import (
     start_program as irrigation_start_program,
+)
+from .coordinator_irrigation import (
     stop_irrigation as irrigation_stop,
+)
+from .coordinator_irrigation import (
     turn_controller_off as irrigation_turn_off,
+)
+from .coordinator_irrigation import (
     turn_controller_off_for_days as irrigation_turn_off_for_days,
+)
+from .coordinator_irrigation import (
     turn_controller_on as irrigation_turn_on,
 )
 from .coordinator_polling import (
@@ -64,14 +77,10 @@ from .coordinator_polling import (
 )
 from .coordinator_publish import publish_descriptor_update
 from .display_names import DisplayNamesStore
-from .bluetooth import async_get_connectable_device
-
+from .issues import ISSUE_STATION_COUNT_MISMATCH
 from .models import IrrigationController, IrrigationStation
 from .program_backup import ProgramBackupStore
 from .station_names import StationNameManager
-from .activity import WateringActivity
-from .ble_health import note_cycle_outcome
-from .bluetooth_issue import note_ble_recovery
 from .stuck_recovery import (
     attach_stuck_adapter_detector,
     detach_stuck_adapter_detector,
