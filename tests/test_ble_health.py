@@ -321,3 +321,101 @@ async def test_wrapped_ble_transport_error_is_quiet_during_grace(
         )
     assert _warnings(caplog) == []
     assert coordinator._ble_cycle_degraded_streak == 1
+
+
+async def test_success_before_proxy_restart_keeps_maintenance_window(
+    coordinator: SolemCoordinator,
+) -> None:
+    """An ordinary healthy poll must not cancel maintenance before disruption."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    deadline = coordinator._ble_maintenance_until
+    with patch.object(coordinator, "async_update_all_sensors", return_value=[]):
+        await coordinator.async_update_data()
+    assert coordinator._ble_maintenance_until == deadline
+    assert coordinator.ble_grace_active()
+
+
+async def test_maintenance_recovers_only_after_degraded_cycle(
+    coordinator: SolemCoordinator,
+) -> None:
+    """A degraded cycle followed by a healthy poll closes explicit grace."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    note_cycle_outcome(
+        coordinator,
+        degraded=True,
+        reason="status poll failed",
+        error=SolemConnectionError("proxy disconnected"),
+    )
+    assert coordinator._ble_maintenance_degraded == 1
+    with patch.object(coordinator, "async_update_all_sensors", return_value=[]):
+        await coordinator.async_update_data()
+    assert not coordinator.ble_grace_active()
+
+
+async def test_maintenance_expiry_reports_suppressed_cycles(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Expiry produces one summary and does not hide later BLE failures."""
+    coordinator._ble_startup_grace_until = 0.0
+    coordinator.start_ble_maintenance(120)
+    with caplog.at_level(logging.DEBUG):
+        note_cycle_outcome(
+            coordinator,
+            degraded=True,
+            reason="status poll failed",
+            error=ConnectionError("proxy disconnected"),
+        )
+        coordinator._ble_maintenance_until = 0.000001
+        assert not coordinator.ble_grace_active()
+        assert not coordinator.ble_grace_active()
+    summaries = [
+        record.getMessage()
+        for record in caplog.records
+        if "BLE maintenance expired" in record.getMessage()
+    ]
+    assert len(summaries) == 1
+    assert "1 transient degraded cycle(s)" in summaries[0]
+
+
+async def test_metadata_transport_failures_are_quiet_during_grace(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_solem_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Firmware and station-name transport failures propagate their causes."""
+    mock_solem_client.get_firmware_version.side_effect = SolemConnectionError("proxy lost")
+    mock_solem_client.get_station_name_snapshot.side_effect = SolemConnectionError("proxy lost")
+    with patch(
+        "custom_components.solem_blip.client_factory.StatelessSolemClient",
+        return_value=mock_solem_client,
+    ), patch(
+        "custom_components.solem_blip.bluetooth.async_get_connectable_device",
+    ):
+        ble_coordinator = SolemCoordinator(hass, mock_config_entry)
+        await ble_coordinator.async_init()
+        with caplog.at_level(logging.DEBUG):
+            await ble_coordinator._fetch_device_metadata()
+    assert _warnings(caplog) == []
+    assert ble_coordinator._ble_cycle_degraded_streak == 1
+
+
+async def test_irrigation_config_transport_failure_is_quiet_during_grace(
+    coordinator: SolemCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Irrigation-config failures also use the active BLE grace window."""
+    from custom_components.solem_blip.coordinator_polling import (
+        _fetch_irrigation_config_locked,
+    )
+
+    coordinator.api.get_irrigation_config = MagicMock(
+        side_effect=SolemConnectionError("proxy lost")
+    )
+    with caplog.at_level(logging.DEBUG):
+        assert not await _fetch_irrigation_config_locked(coordinator, force=True)
+    assert _warnings(caplog) == []
+    assert coordinator._ble_cycle_degraded_streak == 1
