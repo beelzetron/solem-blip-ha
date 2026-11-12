@@ -130,6 +130,8 @@ async def test_metadata_failures_emit_one_warning_and_debug_detail(
     ):
         ble_coordinator = SolemCoordinator(hass, mock_config_entry)
         await ble_coordinator.async_init()
+        # This legacy test verifies WARNING severity outside startup grace.
+        ble_coordinator._ble_startup_grace_until = 0.0
 
         with caplog.at_level(logging.DEBUG):
             await ble_coordinator._fetch_device_metadata()
