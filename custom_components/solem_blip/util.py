@@ -24,6 +24,49 @@ def normalize_entity_state(value: str | None) -> str:
     return value.strip().lower().replace(" ", "_")
 
 
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_MAC_SEPARATORS = (":", "-", " ")
+
+
+def normalize_controller_mac(value: object) -> str | None:
+    """Return the canonical MAC address from free-form user input, or None.
+
+    Accepts colon-separated pairs (``AA:BB:CC:DD:EE:FF``), hyphen-separated
+    pairs (``aa-bb-cc-dd-ee-ff``), space-separated pairs
+    (``AA BB CC DD EE FF``), a bare 12-digit form (``AABBCCDDEEFF``),
+    surrounding whitespace, and a pasted ``"<name> - <MAC>"`` string (the
+    part after the last ``" - "`` is used, matching the entry-data shape the
+    coordinator parses).
+
+    Only complete, unambiguous addresses are accepted: a partial match, a
+    mixed separator, a wrong length or a non-hex character yields None. The
+    parameter is annotated ``object`` because callers pass raw user input;
+    any non-string value yields None instead of raising.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    text = value.strip()
+    if " - " in text:
+        text = text.rsplit(" - ", 1)[1].strip()
+
+    if len(text) == 12:
+        digits = text
+    elif len(text) == 17:
+        separator = text[2]
+        if separator not in _MAC_SEPARATORS:
+            return None
+        if any(text[index] != separator for index in (5, 8, 11, 14)):
+            return None
+        digits = text.replace(separator, "")
+    else:
+        return None
+
+    if not all(character in _HEX_DIGITS for character in digits):
+        return None
+    pairs = [digits[index : index + 2] for index in range(0, 12, 2)]
+    return ":".join(pair.upper() for pair in pairs)
+
+
 def mac_to_uuid(mac: str, last_part: int) -> str:
     """Build the legacy numeric device_uid segment used in older unique IDs."""
     mac_numbers = mac.replace(":", "").upper()

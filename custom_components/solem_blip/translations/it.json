@@ -9,12 +9,20 @@
     "error": {
       "cannot_connect": "Connessione fallita",
       "cannot_connect_slots": "L'adattatore o proxy Bluetooth non ha slot liberi e il controller non risulta in discovery. Attendi e riprova, chiudi le altre app mobili che usano il controller o aggiungi un proxy più vicino.",
+      "invalid_mac": "Indirizzo MAC non valido. Usa AA:BB:CC:DD:EE:FF, aa-bb-cc-dd-ee-ff o AABBCCDDEEFF.",
       "unknown": "Errore imprevisto"
     },
     "step": {
       "user": {
         "title": "Configurazione controller",
         "description": "Seleziona il controller Solem BL-IP. Il numero di stazioni viene letto dal dispositivo durante la configurazione. La programmazione e l'esclusione in caso di pioggia vanno gestite con automazioni Home Assistant.",
+        "data": {
+          "controller_mac_address": "Indirizzo MAC del controller"
+        }
+      },
+      "manual": {
+        "title": "Configurazione manuale del controller",
+        "description": "Digita l'indirizzo MAC stampato sul controller (ad esempio AA:BB:CC:DD:EE:FF). Usalo quando il controller non compare nell'elenco: alcuni controller si annunciano senza il service UUID Bluetooth che la discovery di Home Assistant cerca. Il numero di stazioni viene letto dal dispositivo durante la configurazione.",
         "data": {
           "controller_mac_address": "Indirizzo MAC del controller"
         }

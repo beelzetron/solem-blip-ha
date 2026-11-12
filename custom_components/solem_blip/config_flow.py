@@ -65,6 +65,7 @@ from .schedule import (
     schedule_summary,
 )
 from .station_names import StationNameManager
+from .util import normalize_controller_mac
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +73,16 @@ _LOGGER = logging.getLogger(__name__)
 # count replaces it when the snapshot read succeeds (upward-only); this
 # matches the coordinator/migration default (.get(NUM_STATIONS, 2)).
 SETUP_NUM_STATIONS_FLOOR = 2
+
+# Sentinel for the user-step dropdown entry that opens the manual MAC form
+# (issue #172): a controller whose advertisement carries no V5 service UUID
+# never appears in async_scan_devices, so discovery alone can leave the
+# dropdown empty. The value contains no " - " and is not a MAC, so it can
+# never collide with a real "<name> - <MAC>" option value.
+MANUAL_CONTROLLER_ENTRY = "manual"
+# English literal on purpose: selector option labels are static strings and
+# cannot be translated dynamically through the translations files.
+MANUAL_CONTROLLER_LABEL = "Enter MAC address manually"
 
 ATTR_CYCLE = "cycle"
 ATTR_INTER_STATION_DELAY = "inter_station_delay"
@@ -438,6 +449,10 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            if user_input.get(CONTROLLER_MAC_ADDRESS) == MANUAL_CONTROLLER_ENTRY:
+                # The sentinel is not a "<name> - <MAC>" value: hand over to
+                # the manual step before any parsing/validation happens.
+                return await self.async_step_manual()
             try:
                 info = await validate_input(
                     self.hass,
@@ -474,10 +489,83 @@ class SolemConfigFlow(ConfigFlow, domain=DOMAIN):
             for device in bt_devices
             if f"{device.name or 'Unknown'} - {device.address}" not in existing_entries
         ]
+        # Always offered, last in the list, even when nothing was discovered
+        # (issue #172: a controller advertising no V5 service UUID).
+        options.append(
+            {"value": MANUAL_CONTROLLER_ENTRY, "label": MANUAL_CONTROLLER_LABEL}
+        )
 
         return self.async_show_form(
             step_id="user",
             data_schema=self._build_schema(bt_options=options),
+            errors=errors,
+        )
+
+    async def async_step_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Set up a controller by its hand-entered MAC address.
+
+        Some controllers advertise without the V5 service UUID, so the
+        Bluetooth scan finds nothing and the user step has no option to pick
+        (issue #172). The runtime resolves the device by address, so the MAC
+        printed on the controller is enough. The entry data keeps the
+        "<name> - <MAC>" shape the coordinator parses.
+        """
+        errors: dict[str, str] = {}
+        mac: str | None = None
+        raw_mac: str | None = None
+
+        if user_input is not None:
+            value = user_input.get(CONTROLLER_MAC_ADDRESS)
+            raw_mac = value if isinstance(value, str) else None
+            mac = normalize_controller_mac(raw_mac)
+            if mac is None:
+                errors["base"] = "invalid_mac"
+            else:
+                # Unique-id handling comes before validation, mirroring
+                # async_step_bluetooth: an already-configured MAC must abort
+                # without burning CONFIG_FLOW_BLUETOOTH_TIMEOUT x
+                # CONFIG_FLOW_CONNECT_RETRIES of BLE attempts against an
+                # unreachable controller.
+                await self.async_set_unique_id(mac)
+                self._abort_if_unique_id_configured()
+                data = {
+                    CONTROLLER_MAC_ADDRESS: f"Solem BL-IP - {mac}",
+                    # Floor only; validate_input replaces it with the
+                    # device-derived count when the snapshot read succeeds.
+                    NUM_STATIONS: SETUP_NUM_STATIONS_FLOOR,
+                }
+                try:
+                    info = await validate_input(self.hass, data)
+                except CannotConnectSlots:
+                    errors["base"] = "cannot_connect_slots"
+                    _LOGGER.exception("Bluetooth connection slots unavailable")
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                    _LOGGER.exception("Cannot connect")
+                except Exception:
+                    _LOGGER.exception("Unexpected exception")
+                    errors["base"] = "unknown"
+                else:
+                    return self.async_create_entry(
+                        title=f"Solem BL-IP - {mac}",
+                        data={**data, NUM_STATIONS: info["num_stations"]},
+                    )
+
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONTROLLER_MAC_ADDRESS,
+                        # Prefill the normalized MAC after a connection error,
+                        # and the raw typed text after an invalid_mac error so
+                        # the user does not lose what they entered.
+                        default=mac if mac is not None else raw_mac,
+                    ): str,
+                }
+            ),
             errors=errors,
         )
 
