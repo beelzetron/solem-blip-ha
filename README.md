@@ -23,7 +23,7 @@ Requires Home Assistant **2026.3.0** or newer, the first Home Assistant release 
 - Configure-menu editor for on-device program start times and station durations,
   using loaded program and station names when available
 - Manual start buttons for on-device programs
-- Protected raw backup of the first useful non-empty on-device schedule (all 12 firmware-5 slots / 84 frames), with explicit manual replacement of the restore point and manual restore controls after battery replacement
+- Protected backup of the first useful non-empty on-device A/B/C schedule, with an explicit manual update that also stores the complete raw snapshot (all 12 firmware-5 slots / 84 frames), and manual restore controls after battery replacement
 - Transactional program restore with idle/firmware/revision preflight, per-block acknowledgements, same-connection readback, and a durable pending journal for uncertain outcomes
 - Program run detection (`0x44` status) with per-program running binary sensors
 - Controller status attributes: active program, program name, watering origin
@@ -84,8 +84,8 @@ Home Assistant installs the `solem-blip-ble` version pinned by the integration m
 | Program running | `on` while that program is executing on the controller |
 | Refresh programs | Explicitly read all program slots and reconcile a pending restore when the result is known |
 | Restore programs | Manually replay the protected A/B/C backup; blocked while watering and on unsupported firmware |
-| Program backup status | Diagnostic state: `ready`, `pending`, or `unavailable`; attributes include frame count, protected program count, pending flag, and revision |
-| Program backup frames | Diagnostic raw-snapshot frame count (disabled by default; 84 for a complete firmware-5 snapshot) |
+| Program backup status | Diagnostic state: `ready` (protected A/B/C plus a valid raw snapshot), `no_snapshot` (protected A/B/C only), `snapshot_invalid` (a stored raw snapshot could not be parsed), `pending`, or `unavailable`; attributes include `raw_snapshot_available`, frame count, protected program count, pending flag, and revision. A restore works in every state except `unavailable` |
+| Program backup frames | Diagnostic raw-snapshot frame count (disabled by default; 84 for a complete firmware-5 snapshot, 0 when no raw snapshot is stored) |
 
 Roughly **47 entities** for a 6-station controller (12 program-related entities: start, next start, schedule, and running per program).
 
@@ -215,14 +215,22 @@ Use the **Restore programs** button on the controller device, or the
 manual and is blocked while watering is active; the integration never
 automatically overwrites the controller.
 
-The protected backup keeps the complete firmware-5 raw program snapshot: 12
-slots / 84 frames. Normal polling, **Refresh programs**, and schedule writes do
-not silently replace this restore point. To deliberately adopt the controller's
-current configuration as the new restore point, press **Update protected program
-backup**. The integration first checks that the controller is idle, no restore is
-pending, and firmware 5.x is in use, then reads and validates a fresh complete
-snapshot before replacing the protected backup. If that read or validation fails,
-the previous protected backup is kept unchanged.
+The protected backup keeps the A/B/C programs from the last successfully read
+non-empty schedule. Normal polling, **Refresh programs**, and schedule writes do
+not silently replace this restore point. The complete firmware-5 raw snapshot
+(12 slots / 84 frames) is stored only when the restore point is captured
+explicitly: press **Update protected program backup**, which first checks that
+the controller is idle, no restore is pending, and firmware 5.x is in use, then
+reads and validates a fresh complete snapshot before replacing the protected
+backup. If that read or validation fails, the previous protected backup is kept
+unchanged. A completed restore also stores the verified raw snapshot.
+
+A backup with `no_snapshot` restores normally: the restore reads a fresh
+complete snapshot from the controller and writes only A/B/C onto it, so the
+stored raw snapshot is not required. A stored raw snapshot that fails validation
+is reported as `snapshot_invalid`; the A/B/C backup stays usable and the next
+explicit update replaces it. Use the `raw_snapshot_available` attribute, not the
+localized state text, as the stable signal in automations.
 
 Only A/B/C are user-editable and restored; the additional nine slots are
 preserved byte-for-byte. Before writing, the integration records

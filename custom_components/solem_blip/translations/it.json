@@ -251,6 +251,8 @@
         "name": "Stato backup programmi",
         "state": {
           "ready": "Pronto",
+          "no_snapshot": "Nessuna copia grezza",
+          "snapshot_invalid": "Copia grezza non leggibile",
           "pending": "Ripristino in sospeso",
           "unavailable": "Non disponibile"
         }
