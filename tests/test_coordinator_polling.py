@@ -467,8 +467,13 @@ async def test_set_time_alarm_success_clears_alarm_and_throttles(
         # Verified success: the alarm cleared and the throttle was updated.
         assert coordinator.time_alarm is False
 
-        # The next device status confirms the clock alarm has cleared.
-        # Without a new alarm, the 24h throttle prevents another sync.
+        # The device may still report the alarm after a successful write.
+        # The retry cooldown must prevent a write on every status poll.
+        await coordinator._fetch_device_status()
+        assert coordinator.time_alarm is True
+        assert mock_solem_client.set_time.await_count == 2
+
+        # A later status confirms the alarm cleared: no additional sync.
         mock_solem_client.get_status.return_value = {
             **mock_solem_client.get_status.return_value,
             "time_alarm": False,
@@ -496,15 +501,16 @@ async def test_set_time_alarm_persists_cooldown_gates_retry(
     ):
         coordinator = SolemCoordinator(hass, config_entry)
         await coordinator.async_init()
-        # The fixture status dict carries the clock alarm set: apply_status
-        # re-sets time_alarm=True from the device on every poll.
+        # Initial time sync succeeds without an alarm.
+        await coordinator._fetch_device_status()
+        assert mock_solem_client.set_time.await_count == 1
+        assert coordinator.time_alarm is False
+
+        # The device then reports a persistent alarm.
         mock_solem_client.get_status.return_value = {
             **mock_solem_client.get_status.return_value,
             "time_alarm": True,
         }
-        await coordinator._fetch_device_status()
-        assert mock_solem_client.set_time.await_count == 1
-        assert coordinator.time_alarm is False
 
         # The alarm-triggered sync fails (controller busy, as during a long
         # outage): the cooldown arms so the device is not hammered on every
@@ -537,13 +543,7 @@ async def test_set_time_alarm_persists_after_success_cooldown_gates_resync(
     mock_config_entry: MockConfigEntry,
     mock_solem_client: MagicMock,
 ) -> None:
-    """Re-armed alarm from the next status read does not instantly re-sync.
-
-    After a verified sync the alarm is cleared optimistically; when the next
-    status read re-sets time_alarm=True from the device, it is the retry
-    cooldown (armed by the following failed attempt) — not the optimistic
-    clear — that prevents an immediate re-sync.
-    """
+    """A failed alarm-triggered sync is retried only after its cooldown."""
     config_entry = _make_sync_test_entry(mock_config_entry)
     mock_client_cls.return_value = mock_solem_client
     mock_solem_client.mock = False
