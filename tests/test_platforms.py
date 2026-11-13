@@ -374,7 +374,9 @@ async def test_button_platform_and_press_actions(
         await update_backup_button.async_press()
     assert exc_info.value.translation_key == "update_program_backup_failed"
 
-    coordinator.refresh_irrigation_programs = AsyncMock(side_effect=RuntimeError("fail"))
+    coordinator.refresh_irrigation_programs = AsyncMock(
+        side_effect=RuntimeError("fail")
+    )
     with pytest.raises(HomeAssistantError) as exc_info:
         await refresh_button.async_press()
     assert exc_info.value.translation_key == "refresh_programs_failed"

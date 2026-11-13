@@ -20,8 +20,8 @@ _STORAGE_KEY = f"{DOMAIN}.program_backup"
 class EmptyProgramBackupError(InvalidSnapshot):
     """Raised when the controller has no program that both starts and waters.
 
-    A program counts only when it carries an enabled start time and at least
-    one station duration greater than zero. Without such a program a captured
+    A program counts only when it has a start time set and at least one
+    station duration greater than zero. Without such a program a captured
     snapshot would restore nothing useful, so the protected backup is left
     unchanged and the caller can report the precondition instead of a generic
     read failure.

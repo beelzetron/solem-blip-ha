@@ -513,9 +513,11 @@ async def test_explicit_replace_rejects_programs_without_durations(
     and neither the in-memory nor the durable backup changes.
     """
     backup = ProgramBackupStore(hass, "replace-empty-durations")
-    await backup.async_save_if_non_empty(PROGRAMS)
+    await backup.async_replace(_real_snapshot())
     old_programs = backup.programs
     old_snapshot = backup.snapshot
+    assert old_snapshot is not None
+    assert sorted(old_programs) == [0, 1, 2]
 
     requested = _real_snapshot(station_durations=[0, 0])
     assert sorted(requested.programs) == [0, 1, 2]
@@ -537,6 +539,62 @@ async def test_explicit_replace_rejects_programs_without_durations(
     restored = ProgramBackupStore(hass, "replace-empty-durations")
     await restored.async_load()
     assert restored.programs == old_programs
+    assert restored.snapshot is not None
+    assert restored.snapshot.frames == old_snapshot.frames
+
+
+@pytest.mark.asyncio
+async def test_explicit_replace_accepts_single_watering_program(
+    hass: HomeAssistant,
+) -> None:
+    """One slot that both starts and waters is enough to replace the backup.
+
+    Programs B and C only carry start times, so a refusal that required every
+    slot to water would never capture a controller with one real schedule.
+    """
+    backup = ProgramBackupStore(hass, "replace-one-watering")
+    requested = _real_snapshot(
+        durations_by_program={0: [60, 120], 1: [0, 0], 2: [0, 0]}
+    )
+    assert any(requested.programs[0]["station_durations"])
+    assert not any(requested.programs[1]["station_durations"])
+    assert not any(requested.programs[2]["station_durations"])
+    assert all(
+        program["start_times"][0] is not None
+        for program in requested.programs.values()
+    )
+
+    await backup.async_replace(requested)
+
+    assert backup.programs == requested.programs
+    assert backup.snapshot is not None
+    assert backup.snapshot.frames == requested.frames
+
+
+@pytest.mark.asyncio
+async def test_explicit_replace_rejects_durations_without_start_times(
+    hass: HomeAssistant,
+) -> None:
+    """Station run times alone never replace the protected backup."""
+    backup = ProgramBackupStore(hass, "replace-no-start-times")
+    await backup.async_replace(_real_snapshot())
+    old_programs = backup.programs
+    old_snapshot = backup.snapshot
+
+    disabled_starts: list[int | None] = [None] * 8
+    requested = _real_snapshot(start_times=disabled_starts)
+    assert all(any(p["station_durations"]) for p in requested.programs.values())
+    assert all(
+        start is None
+        for program in requested.programs.values()
+        for start in program["start_times"]
+    )
+
+    with pytest.raises(EmptyProgramBackupError):
+        await backup.async_replace(requested)
+
+    assert backup.programs == old_programs
+    assert backup.snapshot is old_snapshot
 
 
 @pytest.mark.asyncio
@@ -649,6 +707,8 @@ async def test_restore_rejects_backup_with_out_of_range_phase(
 def _real_snapshot(
     header_phase: tuple[int, int, int] | None = None,
     station_durations: list[int] | None = None,
+    start_times: list[int | None] | None = None,
+    durations_by_program: dict[int, list[int]] | None = None,
 ) -> ProgramSnapshot:
     """Build a genuine ``ProgramSnapshot`` from packed V5 program frames.
 
@@ -662,15 +722,23 @@ def _real_snapshot(
     out-of-range state reaches ``patch``. ``station_durations`` overrides the
     station run times packed into every program slot, which is how a
     controller that has start times but waters nothing is modelled.
+    ``start_times`` overrides the start-time slots of every program slot, and
+    ``durations_by_program`` overrides the run times of named slots so one
+    program can water while the others only carry a start time.
     """
     base = {**PROGRAMS[0], "period_start_date": date(2026, 6, 1)}
     if station_durations is not None:
         base["station_durations"] = station_durations
+    if start_times is not None:
+        base["start_times"] = start_times
     frames: list[bytes] = []
     for index in range(3):
+        program = {**base, "name": f"Program {index}"}
+        if durations_by_program is not None and index in durations_by_program:
+            program["station_durations"] = durations_by_program[index]
         packed = protocol.pack_set_irrigation_program(
             index,
-            {**base, "name": f"Program {index}"},
+            program,
             today=date(2026, 10, 19),
             max_stations=2,
         )
