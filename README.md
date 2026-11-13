@@ -223,7 +223,9 @@ explicitly: press **Update protected program backup**, which first checks that
 the controller is idle, no restore is pending, and firmware 5.x is in use, then
 reads and validates a fresh complete snapshot before replacing the protected
 backup. If that read or validation fails, the previous protected backup is kept
-unchanged. A completed restore also stores the verified raw snapshot.
+unchanged. The update is also refused when no program has both a start time and
+a non-zero station duration, and the previous backup is kept in that case too.
+A completed restore also stores the verified raw snapshot.
 
 A backup with `no_snapshot` restores normally: the restore reads a fresh
 complete snapshot from the controller and writes only A/B/C onto it, so the

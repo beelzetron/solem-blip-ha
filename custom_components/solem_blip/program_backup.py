@@ -17,6 +17,17 @@ _STORAGE_VERSION = 1
 _STORAGE_KEY = f"{DOMAIN}.program_backup"
 
 
+class EmptyProgramBackupError(InvalidSnapshot):
+    """Raised when the controller has no program that both starts and waters.
+
+    A program counts only when it has a start time set and at least one
+    station duration greater than zero. Without such a program a captured
+    snapshot would restore nothing useful, so the protected backup is left
+    unchanged and the caller can report the precondition instead of a generic
+    read failure.
+    """
+
+
 class ProgramBackupStore:
     """Persist a protected non-empty irrigation program snapshot."""
 
@@ -171,7 +182,7 @@ class ProgramBackupStore:
                 "Protected backup requires complete program slots A, B and C"
             )
         if not _has_scheduled_program(programs):
-            raise InvalidSnapshot(
+            raise EmptyProgramBackupError(
                 "Refusing to replace the protected backup with empty programs"
             )
 
