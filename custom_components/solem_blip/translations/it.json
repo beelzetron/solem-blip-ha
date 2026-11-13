@@ -316,6 +316,9 @@
     "update_program_backup_failed": {
       "message": "Impossibile aggiornare il backup protetto dei programmi dal controller."
     },
+    "update_program_backup_no_durations": {
+      "message": "Il controller non ha nessun programma che abbia sia un orario di avvio sia una durata delle stazioni maggiore di zero, quindi non c'è nulla di utile da salvare. Imposta una durata per almeno una stazione in un programma, poi aggiorna di nuovo il backup."
+    },
     "update_program_backup_while_watering": {
       "message": "Il backup protetto dei programmi non può essere aggiornato durante l'irrigazione."
     },

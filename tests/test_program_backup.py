@@ -12,6 +12,7 @@ from solem_blip_ble import protocol
 from solem_blip_ble.snapshot import InvalidSnapshot, ProgramSnapshot
 
 from custom_components.solem_blip.program_backup import (
+    EmptyProgramBackupError,
     ProgramBackupStore,
     _program_changes,
     _serialize_program,
@@ -501,6 +502,44 @@ async def test_explicit_replace_invalid_snapshot_preserves_backup(
 
 
 @pytest.mark.asyncio
+async def test_explicit_replace_rejects_programs_without_durations(
+    hass: HomeAssistant,
+) -> None:
+    """Start times with zero durations are refused and keep the old backup.
+
+    All three program slots carry an enabled start time but no station run
+    time, which is what the controller reports when its schedules were never
+    given a duration. The dedicated error explains why nothing was captured,
+    and neither the in-memory nor the durable backup changes.
+    """
+    backup = ProgramBackupStore(hass, "replace-empty-durations")
+    await backup.async_save_if_non_empty(PROGRAMS)
+    old_programs = backup.programs
+    old_snapshot = backup.snapshot
+
+    requested = _real_snapshot(station_durations=[0, 0])
+    assert sorted(requested.programs) == [0, 1, 2]
+    assert all(
+        program["start_times"][0] is not None
+        and not any(program["station_durations"])
+        for program in requested.programs.values()
+    )
+
+    with pytest.raises(EmptyProgramBackupError) as exc_info:
+        await backup.async_replace(requested)
+
+    assert "Refusing to replace the protected backup with empty programs" in str(
+        exc_info.value
+    )
+    assert backup.programs == old_programs
+    assert backup.snapshot is old_snapshot
+
+    restored = ProgramBackupStore(hass, "replace-empty-durations")
+    await restored.async_load()
+    assert restored.programs == old_programs
+
+
+@pytest.mark.asyncio
 async def test_explicit_replace_pending_restore_preserves_backup(
     hass: HomeAssistant,
 ) -> None:
@@ -609,6 +648,7 @@ async def test_restore_rejects_backup_with_out_of_range_phase(
 
 def _real_snapshot(
     header_phase: tuple[int, int, int] | None = None,
+    station_durations: list[int] | None = None,
 ) -> ProgramSnapshot:
     """Build a genuine ``ProgramSnapshot`` from packed V5 program frames.
 
@@ -619,9 +659,13 @@ def _real_snapshot(
     ``from_frames`` requires, so the result is a real library object instead of
     a mock. ``header_phase`` forges program A's header as
     ``(cycle, period_length, synchro_day)``, which is how a device-captured
-    out-of-range state reaches ``patch``.
+    out-of-range state reaches ``patch``. ``station_durations`` overrides the
+    station run times packed into every program slot, which is how a
+    controller that has start times but waters nothing is modelled.
     """
     base = {**PROGRAMS[0], "period_start_date": date(2026, 6, 1)}
+    if station_durations is not None:
+        base["station_durations"] = station_durations
     frames: list[bytes] = []
     for index in range(3):
         packed = protocol.pack_set_irrigation_program(
