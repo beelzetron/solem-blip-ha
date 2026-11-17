@@ -500,6 +500,24 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             await self._fetch_device_status()
         return build_all_descriptors(self)
 
+    def _can_retain_idle_snapshot(self, err: Exception) -> bool:
+        """Only reuse a recent, idle snapshot during explicit BLE maintenance."""
+        if not self._ble_maintenance_until or not self.ble_grace_active():
+            return False
+        if not is_transient_ble_connection_error(err):
+            return False
+        if (
+            self._last_successful_poll_at is None
+            or self.data is None
+            or self._irrigation_active
+            or self._is_watering
+        ):
+            return False
+        # Do not revive entities from an outage that predates maintenance.
+        max_age = min(float(self.poll_interval), 120.0)
+        age = asyncio.get_running_loop().time() - self._last_successful_poll_at
+        return 0 <= age <= max_age
+
     async def async_update_data(self) -> list[dict[str, Any]]:
         try:
             data = await self.async_update_all_sensors()
@@ -522,15 +540,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             # explicit maintenance, keep the last known idle state instead of
             # raising UpdateFailed (which Home Assistant logs at ERROR).
             # Never hide unexpected failures, initial polls, or active watering.
-            if (
-                self._ble_maintenance_until
-                and self.ble_grace_active()
-                and is_transient_ble_connection_error(err)
-                and self._last_successful_poll_at is not None
-                and self.data is not None
-                and not self._irrigation_active
-                and not self._is_watering
-            ):
+            if self._can_retain_idle_snapshot(err):
                 _LOGGER.debug(
                     "%s - Transient BLE status failure during planned maintenance; "
                     "retaining last known idle state: %s",
