@@ -19,7 +19,7 @@ from solem_blip_ble import IrrigationProgram
 from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 
 from .activity import WateringActivity
-from .ble_health import note_cycle_outcome
+from .ble_health import is_transient_ble_connection_error, note_cycle_outcome
 from .bluetooth import async_get_connectable_device
 from .bluetooth_issue import clear_stale_bluetooth_issue, note_ble_recovery
 from .client_factory import (
@@ -518,6 +518,26 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 self, degraded=True, reason="status poll failed", error=err
             )
             self.stuck_adapter_detector.note_cycle_outcome(degraded=True)
+            # A planned proxy restart can interrupt one status poll. During
+            # explicit maintenance, keep the last known idle state instead of
+            # raising UpdateFailed (which Home Assistant logs at ERROR).
+            # Never hide unexpected failures, initial polls, or active watering.
+            if (
+                self._ble_maintenance_until
+                and self.ble_grace_active()
+                and is_transient_ble_connection_error(err)
+                and self._last_successful_poll_at is not None
+                and self.data is not None
+                and not self._irrigation_active
+                and not self._is_watering
+            ):
+                _LOGGER.debug(
+                    "%s - Transient BLE status failure during planned maintenance; "
+                    "retaining last known idle state: %s",
+                    self.controller_mac_address,
+                    err,
+                )
+                return self.data
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
     async def start_irrigation(
