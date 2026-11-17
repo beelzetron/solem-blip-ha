@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -50,7 +52,7 @@ async def test_planned_maintenance_transient_failure_reuses_idle_snapshot(
 
     coordinator._ble_startup_grace_until = 0.0
     coordinator.data = [{"last": "known"}]
-    coordinator._last_successful_poll_at = 1.0
+    coordinator._last_successful_poll_at = asyncio.get_running_loop().time()
     coordinator.start_ble_maintenance(120)
 
     with patch.object(
@@ -69,7 +71,17 @@ async def test_planned_maintenance_transient_failure_reuses_idle_snapshot(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "reason", ["outside_grace", "unexpected", "watering", "no_snapshot"]
+    "reason",
+    [
+        "outside_grace",
+        "expired_grace",
+        "unexpected",
+        "watering",
+        "irrigation_active",
+        "no_snapshot",
+        "no_data",
+        "stale_snapshot",
+    ],
 )
 async def test_maintenance_does_not_mask_other_failures(coordinator, reason) -> None:
     """Only transient transport errors during safe, explicit maintenance are quiet."""
@@ -82,13 +94,28 @@ async def test_maintenance_does_not_mask_other_failures(coordinator, reason) -> 
     error = SolemConnectionError("proxy disconnected")
 
     if reason == "outside_grace":
-        coordinator._ble_maintenance_until = 0.0
+        coordinator.clear_ble_maintenance()
+    elif reason == "expired_grace":
+        with patch(
+            "custom_components.solem_blip.coordinator.time.monotonic",
+            return_value=coordinator._ble_maintenance_until + 1,
+        ):
+            assert coordinator.ble_grace_active() is False
+        assert coordinator._ble_maintenance_until == 0.0
     elif reason == "unexpected":
         error = ValueError("invalid status payload")
     elif reason == "watering":
         coordinator._is_watering = True
+    elif reason == "irrigation_active":
+        coordinator._irrigation_active = True
     elif reason == "no_snapshot":
         coordinator._last_successful_poll_at = None
+    elif reason == "no_data":
+        coordinator.data = None
+    elif reason == "stale_snapshot":
+        coordinator._last_successful_poll_at = (
+            asyncio.get_running_loop().time() - min(coordinator.poll_interval, 120) - 1
+        )
 
     with (
         patch.object(
