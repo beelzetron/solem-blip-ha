@@ -222,10 +222,19 @@
         "name": "Last time sync"
       },
       "program_next_start": {
-        "name": "{program_name} next start"
+        "name": "{program_name} next start",
+        "state": {
+          "scheduled": "Scheduled",
+          "none": "None",
+          "unknown": "Unknown",
+          "unrunnable": "Unrunnable"
+        }
       },
       "program_schedule": {
-        "name": "{program_name} schedule"
+        "name": "{program_name} schedule",
+        "state": {
+          "none": "None"
+        }
       },
       "station_remaining_time": {
         "name": "{station_name} remaining time"
@@ -242,6 +251,8 @@
         "name": "Program backup status",
         "state": {
           "ready": "Ready",
+          "no_snapshot": "No raw snapshot",
+          "snapshot_invalid": "Raw snapshot unreadable",
           "pending": "Restore pending",
           "unavailable": "Unavailable"
         }
@@ -304,6 +315,9 @@
     },
     "update_program_backup_failed": {
       "message": "Failed to update the protected program backup from the controller."
+    },
+    "update_program_backup_no_durations": {
+      "message": "The controller has no program with both a start time and a non-zero station duration, so there is nothing useful to capture. Set a station duration in at least one program, then update the backup again."
     },
     "update_program_backup_while_watering": {
       "message": "The protected program backup cannot be updated while watering is active."

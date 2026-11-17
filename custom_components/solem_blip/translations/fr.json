@@ -222,10 +222,19 @@
         "name": "Dernière synchronisation de l'heure"
       },
       "program_next_start": {
-        "name": "Prochain démarrage de {program_name}"
+        "name": "Prochain démarrage de {program_name}",
+        "state": {
+          "scheduled": "Programmé",
+          "none": "Aucun",
+          "unknown": "Inconnu",
+          "unrunnable": "Inexécutable"
+        }
       },
       "program_schedule": {
-        "name": "Programmation de {program_name}"
+        "name": "Programmation de {program_name}",
+        "state": {
+          "none": "Aucun"
+        }
       },
       "station_remaining_time": {
         "name": "Temps restant de {station_name}"
@@ -242,6 +251,8 @@
         "name": "État de la sauvegarde des programmes",
         "state": {
           "ready": "Prête",
+          "no_snapshot": "Aucune copie brute",
+          "snapshot_invalid": "Copie brute illisible",
           "pending": "Restauration en attente",
           "unavailable": "Indisponible"
         }
@@ -304,6 +315,9 @@
     },
     "update_program_backup_failed": {
       "message": "Échec de la mise à jour de la sauvegarde protégée des programmes depuis le programmateur."
+    },
+    "update_program_backup_no_durations": {
+      "message": "Le programmateur n'a aucun programme qui ait à la fois une heure de départ et une durée de station supérieure à zéro : il n'y a donc rien d'utile à sauvegarder. Définissez la durée d'au moins une station dans un programme, puis relancez la mise à jour de la sauvegarde."
     },
     "update_program_backup_while_watering": {
       "message": "La sauvegarde protégée des programmes ne peut pas être mise à jour lorsqu'un arrosage est en cours."

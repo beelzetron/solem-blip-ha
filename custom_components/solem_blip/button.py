@@ -17,6 +17,7 @@ from .entity import SolemBaseEntity
 from .const import DOMAIN
 from .coordinator import SolemCoordinator
 from .entity_descriptions import BUTTON_DESCRIPTIONS, SolemButtonEntityDescription
+from .program_backup import EmptyProgramBackupError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -166,6 +167,19 @@ class UpdateProtectedBackupButton(SolemButtonEntity):
             )
         try:
             await self.coordinator.update_protected_program_backup()
+        except EmptyProgramBackupError as err:
+            # A controller state without any scheduled watering is a
+            # precondition, not a fault: one warning line is enough, no
+            # traceback.
+            _LOGGER.warning(
+                "%s - Protected backup update skipped: no program has both a "
+                "start time and a non-zero station duration",
+                self.coordinator.controller_mac_address,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="update_program_backup_no_durations",
+            ) from err
         except Exception as err:
             _LOGGER.exception("Failed to update protected program backup")
             raise HomeAssistantError(

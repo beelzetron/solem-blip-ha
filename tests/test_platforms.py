@@ -36,6 +36,7 @@ from custom_components.solem_blip.number import (
     IrrigationManualDuration,
     async_setup_entry as setup_number,
 )
+from custom_components.solem_blip.program_backup import EmptyProgramBackupError
 from custom_components.solem_blip.sensor import (
     BatterySensor,
     BatteryVoltageSensor,
@@ -360,13 +361,22 @@ async def test_button_platform_and_press_actions(
     coordinator._is_watering = False
 
     coordinator.update_protected_program_backup = AsyncMock(
+        side_effect=EmptyProgramBackupError("empty programs")
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await update_backup_button.async_press()
+    assert exc_info.value.translation_key == "update_program_backup_no_durations"
+
+    coordinator.update_protected_program_backup = AsyncMock(
         side_effect=RuntimeError("fail")
     )
     with pytest.raises(HomeAssistantError) as exc_info:
         await update_backup_button.async_press()
     assert exc_info.value.translation_key == "update_program_backup_failed"
 
-    coordinator.refresh_irrigation_programs = AsyncMock(side_effect=RuntimeError("fail"))
+    coordinator.refresh_irrigation_programs = AsyncMock(
+        side_effect=RuntimeError("fail")
+    )
     with pytest.raises(HomeAssistantError) as exc_info:
         await refresh_button.async_press()
     assert exc_info.value.translation_key == "refresh_programs_failed"

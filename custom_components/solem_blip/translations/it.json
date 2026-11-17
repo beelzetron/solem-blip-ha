@@ -222,10 +222,19 @@
         "name": "Ultima sincronizzazione dell'ora"
       },
       "program_next_start": {
-        "name": "Prossimo avvio di {program_name}"
+        "name": "Prossimo avvio di {program_name}",
+        "state": {
+          "scheduled": "Programmato",
+          "none": "Nessuno",
+          "unknown": "Sconosciuto",
+          "unrunnable": "Non eseguibile"
+        }
       },
       "program_schedule": {
-        "name": "Programmazione di {program_name}"
+        "name": "Programmazione di {program_name}",
+        "state": {
+          "none": "Nessuna"
+        }
       },
       "station_remaining_time": {
         "name": "Tempo residuo di {station_name}"
@@ -242,6 +251,8 @@
         "name": "Stato backup programmi",
         "state": {
           "ready": "Pronto",
+          "no_snapshot": "Nessuna copia grezza",
+          "snapshot_invalid": "Copia grezza non leggibile",
           "pending": "Ripristino in sospeso",
           "unavailable": "Non disponibile"
         }
@@ -304,6 +315,9 @@
     },
     "update_program_backup_failed": {
       "message": "Impossibile aggiornare il backup protetto dei programmi dal controller."
+    },
+    "update_program_backup_no_durations": {
+      "message": "Il controller non ha nessun programma che abbia sia un orario di avvio sia una durata di irrigazione per stazione maggiore di zero, quindi non c'è nulla di utile da salvare. Imposta una durata per almeno una stazione in un programma, poi aggiorna di nuovo il backup."
     },
     "update_program_backup_while_watering": {
       "message": "Il backup protetto dei programmi non può essere aggiornato durante l'irrigazione."
