@@ -56,7 +56,9 @@ async def test_planned_maintenance_transient_failure_reuses_idle_snapshot(
     with patch.object(
         coordinator,
         "async_update_all_sensors",
-        new=AsyncMock(side_effect=SolemConnectionError("Device not found! Failed connecting!")),
+        new=AsyncMock(
+            side_effect=SolemConnectionError("Device not found! Failed connecting!")
+        ),
     ):
         assert await coordinator.async_update_data() == [{"last": "known"}]
 
@@ -66,7 +68,9 @@ async def test_planned_maintenance_transient_failure_reuses_idle_snapshot(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reason", ["outside_grace", "unexpected", "watering", "no_snapshot"])
+@pytest.mark.parametrize(
+    "reason", ["outside_grace", "unexpected", "watering", "no_snapshot"]
+)
 async def test_maintenance_does_not_mask_other_failures(coordinator, reason) -> None:
     """Only transient transport errors during safe, explicit maintenance are quiet."""
     from solem_blip_ble.exceptions import SolemConnectionError
@@ -86,8 +90,10 @@ async def test_maintenance_does_not_mask_other_failures(coordinator, reason) -> 
     elif reason == "no_snapshot":
         coordinator._last_successful_poll_at = None
 
-    with patch.object(
-        coordinator, "async_update_all_sensors", new=AsyncMock(side_effect=error)
+    with (
+        patch.object(
+            coordinator, "async_update_all_sensors", new=AsyncMock(side_effect=error)
+        ),
+        pytest.raises(UpdateFailed, match="Failed to update BLE status"),
     ):
-        with pytest.raises(UpdateFailed, match="Failed to update BLE status"):
-            await coordinator.async_update_data()
+        await coordinator.async_update_data()
