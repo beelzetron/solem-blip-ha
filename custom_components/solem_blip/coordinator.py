@@ -19,7 +19,7 @@ from solem_blip_ble import IrrigationProgram
 from solem_blip_ble.exceptions import InvalidSnapshot, UncertainWrite
 
 from .activity import WateringActivity
-from .ble_health import note_cycle_outcome
+from .ble_health import is_transient_ble_connection_error, note_cycle_outcome
 from .bluetooth import async_get_connectable_device
 from .bluetooth_issue import clear_stale_bluetooth_issue, note_ble_recovery
 from .client_factory import (
@@ -500,6 +500,24 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             await self._fetch_device_status()
         return build_all_descriptors(self)
 
+    def _can_retain_idle_snapshot(self, err: Exception) -> bool:
+        """Only reuse a recent, idle snapshot during explicit BLE maintenance."""
+        if not self._ble_maintenance_until or not self.ble_grace_active():
+            return False
+        if not is_transient_ble_connection_error(err):
+            return False
+        if (
+            self._last_successful_poll_at is None
+            or self.data is None
+            or self._irrigation_active
+            or self._is_watering
+        ):
+            return False
+        # Do not revive entities from an outage that predates maintenance.
+        max_age = float(self.poll_interval + self.bluetooth_timeout)
+        age = asyncio.get_running_loop().time() - self._last_successful_poll_at
+        return 0 <= age <= max_age
+
     async def async_update_data(self) -> list[dict[str, Any]]:
         try:
             data = await self.async_update_all_sensors()
@@ -518,6 +536,18 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 self, degraded=True, reason="status poll failed", error=err
             )
             self.stuck_adapter_detector.note_cycle_outcome(degraded=True)
+            # A planned proxy restart can interrupt one status poll. During
+            # explicit maintenance, keep the last known idle state instead of
+            # raising UpdateFailed (which Home Assistant logs at ERROR).
+            # Never hide unexpected failures, initial polls, or active watering.
+            if self._can_retain_idle_snapshot(err):
+                _LOGGER.debug(
+                    "%s - Transient BLE status failure during planned maintenance; "
+                    "retaining last known idle state: %s",
+                    self.controller_mac_address,
+                    err,
+                )
+                return self.data
             raise UpdateFailed(f"Failed to update BLE status: {err}") from err
 
     async def start_irrigation(
