@@ -52,7 +52,9 @@ async def test_planned_maintenance_transient_failure_reuses_idle_snapshot(
 
     coordinator._ble_startup_grace_until = 0.0
     coordinator.data = [{"last": "known"}]
-    coordinator._last_successful_poll_at = asyncio.get_running_loop().time()
+    coordinator._last_successful_poll_at = (
+        asyncio.get_running_loop().time() - coordinator.poll_interval - 9
+    )
     coordinator.start_ble_maintenance(120)
 
     with patch.object(
@@ -114,7 +116,10 @@ async def test_maintenance_does_not_mask_other_failures(coordinator, reason) -> 
         coordinator.data = None
     elif reason == "stale_snapshot":
         coordinator._last_successful_poll_at = (
-            asyncio.get_running_loop().time() - min(coordinator.poll_interval, 120) - 1
+            asyncio.get_running_loop().time()
+            - coordinator.poll_interval
+            - coordinator.bluetooth_timeout
+            - 1
         )
 
     with (
