@@ -514,7 +514,7 @@ class SolemCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         ):
             return False
         # Do not revive entities from an outage that predates maintenance.
-        max_age = min(float(self.poll_interval), 120.0)
+        max_age = float(self.poll_interval + self.bluetooth_timeout)
         age = asyncio.get_running_loop().time() - self._last_successful_poll_at
         return 0 <= age <= max_age
 
