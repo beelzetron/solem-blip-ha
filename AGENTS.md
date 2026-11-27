@@ -71,7 +71,7 @@ Use the lightweight Git Flow policy in `docs/branching_and_release.md`.
 | Path | Purpose |
 |------|---------|
 | `custom_components/solem_blip/` | Main integration code |
-| `custom_components/solem_blip/brand/` | Icon (loaded at HA startup only) |
+| `custom_components/solem_blip/brand/` | Icon PNGs only (loaded at HA startup only); SVG source and notes live in `docs/brand/` |
 | `tests/` | pytest suite |
 
 ## Testing conventions
