@@ -14,4 +14,4 @@ This project is a separate, minimal Home Assistant integration for the Solem BL-
 
 ## Brand icon
 
-The integration device icon is a generic irrigation glyph from [Material Design Icons](https://pictogrammers.com/library/mdi/icon/sprinkler/) (Apache 2.0), not an official SOLEM logo. See [`custom_components/solem_blip/brand/README.md`](custom_components/solem_blip/brand/README.md).
+The integration device icon is a generic irrigation glyph from [Material Design Icons](https://pictogrammers.com/library/mdi/icon/sprinkler/) (Apache 2.0), not an official SOLEM logo. See [`docs/brand/README.md`](docs/brand/README.md).
